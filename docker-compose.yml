@@ -1,0 +1,22 @@
+# Default self-hosted setup: SQLite only, no external database.
+#
+#   cp .env.example .env   # then fill in SECRET_KEY_BASE (mix phx.gen.secret)
+#   docker compose up -d --build
+#
+# Your data persists in ./data on the host (bind-mounted to /data in the
+# container, the default DATABASE_PATH -- see Dockerfile and
+# docs/architecture/0001-dual-database-adapter.md).
+#
+# To use Postgres instead, see docker-compose.postgres.yml.
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-4123}:4123"
+    environment:
+      PHX_HOST: "${PHX_HOST:-localhost}"
+      PORT: "4123"
+      SECRET_KEY_BASE: "${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env -- generate one with: mix phx.gen.secret}"
+    volumes:
+      - ./data:/data
+    restart: unless-stopped

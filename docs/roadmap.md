@@ -1,0 +1,249 @@
+# Roadmap
+
+Checklist tracking [`plan.md`](plan.md). Check items off as they land; add
+new sub-items as work is discovered, but keep phase numbers/titles stable so
+this stays a stable reference from commit messages and PRs.
+
+## Documentation
+
+- [x] `docs/plan.md`
+- [x] `docs/roadmap.md` (this file)
+- [x] `docs/architecture/0001-dual-database-adapter.md`
+- [x] `docs/architecture/0002-auth-and-sharing-model.md`
+- [x] `docs/architecture/0003-self-hosting-and-docker.md`
+- [x] `docs/architecture/0004-charting-library.md`
+
+## Phase 1 — Bootstrap the Phoenix app
+
+- [x] `mix phx.new` in place (sqlite3, bandit)
+- [x] `.gitignore` covers `_build/`, `deps/`, `node_modules/`, `*.db*`, `.env`
+- [x] `.env.example` scaffolded (filled in as later phases add vars)
+- [x] Dev/test SQLite files live in a `data/` directory at the repo root
+      (`data/debt_relief_tracker_dev.db`, `data/debt_relief_tracker_test.db`)
+      rather than scattered at the repo root, mirroring production's `/data`
+      convention. `ecto_sqlite3`/`exqlite` creates the directory itself.
+
+## Phase 2 — Dual database adapter
+
+- [x] `ecto_sqlite3` + `postgrex` deps added
+- [x] `Repo.Sqlite` / `Repo.Postgres` real repos defined
+- [x] `Repo` facade module forwarding to the active repo
+- [x] `config/runtime.exs` activation logic (`DATABASE_URL` vs `DATABASE_PATH`)
+- [x] `application.ex` starts only the active repo's child
+- [ ] Migrations run automatically on release boot (deferred to Phase 6 — no
+      release/Dockerfile exists yet; `skip_migrations?/0` already gates this
+      on `RELEASE_NAME`)
+
+Verified manually: `mix ecto.create -r DebtReliefTracker.Repo.Sqlite` creates
+the dev db; `mix phx.server` boots and serves `/` (200) against SQLite by
+default; setting `DATABASE_URL` switches `Repo.active_repo/0` to
+`Repo.Postgres` (confirmed via `mix run -e`, connection itself refused since
+no local Postgres is running in this environment — expected).
+
+## Phase 3 — Core domain & first-run seed data
+
+- [x] `Accounts` context: `User`, `Workspace`, `WorkspaceMember`
+- [x] `Debts` context: `Debt` schema (+ `status`/`paid_off_at`)
+- [x] `Payments` context: `Payment` schema
+- [x] `Settings` context
+- [x] `ActivityLog` schema + `record/5` helper wired into every mutation
+- [x] First-run placeholder debts seeded for the default workspace
+
+Verified: `DebtReliefTracker.Boot.run/0` (called from `Application.start/2`,
+skipped in test via `:run_boot_tasks` config) creates the default user +
+workspace + owner membership and seeds 3 placeholder debts (2 revolving, 1
+installment), idempotently. Context tests cover create/update/mark-paid-off
+debt validations, activity logging, and payment balance reduction +
+overdraw rollback -- `mix test` passes (15 tests). Note: SQLite-backed tests
+must NOT use `async: true` (`Database busy` errors from concurrent
+sandboxed connections) -- this is called out in the generated `DataCase`
+moduledoc and confirmed the hard way.
+
+## Phase 4 — Calculation engine
+
+- [x] `Debts.Calculations`: dynamic minimum payment, interest accrual/estimate,
+      lifetime interest paid
+- [x] `Planning`: cash flow / snowball / avalanche orderings
+- [x] `Planning`: month-by-month simulation (fixed order, same-month cascade,
+      `:insufficient_budget` / `:did_not_converge` guards)
+- [x] `Planning`: "this month" action derivation (`this_month_action/3`)
+- [x] `Planning`: windfall allocator (`windfall_cascade/4`)
+- [x] `Planning`: freed-cashflow-over-time (`freed_cashflow_over_time/3`)
+- [x] Unit tests for all of the above (20 tests, pure -- no DB)
+
+Note: "interest saved vs. an interest-only baseline" from minimum.md is
+covered indirectly via `windfall_cascade/4` (baseline vs. with-windfall) and
+`compare_strategies/2` (strategy vs. strategy); a literal "pay interest-only
+forever" baseline isn't modeled since it may never converge for revolving
+debt. Revisit if Phase 5's financial-health section needs that literal
+comparison.
+
+## Phase 5 — LiveView UI
+
+- [x] `DashboardLive` skeleton: left rail + main panel layout
+- [x] Left rail: simplified debt list
+- [x] Add/edit debt modal
+- [x] Mark-as-paid action
+- [x] Log payment modal + log-all-balances modal (bulk balance reconciliation
+      via `Debts.reconcile_balance/5`, added during this phase)
+- [x] Chart-type switcher + 4 chart types, upgraded to real Chart.js charts
+      (see below): dual-axis bar (comparison), multi-line with a per-debt
+      breakdown (simulation), filled area (freed cash flow), doughnut
+      (interest vs. principal)
+- [x] "This month" action card
+- [x] Dark/light theme toggle -- this shipped for free: Phoenix 1.8's
+      generator already wires up daisyUI light/dark themes + a
+      `Layouts.theme_toggle/1` component + the `data-theme`/localStorage JS in
+      `root.html.heex`. We just reuse it rather than building our own.
+
+### Charting upgrade (Chart.js, post-initial-build)
+
+The initial build used hand-rolled inline SVG (bars/polylines) to keep the
+self-hosted JS footprint light, per the original plan. The user asked for
+"more capable" charts with more information, which SVG-by-hand wasn't going
+to deliver well, so this was revisited:
+
+- [x] `chart.js` added as an `assets/package.json` dependency (npm, bundled
+      by the existing esbuild pipeline -- no CDN, still fully self-hosted)
+- [x] `assets/js/plan_chart_hook.js` -- a `PlanChart` LiveView hook. Server
+      pushes a full Chart.js config via `push_event(socket, "plan-chart-data", config)`;
+      the hook just does `new Chart(canvas, config)`, destroying/recreating
+      the instance on every push rather than trying to patch across
+      chart-type changes (bar → line → doughnut configs aren't compatible)
+- [x] `DebtReliefTrackerWeb.Charts` -- a new, pure module building the
+      Chart.js config map (or a `{message, nil}` fallback when there's
+      nothing to plot yet) for each of the 4 chart types. No Ecto, no
+      rendering; independently unit tested
+- [x] Comparison is now a **dual-axis bar chart** (interest $ on the left
+      axis, months to payoff on the right) instead of interest-only
+- [x] Simulation now plots **one line per debt plus a dashed Total line**,
+      instead of just the aggregate total -- directly answering "that's not
+      enough info"
+- [x] Interest-vs-principal is now a **doughnut** with a legend/tooltips,
+      instead of a plain CSS stacked bar
+- [x] The `<canvas id="plan-chart" phx-hook="PlanChart" phx-update="ignore">`
+      element persists across chart-type switches (only removed from the DOM
+      when there's a `@chart_message` fallback instead) -- the hook's
+      `handleEvent` subscription survives, so switching chart types is just
+      another `push_event`, not a hook remount
+- [x] Found and fixed a real, pre-existing bug while testing this:
+      `Payments.log_payment/4` computed a principal/interest split to adjust
+      the debt's balance but never persisted that split onto the `Payment`
+      row itself unless the caller explicitly supplied it -- so a payment
+      logged via the simple "amount only" form (the common case) silently
+      stored a `nil` `principal_portion`, zeroing it out of the
+      interest-vs-principal chart and any other lifetime reporting. Fixed to
+      always persist the computed value.
+- [ ] Chart colors are a small fixed palette, not yet theme-adaptive (same
+      in light/dark) -- acceptable for now, revisit if it looks wrong in
+      practice
+- [x] All dollar amounts shown to the user are comma-grouped: `format_money/1`
+      in `DashboardLive` (rail balances, "this month" card) does its own
+      thousands-grouping (no comma-formatting library in Elixir core), and
+      the `PlanChart` JS hook applies `Intl.NumberFormat` currency formatting
+      to Chart.js axis ticks and tooltips client-side, since the data pushed
+      to Chart.js has to stay raw numbers for plotting -- only the
+      tick/tooltip *display* callbacks can add the `$`/commas, and those are
+      JS functions that can't cross a `push_event` payload, so they're
+      applied in the hook rather than computed server-side. Editable number
+      inputs (monthly budget, log-all-balances) are deliberately left
+      uncommaified -- commas break native `<input type="number">` values.
+- Verified: `mix test` (66 tests, including `Charts` unit tests and a
+  `DashboardLive` test asserting the actual pushed Chart.js config per chart
+  type via `assert_push_event/3`), a real `mix phx.server` boot confirming
+  the canvas + hook render and the bundled `app.js` actually contains
+  Chart.js. The rendered chart's *visual* correctness (colors, layout,
+  tooltip behavior in an actual browser) has not been eyeballed in a real
+  browser in this environment -- worth a quick look before relying on it.
+
+Deviations from the original plan, and why:
+- Charts are implemented as **private function components inside
+  `DashboardLive`** for layout, with the actual chart config-building
+  extracted to `DebtReliefTrackerWeb.Charts` -- not a separate `PlanChart`
+  live_component, per earlier "keep it simple" feedback; a plain hook +
+  pure module needed no LiveComponent process/state.
+- The default monthly budget (when unset) is the sum of eligible debts'
+  minimum payments **+5%**, not a flat guess -- otherwise the plan starts in
+  an "insufficient budget" error state for realistic debt loads (found by
+  actually running the app against the seeded placeholder debts).
+- Found and fixed a real bug while writing LiveView interaction tests:
+  `Planning.simulate/4` checked budget feasibility once upfront using
+  pre-interest balances, but month 1's actual minimums are computed
+  post-interest-accrual and could exceed that estimate. Feasibility is now
+  checked every month against the real (interest-accrued) minimums.
+- Found and fixed a real crash: submitting the payment form with
+  principal/interest portions left blank sent `""` (not absent), which hit
+  `Decimal.new("")` directly in `Payments.log_payment/4` before Ecto's
+  changeset cast could normalize it to `nil`.
+- `mix test`/`mix phx.server` verified end-to-end against SQLite, including a
+  full click-through LiveView test suite (add/edit debt, log payment, mark
+  paid, log-all-balances, switch charts/strategies, change budget).
+
+## Phase 6 — Self-hosting / Docker
+
+- [x] Multi-stage `Dockerfile` (via `mix phx.gen.release --docker`, then
+      customized: `/data` volume, default `DATABASE_PATH`)
+- [x] `docker-compose.yml` (SQLite-only, the default)
+- [x] `docker-compose.postgres.yml` (overlay adding a `postgres` service +
+      `DATABASE_URL`, run with `-f docker-compose.yml -f docker-compose.postgres.yml`)
+- [x] `.env.example` finalized (`SECRET_KEY_BASE`, `PORT`, `PHX_HOST`,
+      `DATABASE_PATH`/`DATABASE_URL`/`POOL_SIZE`, `POSTGRES_PASSWORD`)
+- [x] `DebtReliefTracker.Release.migrate/0` fixed to target only the
+      configured repo (it's generated against `:ecto_repos`, which lists
+      both `Repo.Sqlite` and `Repo.Postgres` -- migrating the inactive one
+      would fail to connect). Extracted the shared "which repo is active"
+      logic into `DebtReliefTracker.Repo.configured_repo/0`, used by both
+      `Application.start/2` and `Release.migrate/0`.
+
+Verified without Docker itself (still no local Docker binary in this
+environment -- flagged in ADR 0003): built a real `MIX_ENV=prod mix release`
+and ran `bin/debt_relief_tracker start` against a fresh `DATABASE_PATH`, with
+`RELEASE_NAME` set (as the release scripts do automatically). Confirmed
+migrations ran automatically on boot (the `Ecto.Migrator` child's
+`skip_migrations?/0` check), the default workspace + placeholder debts were
+seeded, and the dashboard served correctly at `/`. This exercises the exact
+migration-on-boot path the Docker image relies on; the Docker build/run
+itself (image size, base-image package needs) still needs a real Docker
+environment to confirm.
+
+## Phase 7 — Optional OIDC auth & sharing
+
+- [x] `assent`-based OIDC login flow (`DebtReliefTrackerWeb.OIDC`,
+      `AuthController`), gated entirely on `OIDC_ISSUER` /
+      `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` all being set
+      (`OIDC.enabled?/0` is the single check everything else uses)
+- [x] Per-user workspace creation on first login
+      (`Accounts.get_or_create_user_from_oidc!/1`)
+- [x] Workspace sharing by email (`Accounts.share_workspace_with_email/2`,
+      a small form in `DashboardLive`'s header, only shown to the owner of
+      the currently-viewed workspace)
+- [x] Workspace switcher (`<select>` in the header, only rendered when
+      `length(@workspaces) > 1`)
+- [x] `DashboardLive.mount/3` redirects to `/auth/login` when OIDC is
+      enabled and the session has no `user_id`; no-auth mode is completely
+      unaffected (verified: dev server still boots straight to the
+      dashboard with no login wall when OIDC env vars are unset)
+
+Verification limits: the actual OIDC redirect → provider → callback →
+token/userinfo exchange can't be tested end-to-end without a real IdP, which
+this environment doesn't have. What *is* tested (56 total tests, all
+passing): every `Accounts` function (user/workspace creation, idempotency,
+sharing, workspace resolution), `AuthController`'s login/logout paths that
+don't require reaching a provider (no-op when disabled, session clearing),
+and `DashboardLive`'s full session-driven behavior with OIDC "enabled" via
+config (login gate, workspace switcher, ownership-gated sharing UI) --
+everything downstream of a session that already has a `user_id`, which is
+what the rest of the app actually depends on. Before relying on this in
+production, do one real login against your chosen provider and confirm the
+callback exchange succeeds.
+
+## Verification
+
+- [x] `mix test` passing (56 tests)
+- [x] Manual pass against SQLite (`mix phx.server` + a real prod release run)
+- [ ] Manual pass against Postgres (`DATABASE_URL` set) -- adapter switch
+      itself verified (Phase 2), but no local Postgres instance was
+      available in this environment to run the app against one live
+- [ ] Docker build/run verified on a machine with Docker -- the
+      release/migration path it depends on is verified (Phase 6), Docker
+      itself is not

@@ -1,0 +1,7 @@
+{
+  "name": "debt_relief_tracker_assets",
+  "private": true,
+  "dependencies": {
+    "chart.js": "^4.4.0"
+  }
+}
