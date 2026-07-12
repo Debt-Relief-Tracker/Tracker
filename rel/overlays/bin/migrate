@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+exec ./debt_relief_tracker eval DebtReliefTracker.Release.migrate
