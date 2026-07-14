@@ -126,7 +126,28 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   end
 
   defp refresh(socket) do
-    socket |> reload_debts() |> reload_lifetime_payments() |> assign_plan()
+    socket
+    |> reload_debts()
+    |> reload_lifetime_payments()
+    |> maybe_update_default_budget()
+    |> assign_plan()
+  end
+
+  # If the user has never set an explicit budget (Settings.monthly_budget is
+  # still nil), keep the assign in sync with `default_budget/1` as debts
+  # change -- otherwise a workspace that started empty stays pinned to the
+  # $200 placeholder from mount/3 forever, and adding a real debt whose
+  # minimum payment exceeds it immediately looks like an insufficient-budget
+  # error. Once the user picks a budget via `update_budget`, it's persisted
+  # and this no longer applies.
+  defp maybe_update_default_budget(socket) do
+    settings = Settings.get_settings!(socket.assigns.workspace)
+
+    if settings.monthly_budget do
+      socket
+    else
+      assign(socket, :monthly_budget, default_budget(socket.assigns.debts))
+    end
   end
 
   # --- events: modals --------------------------------------------------------
@@ -174,6 +195,18 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     {:ok, _} = Debts.mark_paid_off(socket.assigns.workspace, nil, debt)
 
     {:noreply, socket |> refresh() |> put_flash(:info, "#{debt.name} marked as paid off.")}
+  end
+
+  def handle_event("delete_debt", %{"id" => id}, socket) do
+    debt = Debts.get_debt!(socket.assigns.workspace, id)
+    {:ok, _} = Debts.delete_debt(socket.assigns.workspace, nil, debt)
+
+    {:noreply,
+     socket
+     |> refresh()
+     |> assign(:modal, nil)
+     |> assign(:form, nil)
+     |> put_flash(:info, "#{debt.name} deleted.")}
   end
 
   # --- events: add/edit debt form -------------------------------------------
@@ -654,9 +687,21 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           label="Exclude from consumer payoff plan"
         />
 
-        <div class="flex justify-end gap-2 mt-2">
-          <.button type="button" phx-click="close_modal">Cancel</.button>
-          <.button type="submit" variant="primary">Save</.button>
+        <div class="flex justify-between gap-2 mt-2">
+          <button
+            :if={@modal.type == :edit_debt}
+            type="button"
+            class="btn btn-error btn-outline"
+            phx-click="delete_debt"
+            phx-value-id={@modal.debt.id}
+            data-confirm={"Delete #{@modal.debt.name}? This can't be undone."}
+          >
+            Delete
+          </button>
+          <div class="flex gap-2 ml-auto">
+            <.button type="button" phx-click="close_modal">Cancel</.button>
+            <.button type="submit" variant="primary">Save</.button>
+          </div>
         </div>
       </.form>
     </.modal>

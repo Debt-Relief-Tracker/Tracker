@@ -30,9 +30,9 @@ this stays a stable reference from commit messages and PRs.
 - [x] `Repo` facade module forwarding to the active repo
 - [x] `config/runtime.exs` activation logic (`DATABASE_URL` vs `DATABASE_PATH`)
 - [x] `application.ex` starts only the active repo's child
-- [ ] Migrations run automatically on release boot (deferred to Phase 6 — no
-      release/Dockerfile exists yet; `skip_migrations?/0` already gates this
-      on `RELEASE_NAME`)
+- [x] Migrations run automatically on release boot (verified in Phase 6, once
+      a release/Dockerfile existed to check it against; `skip_migrations?/0`
+      gates this on `RELEASE_NAME`)
 
 Verified manually: `mix ecto.create -r DebtReliefTracker.Repo.Sqlite` creates
 the dev db; `mix phx.server` boots and serves `/` (200) against SQLite by
@@ -70,6 +70,10 @@ moduledoc and confirmed the hard way.
 - [x] `Planning`: windfall allocator (`windfall_cascade/4`)
 - [x] `Planning`: freed-cashflow-over-time (`freed_cashflow_over_time/3`)
 - [x] Unit tests for all of the above (20 tests, pure -- no DB)
+- [ ] "Financial health" section from minimum.md: credit utilization per card
+      and overall, when credit limits are entered -- `credit_limit` is
+      already captured on the debt form/schema but nothing calculates or
+      displays utilization from it yet
 
 Note: "interest saved vs. an interest-only baseline" from minimum.md is
 covered indirectly via `windfall_cascade/4` (baseline vs. with-windfall) and
@@ -84,6 +88,10 @@ comparison.
 - [x] Left rail: simplified debt list
 - [x] Add/edit debt modal
 - [x] Mark-as-paid action
+- [x] Delete debt action (outright remove a debt from a workspace, distinct
+      from marking it paid off -- `Debts.delete_debt/3`, cascades to the
+      debt's payments, logs `:debt_deleted` with `debt: nil` since the FK
+      would reject a log entry pointing at a just-deleted id)
 - [x] Log payment modal + log-all-balances modal (bulk balance reconciliation
       via `Debts.reconcile_balance/5`, added during this phase)
 - [x] Chart-type switcher + 4 chart types, upgraded to real Chart.js charts

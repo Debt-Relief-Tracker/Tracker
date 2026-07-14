@@ -3,7 +3,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
 
   import Phoenix.LiveViewTest
 
-  alias DebtReliefTracker.{Accounts, Debts, Payments}
+  alias DebtReliefTracker.{Accounts, Debts, Payments, Repo}
 
   setup do
     # In production DebtReliefTracker.Boot does this at application start;
@@ -56,6 +56,36 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
 
     assert html =~ "New Test Loan"
     refute has_element?(view, "h2", "Add debt")
+  end
+
+  test "adding the first debt to an empty workspace re-simulates instead of misreporting the stale $200 default budget as insufficient",
+       %{conn: conn, workspace: workspace} do
+    workspace |> Debts.list_debts() |> Enum.each(&Repo.delete!/1)
+
+    {:ok, view, html} = live(conn, ~p"/")
+    assert html =~ "Add a debt to compare payoff strategies."
+
+    view |> element("button", "Add debt") |> render_click()
+
+    view
+    |> form("form[phx-submit=save_debt]", %{"debt" => %{"type" => "installment"}})
+    |> render_change()
+
+    html =
+      view
+      |> form("form[phx-submit=save_debt]", %{
+        "debt" => %{
+          "name" => "Big Loan",
+          "type" => "installment",
+          "balance" => "1000.00",
+          "apr" => "5.00",
+          "fixed_payment" => "500.00"
+        }
+      })
+      |> render_submit()
+
+    refute html =~ "Add a debt to compare payoff strategies."
+    refute html =~ "cover minimum payments"
   end
 
   test "rejects an add-debt submission missing the type-specific required field", %{
@@ -125,6 +155,41 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     |> render_click()
 
     assert has_element?(view, "span.line-through", "Auto Loan (example)")
+  end
+
+  test "deleting a debt from the edit modal removes it from the rail entirely", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    debt =
+      DebtReliefTracker.Debts.list_debts(workspace)
+      |> Enum.find(&(&1.name == "Auto Loan (example)"))
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view
+    |> element("button[phx-click=open_edit_debt][phx-value-id='#{debt.id}']")
+    |> render_click()
+
+    assert has_element?(view, "button[phx-click=delete_debt][phx-value-id='#{debt.id}']")
+
+    html =
+      view
+      |> element("button[phx-click=delete_debt][phx-value-id='#{debt.id}']")
+      |> render_click()
+
+    assert html =~ "deleted"
+    refute has_element?(view, "h2", "Edit debt")
+    refute has_element?(view, "aside li", "Auto Loan (example)")
+    refute Enum.any?(Debts.list_debts(workspace), &(&1.id == debt.id))
+  end
+
+  test "the delete button only appears on the edit modal, not the add modal", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("button", "Add debt") |> render_click()
+    assert has_element?(view, "h2", "Add debt")
+    refute has_element?(view, "button", "Delete")
   end
 
   test "a debt excluded from the plan shows greyed out in the rail", %{

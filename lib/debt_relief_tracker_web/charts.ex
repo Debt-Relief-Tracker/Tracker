@@ -53,7 +53,7 @@ defmodule DebtReliefTrackerWeb.Charts do
 
   defp comparison_config(strategies) do
     if Enum.all?(strategies, &nothing_to_compare?/1) do
-      {"Add a debt to compare payoff strategies.", nil}
+      {comparison_message(strategies), nil}
     else
       interest =
         Enum.map(@strategies, fn s ->
@@ -112,6 +112,19 @@ defmodule DebtReliefTrackerWeb.Charts do
   defp nothing_to_compare?({_strategy, {:ok, %{total_months: 0}}}), do: true
   defp nothing_to_compare?({_strategy, {:error, _}}), do: true
   defp nothing_to_compare?(_), do: false
+
+  defp comparison_message(strategies) do
+    cond do
+      Enum.any?(strategies, &match?({_, {:error, :insufficient_budget}}, &1)) ->
+        "Your monthly budget doesn't cover minimum payments yet -- increase it above."
+
+      Enum.any?(strategies, &match?({_, {:error, :did_not_converge}}, &1)) ->
+        "This plan doesn't pay off within 50 years at this budget -- try raising it."
+
+      true ->
+        "Add a debt to compare payoff strategies."
+    end
+  end
 
   # --- simulation: one line per debt, plus a dashed total ---------------------
 
