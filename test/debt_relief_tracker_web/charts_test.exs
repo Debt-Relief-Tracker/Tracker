@@ -53,6 +53,25 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
       assert {"Add a debt to compare payoff strategies.", nil} =
                Charts.build(:comparison, :cash_flow, strategies, [], Decimal.new("300"), [])
     end
+
+    test "returns a budget message, not the no-debts message, when a debt exists but the budget doesn't cover minimums" do
+      debts = [
+        debt(
+          id: 1,
+          type: :installment,
+          balance: Decimal.new("1000"),
+          fixed_payment: Decimal.new("500")
+        )
+      ]
+
+      strategies = Planning.compare_strategies(debts, Decimal.new("10"))
+
+      assert {message, nil} =
+               Charts.build(:comparison, :cash_flow, strategies, debts, Decimal.new("10"), [])
+
+      assert message =~ "budget"
+      refute message =~ "Add a debt"
+    end
   end
 
   describe "build/6 :simulation" do

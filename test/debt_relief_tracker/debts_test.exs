@@ -62,6 +62,48 @@ defmodule DebtReliefTracker.DebtsTest do
     end
   end
 
+  describe "delete_debt/3" do
+    test "removes the debt and logs :debt_deleted", %{workspace: workspace} do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => "Unwanted Card",
+          "type" => "revolving",
+          "balance" => "100.00",
+          "apr" => "10.00",
+          "minimum_payment_floor" => "25.00",
+          "minimum_payment_rate" => "0.02"
+        })
+
+      assert {:ok, _deleted} = Debts.delete_debt(workspace, nil, debt)
+      assert Debts.list_debts(workspace) == []
+
+      entry = ActivityLog.list_recent(workspace) |> Enum.find(&(&1.action == :debt_deleted))
+      assert entry
+      assert entry.debt_id == nil
+      assert entry.metadata["name"] == "Unwanted Card"
+    end
+
+    test "also deletes any payments logged against the debt", %{workspace: workspace} do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => "Card",
+          "type" => "installment",
+          "balance" => "500.00",
+          "apr" => "0.00",
+          "fixed_payment" => "100.00"
+        })
+
+      {:ok, _} =
+        DebtReliefTracker.Payments.log_payment(workspace, nil, debt, %{
+          "amount" => "100.00",
+          "paid_on" => ~D[2026-07-01]
+        })
+
+      assert {:ok, _} = Debts.delete_debt(workspace, nil, debt)
+      assert DebtReliefTracker.Payments.list_payments_for_debt(debt) == []
+    end
+  end
+
   describe "reconcile_balance/5" do
     test "logs the gap as a payment and resets the statement baseline", %{workspace: workspace} do
       {:ok, debt} =

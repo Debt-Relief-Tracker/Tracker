@@ -53,6 +53,22 @@ defmodule DebtReliefTracker.Debts do
     end
   end
 
+  @doc """
+  Outright deletes a debt (distinct from `mark_paid_off/3`, which just flips
+  status/`paid_off_at` and keeps the debt and its history around). Its
+  payments cascade-delete with it (`on_delete: :delete_all` on
+  `payments.debt_id`). The activity log entry is recorded with `debt: nil` --
+  logging it against the just-deleted id would violate the `activity_logs`
+  foreign key, which only nilifies *existing* references on delete, not
+  future inserts.
+  """
+  def delete_debt(%Workspace{} = workspace, user, %Debt{} = debt) do
+    with {:ok, deleted} <- Repo.delete(debt) do
+      ActivityLog.record(workspace, user, :debt_deleted, nil, %{"name" => deleted.name})
+      {:ok, deleted}
+    end
+  end
+
   def change_debt(%Debt{} = debt, attrs \\ %{}), do: Debt.changeset(debt, attrs)
 
   @doc """

@@ -7,7 +7,7 @@ defmodule DebtReliefTracker.ActivityLog.Entry do
 
   schema "activity_logs" do
     field :action, Ecto.Enum,
-      values: [:debt_added, :debt_updated, :debt_paid_off, :payment_logged]
+      values: [:debt_added, :debt_updated, :debt_paid_off, :debt_deleted, :payment_logged]
 
     field :metadata, :map, default: %{}
 

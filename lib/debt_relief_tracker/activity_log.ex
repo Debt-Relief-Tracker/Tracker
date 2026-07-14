@@ -19,7 +19,7 @@ defmodule DebtReliefTracker.ActivityLog do
   isn't known in no-auth mode.
   """
   def record(%Workspace{} = workspace, user, action, debt \\ nil, metadata \\ %{})
-      when action in [:debt_added, :debt_updated, :debt_paid_off, :payment_logged] do
+      when action in [:debt_added, :debt_updated, :debt_paid_off, :debt_deleted, :payment_logged] do
     %Entry{}
     |> Entry.changeset(%{
       workspace_id: workspace.id,
