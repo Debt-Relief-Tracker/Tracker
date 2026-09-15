@@ -156,4 +156,54 @@ defmodule DebtReliefTracker.Debts.CalculationsTest do
       assert Decimal.equal?(Calculations.total_remaining_balance(debts), Decimal.new("800"))
     end
   end
+
+  describe "credit_utilization/1" do
+    test "is nil for installment debts" do
+      debt = installment(balance: Decimal.new("500"))
+      assert Calculations.credit_utilization(debt) == nil
+    end
+
+    test "is nil when no credit_limit is entered" do
+      debt = revolving(balance: Decimal.new("500"), credit_limit: nil)
+      assert Calculations.credit_utilization(debt) == nil
+    end
+
+    test "is nil when credit_limit is zero" do
+      debt = revolving(balance: Decimal.new("500"), credit_limit: Decimal.new("0"))
+      assert Calculations.credit_utilization(debt) == nil
+    end
+
+    test "is balance / credit_limit for a normal case" do
+      debt = revolving(balance: Decimal.new("500"), credit_limit: Decimal.new("1000"))
+      assert Decimal.equal?(Calculations.credit_utilization(debt), Decimal.new("0.5"))
+    end
+
+    test "can exceed 100% for an over-limit card, not clamped" do
+      debt = revolving(balance: Decimal.new("1200"), credit_limit: Decimal.new("1000"))
+      assert Decimal.equal?(Calculations.credit_utilization(debt), Decimal.new("1.2"))
+    end
+  end
+
+  describe "overall_credit_utilization/1" do
+    test "is nil when no debts have a credit_limit" do
+      debts = [
+        revolving(balance: Decimal.new("500"), credit_limit: nil),
+        installment(balance: Decimal.new("300"))
+      ]
+
+      assert Calculations.overall_credit_utilization(debts) == nil
+    end
+
+    test "sums balances and limits across eligible revolving debts only" do
+      debts = [
+        revolving(id: 1, balance: Decimal.new("500"), credit_limit: Decimal.new("1000")),
+        revolving(id: 2, balance: Decimal.new("300"), credit_limit: Decimal.new("1000")),
+        revolving(id: 3, balance: Decimal.new("999"), credit_limit: nil),
+        installment(id: 4, balance: Decimal.new("999"))
+      ]
+
+      # (500 + 300) / (1000 + 1000) = 0.4
+      assert Decimal.equal?(Calculations.overall_credit_utilization(debts), Decimal.new("0.4"))
+    end
+  end
 end

@@ -11,7 +11,11 @@ defmodule DebtReliefTrackerWeb.Charts do
 
   @strategies [:cash_flow, :snowball, :avalanche]
 
-  # A small fixed palette (not theme-adaptive yet -- see docs/roadmap.md).
+  # A small fixed palette, in the app's light-theme colors -- the PlanChart
+  # JS hook (assets/js/plan_chart_hook.js) recolors these client-side for
+  # dark mode by matching these exact hex values, so if this list (or the
+  # two one-off colors below) ever changes, the JS-side LIGHT_PALETTE/
+  # LIGHT_TOTAL_LINE/LIGHT_FILL constants must be updated to match.
   @palette [
     "#2563eb",
     "#f97316",
@@ -22,6 +26,11 @@ defmodule DebtReliefTrackerWeb.Charts do
     "#ca8a04",
     "#db2777"
   ]
+
+  # Mirrored by the JS hook's LIGHT_TOTAL_LINE/LIGHT_FILL -- see the comment
+  # on @palette above.
+  @total_line_color "#111827"
+  @freed_cashflow_fill "rgba(37, 99, 235, 0.2)"
 
   @doc """
   Returns `{message, config}` for the given chart type: `message` is a
@@ -152,7 +161,7 @@ defmodule DebtReliefTrackerWeb.Charts do
         total_dataset = %{
           label: "Total",
           data: Enum.map(months, &total_ending_balance/1),
-          borderColor: "#111827",
+          borderColor: @total_line_color,
           borderDash: [6, 3],
           borderWidth: 2,
           fill: false,
@@ -273,7 +282,7 @@ defmodule DebtReliefTrackerWeb.Charts do
                 label: "Monthly payment freed",
                 data: Enum.map(freed, &Decimal.to_float(&1.freed)),
                 fill: true,
-                backgroundColor: "rgba(37, 99, 235, 0.2)",
+                backgroundColor: @freed_cashflow_fill,
                 borderColor: color(0),
                 tension: 0.15,
                 pointRadius: 0

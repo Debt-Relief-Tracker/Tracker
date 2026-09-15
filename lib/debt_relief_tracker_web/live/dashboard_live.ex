@@ -8,7 +8,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   use DebtReliefTrackerWeb, :live_view
 
-  alias DebtReliefTracker.{Accounts, Debts, Payments, Planning, Settings}
+  alias DebtReliefTracker.{Accounts, ActivityLog, Debts, Payments, Planning, Settings}
   alias DebtReliefTracker.Debts.{Debt, Calculations}
   alias DebtReliefTracker.Payments.Payment
   alias DebtReliefTrackerWeb.{Charts, OIDC}
@@ -39,6 +39,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
        |> assign(:strategy_options, @strategies)
        |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
        |> assign(:budget_mode, settings.budget_mode || :total)
+       |> assign(:currency, settings.currency || "USD")
        |> assign(:modal, nil)
        |> assign(:form, nil)
        |> assign(:debts, debts)
@@ -115,14 +116,18 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       strategies: strategies,
       debts: debts,
       monthly_budget: budget,
-      lifetime_payments: lifetime_payments
+      lifetime_payments: lifetime_payments,
+      currency: currency
     } = socket.assigns
 
     {message, config} =
       Charts.build(chart_type, strategy, strategies, debts, budget, lifetime_payments)
 
     socket = assign(socket, :chart_message, message)
-    if config, do: push_event(socket, "plan-chart-data", config), else: socket
+
+    if config,
+      do: push_event(socket, "plan-chart-data", Map.put(config, :currency, currency)),
+      else: socket
   end
 
   defp refresh(socket) do
@@ -184,6 +189,15 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   def handle_event("open_log_all_balances", _params, socket) do
     {:noreply, assign(socket, :modal, %{type: :log_all_balances})}
+  end
+
+  def handle_event("open_activity_log", _params, socket) do
+    entries = ActivityLog.list_recent(socket.assigns.workspace)
+
+    {:noreply,
+     socket
+     |> assign(:modal, %{type: :activity_log})
+     |> stream(:activity_entries, entries, reset: true)}
   end
 
   def handle_event("close_modal", _params, socket) do
@@ -322,6 +336,12 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     {:noreply, assign(socket, :budget_mode, mode)}
   end
 
+  def handle_event("select_currency", %{"currency" => currency}, socket) do
+    settings = Settings.get_settings!(socket.assigns.workspace)
+    {:ok, _} = Settings.update_settings(settings, %{"currency" => currency})
+    {:noreply, socket |> assign(:currency, currency) |> push_chart_data()}
+  end
+
   # --- events: OIDC mode only -- workspace switching & sharing ---------------
   # (docs/architecture/0002-auth-and-sharing-model.md)
 
@@ -335,6 +355,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:workspace, workspace)
      |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
      |> assign(:budget_mode, settings.budget_mode || :total)
+     |> assign(:currency, settings.currency || "USD")
      |> assign(:debts, debts)
      |> reload_lifetime_payments()
      |> assign_plan()}
@@ -413,6 +434,15 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           <.button phx-click="open_log_all_balances" class="btn btn-soft btn-sm w-full">
             Log all balances
           </.button>
+          <.button phx-click="open_activity_log" class="btn btn-soft btn-sm w-full">
+            Activity log
+          </.button>
+          <.link href={~p"/export/debts.csv"} class="btn btn-soft btn-sm w-full">
+            Export debts (CSV)
+          </.link>
+          <.link href={~p"/export/payments.csv"} class="btn btn-soft btn-sm w-full">
+            Export payments (CSV)
+          </.link>
 
           <ul class="flex flex-col gap-2 mt-2">
             <li
@@ -432,8 +462,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
                 <span class="text-xs opacity-70">{debt.type}</span>
               </div>
               <div class="text-sm">
-                {format_money(Calculations.estimated_balance(debt))}
+                {format_money(Calculations.estimated_balance(debt), @currency)}
                 <span :if={debt.type == :revolving} class="text-xs opacity-60">est.</span>
+              </div>
+              <div :if={debt.type == :revolving && debt.credit_limit} class="text-xs opacity-70">
+                {format_percent(Calculations.credit_utilization(debt))} utilization
               </div>
               <div class="flex gap-1 mt-1">
                 <button
@@ -471,9 +504,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             debt_remaining={debt_remaining}
             payoff_date={payoff_date(strategy_result)}
             payoff_months={payoff_months(strategy_result)}
+            overall_utilization={Calculations.overall_credit_utilization(@debts)}
+            currency={@currency}
           />
 
-          <.this_month_card this_month={@this_month} debts={@debts} />
+          <.this_month_card this_month={@this_month} debts={@debts} currency={@currency} />
 
           <div class="flex flex-wrap items-center gap-4">
             <form phx-change="update_budget" class="flex items-center gap-2">
@@ -505,6 +540,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
                 Margin
               </button>
             </div>
+
+            <form phx-change="select_currency">
+              <select name="currency" class="select select-xs">
+                <option :for={code <- currency_codes()} value={code} selected={code == @currency}>
+                  {code}
+                </option>
+              </select>
+            </form>
 
             <div class="join">
               <button
@@ -545,6 +588,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       />
       <.payment_form_modal :if={@modal && @modal.type == :log_payment} modal={@modal} form={@form} />
       <.log_all_balances_modal :if={@modal && @modal.type == :log_all_balances} debts={@debts} />
+      <.activity_log_modal
+        :if={@modal && @modal.type == :activity_log}
+        entries={@streams.activity_entries}
+        currency={@currency}
+      />
     </div>
     """
   end
@@ -556,6 +604,8 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   attr :debt_remaining, :any, required: true
   attr :payoff_date, :string, required: true
   attr :payoff_months, :any, required: true
+  attr :overall_utilization, :any, default: nil
+  attr :currency, :string, required: true
 
   defp stat_cards(assigns) do
     ~H"""
@@ -563,17 +613,17 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       <div class="stat bg-purple-600 text-white">
         <div class="stat-figure"><.icon name="hero-currency-dollar" class="size-6" /></div>
         <div class="stat-title text-purple-100">Total Paid</div>
-        <div class="stat-value text-2xl">{format_money(@total_paid)}</div>
+        <div class="stat-value text-2xl">{format_money(@total_paid, @currency)}</div>
       </div>
       <div class="stat bg-orange-600 text-white">
         <div class="stat-figure"><.icon name="hero-face-frown" class="size-6" /></div>
         <div class="stat-title text-orange-100">Interest Paid</div>
-        <div class="stat-value text-2xl">{format_money(@interest_paid)}</div>
+        <div class="stat-value text-2xl">{format_money(@interest_paid, @currency)}</div>
       </div>
       <div class="stat bg-yellow-500 text-white">
         <div class="stat-figure"><.icon name="hero-building-library" class="size-6" /></div>
         <div class="stat-title text-yellow-100">Debt Remaining</div>
-        <div class="stat-value text-2xl">{format_money(@debt_remaining)}</div>
+        <div class="stat-value text-2xl">{format_money(@debt_remaining, @currency)}</div>
       </div>
       <div class="stat bg-teal-600 text-white">
         <div class="stat-figure"><.icon name="hero-calendar" class="size-6" /></div>
@@ -583,12 +633,18 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           {@payoff_months} {if @payoff_months == 1, do: "month", else: "months"} left
         </div>
       </div>
+      <div :if={@overall_utilization} class="stat bg-pink-600 text-white">
+        <div class="stat-figure"><.icon name="hero-chart-pie" class="size-6" /></div>
+        <div class="stat-title text-pink-100">Credit Utilization</div>
+        <div class="stat-value text-2xl">{format_percent(@overall_utilization)}</div>
+      </div>
     </div>
     """
   end
 
   attr :this_month, :any, required: true
   attr :debts, :list, required: true
+  attr :currency, :string, required: true
 
   defp this_month_card(assigns) do
     ~H"""
@@ -601,7 +657,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       <div :if={@this_month} class="flex flex-wrap gap-4 text-sm">
         <div :for={line <- @this_month.lines} :if={Decimal.positive?(line.payment)}>
           <span class="font-medium">{debt_name(@debts, line.debt_id)}</span>:
-          pay {format_money(line.payment)}
+          pay {format_money(line.payment, @currency)}
           <span :if={line.debt_id == @this_month.target_debt_id} class="badge badge-primary badge-sm">
             extra
           </span>
@@ -775,6 +831,26 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     """
   end
 
+  attr :entries, :any, required: true
+  attr :currency, :string, required: true
+
+  defp activity_log_modal(assigns) do
+    ~H"""
+    <.modal on_cancel="close_modal">
+      <h2 class="font-semibold text-lg mb-4">Activity log</h2>
+      <.table id="activity-log-entries" rows={@entries} row_item={fn {_id, entry} -> entry end}>
+        <:col :let={entry} label="When">
+          {Calendar.strftime(entry.inserted_at, "%b %d, %Y %I:%M %p")}
+        </:col>
+        <:col :let={entry} label="Activity">{activity_description(entry, @currency)}</:col>
+      </.table>
+      <div class="flex justify-end mt-4">
+        <.button type="button" phx-click="close_modal">Close</.button>
+      </div>
+    </.modal>
+    """
+  end
+
   attr :on_cancel, :string, required: true
   slot :inner_block, required: true
 
@@ -786,7 +862,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       phx-key="escape"
     >
       <div
-        class="bg-base-100 rounded-lg p-6 w-full max-w-md max-h-[90vh] overflow-y-auto"
+        class="bg-base-100 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         phx-click-away={@on_cancel}
       >
         {render_slot(@inner_block)}
@@ -822,9 +898,21 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     Date.new!(div(total, 12), rem(total, 12) + 1, 1)
   end
 
-  defp format_money(%Decimal{} = d) do
+  @currency_symbols %{
+    "USD" => "$",
+    "EUR" => "€",
+    "GBP" => "£",
+    "CAD" => "$",
+    "AUD" => "$",
+    "JPY" => "¥"
+  }
+
+  defp currency_codes, do: Map.keys(@currency_symbols)
+
+  defp format_money(%Decimal{} = d, currency) do
     rounded = Decimal.round(d, 2)
     sign = if Decimal.negative?(rounded), do: "-", else: ""
+    symbol = Map.get(@currency_symbols, currency, "$")
 
     {int_part, dec_part} =
       case rounded |> Decimal.abs() |> Decimal.to_string(:normal) |> String.split(".") do
@@ -832,10 +920,16 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         [int_part] -> {int_part, "00"}
       end
 
-    "#{sign}$#{group_thousands(int_part)}.#{String.pad_trailing(dec_part, 2, "0")}"
+    "#{sign}#{symbol}#{group_thousands(int_part)}.#{String.pad_trailing(dec_part, 2, "0")}"
   end
 
-  defp format_money(_), do: "$0.00"
+  defp format_money(_, currency), do: "#{Map.get(@currency_symbols, currency, "$")}0.00"
+
+  defp format_percent(%Decimal{} = d) do
+    "#{d |> Decimal.mult(100) |> Decimal.round(0) |> Decimal.to_string(:normal)}%"
+  end
+
+  defp format_percent(_), do: "0%"
 
   defp group_thousands(digits) do
     digits
@@ -846,6 +940,33 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   defp strategy_label(strategy), do: Charts.strategy_label(strategy)
   defp debt_name(debts, id), do: Charts.debt_name(debts, id)
+
+  # --- activity log formatting -----------------------------------------------
+
+  defp activity_description(%{action: :debt_added} = e, _currency), do: "#{actor(e)} added #{debt_or_name(e)}"
+
+  defp activity_description(%{action: :debt_updated} = e, _currency),
+    do: "#{actor(e)} updated #{debt_or_name(e)}"
+
+  defp activity_description(%{action: :debt_paid_off} = e, _currency),
+    do: "#{actor(e)} marked #{debt_or_name(e)} as paid off"
+
+  defp activity_description(%{action: :debt_deleted} = e, _currency),
+    do: "#{actor(e)} deleted #{debt_or_name(e)}"
+
+  defp activity_description(%{action: :payment_logged} = e, currency) do
+    "#{actor(e)} logged a #{format_money_string(e.metadata["amount"], currency)} payment on #{debt_or_name(e)}"
+  end
+
+  defp actor(%{user: %{display_name: name}}) when is_binary(name), do: name
+  defp actor(_), do: "Someone"
+
+  defp debt_or_name(%{debt: %{name: name}}), do: name
+  defp debt_or_name(%{metadata: %{"name" => name}}), do: name
+  defp debt_or_name(_), do: "a debt"
+
+  defp format_money_string(nil, _currency), do: "an unknown amount"
+  defp format_money_string(str, currency), do: format_money(Decimal.new(str), currency)
 
   defp chart_label(:comparison), do: "Compare strategies"
   defp chart_label(:simulation), do: "Payoff simulation"
