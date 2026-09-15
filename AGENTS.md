@@ -16,10 +16,31 @@ This is a web application written using the Phoenix web framework.
   coming -- new debt/payment features go into `DashboardLive` as modals per
   docs/architecture, not new LiveViews.
 
+## Claude guidelines
+
+### Subagents v1.0
+
+Spawn subagents to isolate context, parallelize independent work, or offload bulk mechanical tasks. Don't spawn when the parent needs the reasoning, when synthesis requires holding things together, or when spawn overhead dominates.
+
+Pick the cheapest model that can do the subtask well:
+- Haiku: bulk mechanical work, no judgment
+- Sonnet: scoped research, code exploration, in-scope synthesis
+- Opus: subtasks needing real planning or tradeoffs
+
+If a subagent realizes it needs a higher tier than itself, return to the parent.
+
+Parent owns final output and cross-spawn synthesis. User instructions override.
+
+## Reuse guidelines
+
+- Before writing new business logic, check whether an existing context under `lib/debt_relief_tracker/` (`Accounts`, `Debts`, `Payments`, `Planning`, `Settings`, `ActivityLog`) already has a schema or helper for it. Extend an existing context before adding a new one.
+- Before writing new frontend code, check `lib/debt_relief_tracker_web/components/core_components.ex` for an existing primitive (`flash`, `button`, `input`, `header`, `table`, `list`, `icon`, `show`/`hide`, `translate_error`) before adding new markup. There's no `modal`, `simple_form`, `label`, or `data_table` component yet — if you need one, add it here rather than inlining ad hoc markup, since there's no separate per-domain component file to fall back to.
+- This is a single, non-umbrella Phoenix app — there's no second `_web` app or sibling context lib to keep in sync with, so "reuse" just means checking the module lists above before adding parallel logic.
+
 ## Project guidelines
 
-- Use `mix precommit` alias when you are done with all changes and fix any pending issues
 - Use the already included and available `:req` (`Req`) library for HTTP requests, **avoid** `:httpoison`, `:tesla`, and `:httpc`. Req is included by default and is the preferred HTTP client for Phoenix apps
+
 ### Phoenix v1.8 guidelines
 
 - **Always** begin your LiveView templates with `<Layouts.app flash={@flash} ...>` which wraps all inner content
