@@ -63,6 +63,9 @@ RUN mix compile
 
 COPY assets assets
 
+# build non-included assets
+RUN npm install --prefix assets
+
 # compile assets
 RUN mix assets.deploy
 
