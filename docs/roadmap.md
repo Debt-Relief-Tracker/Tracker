@@ -70,10 +70,11 @@ moduledoc and confirmed the hard way.
 - [x] `Planning`: windfall allocator (`windfall_cascade/4`)
 - [x] `Planning`: freed-cashflow-over-time (`freed_cashflow_over_time/3`)
 - [x] Unit tests for all of the above (20 tests, pure -- no DB)
-- [ ] "Financial health" section from minimum.md: credit utilization per card
-      and overall, when credit limits are entered -- `credit_limit` is
-      already captured on the debt form/schema but nothing calculates or
-      displays utilization from it yet
+- [x] "Financial health" section from minimum.md: credit utilization per card
+      and overall, when credit limits are entered -- `Calculations.credit_utilization/1`
+      (per-debt, revolving only) and `overall_credit_utilization/1` (aggregate,
+      `nil` when no debt has a `credit_limit` set so the UI can hide it), surfaced
+      as a badge in the rail and a 5th stat tile
 
 Note: "interest saved vs. an interest-only baseline" from minimum.md is
 covered indirectly via `windfall_cascade/4` (baseline vs. with-windfall) and
@@ -142,9 +143,11 @@ to deliver well, so this was revisited:
       stored a `nil` `principal_portion`, zeroing it out of the
       interest-vs-principal chart and any other lifetime reporting. Fixed to
       always persist the computed value.
-- [ ] Chart colors are a small fixed palette, not yet theme-adaptive (same
-      in light/dark) -- acceptable for now, revisit if it looks wrong in
-      practice
+- [x] Chart colors are now theme-adaptive: the JS hook recolors client-side
+      on `data-theme` changes (a `MutationObserver`, matching the server's
+      `@palette` hex values by exact value, not position, then swapping in a
+      brighter dark-mode counterpart per hue) and re-renders in place via the
+      existing destroy/recreate path -- no new server push per theme toggle
 - [x] All dollar amounts shown to the user are comma-grouped: `format_money/1`
       in `DashboardLive` (rail balances, "this month" card) does its own
       thousands-grouping (no comma-formatting library in Elixir core), and
@@ -245,9 +248,51 @@ what the rest of the app actually depends on. Before relying on this in
 production, do one real login against your chosen provider and confirm the
 callback exchange succeeds.
 
+## Phase 8 — Currency, activity log, CSV export, auto-logged payments
+
+Post-initial-build additions, not part of the original `minimum.md` feature
+list:
+
+- [x] `Settings.currency` (already existed, defaulted to `"USD"`, but was
+      never read anywhere) is now wired through: a `<select>` next to the
+      budget-mode buttons, `format_money/2` takes a currency and looks up a
+      small symbol map (`USD`/`EUR`/`GBP`/`CAD`/`AUD`/`JPY`), and the pushed
+      Chart.js config carries `currency` so the `PlanChart` hook's
+      `Intl.NumberFormat` tick/tooltip formatters match. No dedicated
+      settings page -- kept as an inline header control per the existing
+      "not enough surface area to justify one" precedent from ADR 0002.
+- [x] Activity log UI: a 4th modal (`ActivityLog.list_recent/2`, already
+      existed and was already fed by every mutation, just never surfaced),
+      stream-backed via the existing `<.table>` core component, with a
+      small per-action-type human-readable formatter in `DashboardLive`
+- [x] CSV export: `DebtReliefTracker.CSVExport` (two separate downloads --
+      debts and payments have different shapes) via `NimbleCSV`, served by
+      a new plain `ExportController`/`GET /export/*.csv` (a LiveView can't
+      force a browser file download itself), linked from the rail
+- [x] Auto-logged payments (installment debts only -- revolving has no
+      deterministic scheduled amount): per-debt `auto_log_mode`
+      (`:off`/`:confirm`/`:automatic`) + `due_day`, sharing one pure
+      due-ness check (`Debts.DueSchedule.due?/2`) between two paths --
+      `:confirm` shows a "payment due" prompt in the "This month" card
+      (computed fresh on every mount/refresh, no background process),
+      `:automatic` is posted unattended by `DuePayments.Scheduler`, a plain
+      `GenServer` (this app's first scheduled job -- no `Oban`, proportionate
+      to "check hourly whether a date has passed") polling
+      `DuePayments.post_due_payment/4` and broadcasting over `Phoenix.PubSub`
+      so an open dashboard reflects it without a manual reload.
+      `Payments.log_payment/5` gained an `:action` option so auto-posted
+      payments log a distinct `:payment_auto_logged` activity-log action
+      (vs. human-driven `:payment_logged`); `:due_payment_skipped` covers
+      confirm-mode's "Skip this month". `last_due_handled_on` (per debt)
+      makes the due-ness check resilient to a missed poll -- compares dates
+      rather than requiring an exact-day match, so a container stopped over
+      the due date still catches up on the next check instead of silently
+      skipping that cycle.
+
 ## Verification
 
-- [x] `mix test` passing (56 tests)
+- [x] `mix precommit` passing (130 tests; compile --warning-as-errors,
+      deps.unlock --unused, format, test)
 - [x] Manual pass against SQLite (`mix phx.server` + a real prod release run)
 - [ ] Manual pass against Postgres (`DATABASE_URL` set) -- adapter switch
       itself verified (Phase 2), but no local Postgres instance was

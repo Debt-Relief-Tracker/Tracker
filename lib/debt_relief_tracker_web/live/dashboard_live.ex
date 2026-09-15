@@ -8,7 +8,16 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   use DebtReliefTrackerWeb, :live_view
 
-  alias DebtReliefTracker.{Accounts, ActivityLog, Debts, Payments, Planning, Settings}
+  alias DebtReliefTracker.{
+    Accounts,
+    ActivityLog,
+    Debts,
+    DuePayments,
+    Payments,
+    Planning,
+    Settings
+  }
+
   alias DebtReliefTracker.Debts.{Debt, Calculations}
   alias DebtReliefTracker.Payments.Payment
   alias DebtReliefTrackerWeb.{Charts, OIDC}
@@ -25,6 +34,10 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       workspace = current_workspace(current_user)
       settings = Settings.get_settings!(workspace)
       debts = Debts.list_debts(workspace)
+
+      if connected?(socket) do
+        Phoenix.PubSub.subscribe(DebtReliefTracker.PubSub, "workspace:#{workspace.id}")
+      end
 
       {:ok,
        socket
@@ -43,6 +56,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
        |> assign(:modal, nil)
        |> assign(:form, nil)
        |> assign(:debts, debts)
+       |> assign(:due_prompts, due_prompts(debts))
        |> reload_lifetime_payments()
        |> assign_plan()}
     end
@@ -131,11 +145,26 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   end
 
   defp refresh(socket) do
+    socket =
+      socket
+      |> reload_debts()
+      |> reload_lifetime_payments()
+      |> maybe_update_default_budget()
+
     socket
-    |> reload_debts()
-    |> reload_lifetime_payments()
-    |> maybe_update_default_budget()
+    |> assign(:due_prompts, due_prompts(socket.assigns.debts))
     |> assign_plan()
+  end
+
+  # Confirm-mode's "payment due" prompt is derived fresh on every
+  # mount/refresh from the same DueSchedule.due?/2 check the automatic-mode
+  # scheduler polls -- no background process needed for this mode.
+  # Automatic-mode debts are also "due" per DuePayments.due_debts/1, but
+  # they're handled silently by the scheduler and shouldn't also nag here.
+  defp due_prompts(debts) do
+    debts
+    |> DuePayments.due_debts()
+    |> Enum.filter(&(&1.auto_log_mode == :confirm))
   end
 
   # If the user has never set an explicit budget (Settings.monthly_budget is
@@ -153,6 +182,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     else
       assign(socket, :monthly_budget, default_budget(socket.assigns.debts))
     end
+  end
+
+  # An automatic-mode auto-log payment posted in the background (see
+  # DuePayments.Scheduler) while this dashboard was open -- refresh so the
+  # balance/activity log reflect it without waiting for a manual reload.
+  @impl true
+  def handle_info({:due_payment_posted, _debt_id}, socket) do
+    {:noreply, socket |> refresh() |> put_flash(:info, "An automatic payment was posted.")}
   end
 
   # --- events: modals --------------------------------------------------------
@@ -221,6 +258,20 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:modal, nil)
      |> assign(:form, nil)
      |> put_flash(:info, "#{debt.name} deleted.")}
+  end
+
+  def handle_event("confirm_due_payment", %{"id" => id}, socket) do
+    debt = Debts.get_debt!(socket.assigns.workspace, id)
+    {:ok, _} = DuePayments.post_due_payment(socket.assigns.workspace, nil, debt)
+
+    {:noreply, socket |> refresh() |> put_flash(:info, "Logged #{debt.name}'s payment.")}
+  end
+
+  def handle_event("skip_due_payment", %{"id" => id}, socket) do
+    debt = Debts.get_debt!(socket.assigns.workspace, id)
+    {:ok, _} = DuePayments.skip_due_payment(socket.assigns.workspace, nil, debt)
+
+    {:noreply, socket |> refresh() |> put_flash(:info, "Skipped #{debt.name} this month.")}
   end
 
   # --- events: add/edit debt form -------------------------------------------
@@ -350,6 +401,15 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     settings = Settings.get_settings!(workspace)
     debts = Debts.list_debts(workspace)
 
+    if connected?(socket) do
+      Phoenix.PubSub.unsubscribe(
+        DebtReliefTracker.PubSub,
+        "workspace:#{socket.assigns.workspace.id}"
+      )
+
+      Phoenix.PubSub.subscribe(DebtReliefTracker.PubSub, "workspace:#{workspace.id}")
+    end
+
     {:noreply,
      socket
      |> assign(:workspace, workspace)
@@ -357,6 +417,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:budget_mode, settings.budget_mode || :total)
      |> assign(:currency, settings.currency || "USD")
      |> assign(:debts, debts)
+     |> assign(:due_prompts, due_prompts(debts))
      |> reload_lifetime_payments()
      |> assign_plan()}
   end
@@ -508,7 +569,12 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             currency={@currency}
           />
 
-          <.this_month_card this_month={@this_month} debts={@debts} currency={@currency} />
+          <.this_month_card
+            this_month={@this_month}
+            debts={@debts}
+            currency={@currency}
+            due_prompts={@due_prompts}
+          />
 
           <div class="flex flex-wrap items-center gap-4">
             <form phx-change="update_budget" class="flex items-center gap-2">
@@ -645,11 +711,24 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   attr :this_month, :any, required: true
   attr :debts, :list, required: true
   attr :currency, :string, required: true
+  attr :due_prompts, :list, required: true
 
   defp this_month_card(assigns) do
     ~H"""
     <div class="border border-base-300 rounded p-4">
       <h2 class="font-semibold mb-1">This month</h2>
+      <div
+        :for={debt <- @due_prompts}
+        class="alert alert-warning flex justify-between items-center mb-2"
+      >
+        <span>{debt.name} payment ({format_money(debt.fixed_payment, @currency)}) is due.</span>
+        <div class="flex gap-2">
+          <.button phx-click="confirm_due_payment" phx-value-id={debt.id} variant="primary">
+            Log it
+          </.button>
+          <.button phx-click="skip_due_payment" phx-value-id={debt.id}>Skip this month</.button>
+        </div>
+      </div>
       <p :if={@this_month == nil and @debts == []}>Add a debt to see your payoff plan.</p>
       <p :if={@this_month == nil and @debts != []}>
         Your monthly budget doesn't cover minimum payments yet -- increase it below.
@@ -678,8 +757,9 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   defp debt_form_modal(assigns) do
     type = Phoenix.HTML.Form.input_value(assigns.form, :type)
+    auto_log_mode = Phoenix.HTML.Form.input_value(assigns.form, :auto_log_mode)
 
-    assigns = assign(assigns, :type, type)
+    assigns = assign(assigns, type: type, auto_log_mode: auto_log_mode)
 
     ~H"""
     <.modal on_cancel="close_modal">
@@ -734,6 +814,24 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             type="number"
             step="0.01"
             label="Fixed monthly payment"
+          />
+          <.input
+            field={@form[:auto_log_mode]}
+            type="select"
+            label="Due-date tracking"
+            options={[
+              {"Off", "off"},
+              {"Prompt me to confirm", "confirm"},
+              {"Post automatically", "automatic"}
+            ]}
+          />
+          <.input
+            :if={@auto_log_mode in [:confirm, :automatic, "confirm", "automatic"]}
+            field={@form[:due_day]}
+            type="number"
+            min="1"
+            max="31"
+            label="Due day of month"
           />
         </div>
 
@@ -943,7 +1041,8 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   # --- activity log formatting -----------------------------------------------
 
-  defp activity_description(%{action: :debt_added} = e, _currency), do: "#{actor(e)} added #{debt_or_name(e)}"
+  defp activity_description(%{action: :debt_added} = e, _currency),
+    do: "#{actor(e)} added #{debt_or_name(e)}"
 
   defp activity_description(%{action: :debt_updated} = e, _currency),
     do: "#{actor(e)} updated #{debt_or_name(e)}"
@@ -956,6 +1055,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   defp activity_description(%{action: :payment_logged} = e, currency) do
     "#{actor(e)} logged a #{format_money_string(e.metadata["amount"], currency)} payment on #{debt_or_name(e)}"
+  end
+
+  defp activity_description(%{action: :payment_auto_logged} = e, currency) do
+    "Auto-logged a #{format_money_string(e.metadata["amount"], currency)} payment on #{debt_or_name(e)}"
+  end
+
+  defp activity_description(%{action: :due_payment_skipped} = e, _currency) do
+    "#{actor(e)} skipped this month's payment on #{debt_or_name(e)}"
   end
 
   defp actor(%{user: %{display_name: name}}) when is_binary(name), do: name

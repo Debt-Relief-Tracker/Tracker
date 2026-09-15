@@ -97,6 +97,13 @@ defmodule DebtReliefTracker.Accounts do
   @doc "Fetches a workspace by id."
   def get_workspace!(id), do: Repo.get!(Workspace, id)
 
+  @doc """
+  Every workspace in the system, regardless of owner -- used by
+  `DuePayments.Scheduler` to sweep for due auto-log payments across every
+  user's data, not just workspaces with an open LiveView connection.
+  """
+  def list_workspaces, do: Repo.all(Workspace)
+
   @doc "Lists the workspaces a user owns or is a member of."
   def list_workspaces_for_user(%User{id: user_id}) do
     from(w in Workspace,

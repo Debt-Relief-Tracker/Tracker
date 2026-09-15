@@ -17,8 +17,7 @@ defmodule DebtReliefTracker.Application do
       {DNSCluster,
        query: Application.get_env(:debt_relief_tracker, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: DebtReliefTracker.PubSub},
-      # Start a worker by calling: DebtReliefTracker.Worker.start_link(arg)
-      # {DebtReliefTracker.Worker, arg},
+      DebtReliefTracker.DuePayments.Scheduler,
       # Start to serve requests, typically the last entry
       DebtReliefTrackerWeb.Endpoint
     ]

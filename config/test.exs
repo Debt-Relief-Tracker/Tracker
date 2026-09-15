@@ -15,6 +15,12 @@ config :debt_relief_tracker, DebtReliefTracker.Repo.Sqlite,
 # a connection -- tests seed their own fixtures instead.
 config :debt_relief_tracker, :run_boot_tasks, false
 
+# Same reason as :run_boot_tasks above -- DuePayments.Scheduler's first
+# check would otherwise touch the database before the sandbox connection is
+# checked out. Tests call DuePayments.Scheduler.run_due_checks/0 directly
+# instead of relying on the timer.
+config :debt_relief_tracker, :run_scheduler, false
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :debt_relief_tracker, DebtReliefTrackerWeb.Endpoint,

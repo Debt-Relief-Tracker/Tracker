@@ -30,7 +30,10 @@ defmodule DebtReliefTracker.ActivityLogTest do
       workspace: workspace
     } do
       other_user =
-        Accounts.get_or_create_user_from_oidc!(%{"sub" => "other", "email" => "other@example.com"})
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "other",
+          "email" => "other@example.com"
+        })
 
       other_workspace = Accounts.current_workspace_for_user(other_user)
 

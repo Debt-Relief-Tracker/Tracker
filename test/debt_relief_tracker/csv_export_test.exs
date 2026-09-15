@@ -69,7 +69,15 @@ defmodule DebtReliefTracker.CSVExportTest do
 
       [header, row] = CSV.parse_string(csv, skip_headers: false)
 
-      assert header == ["Debt", "Amount", "Principal Portion", "Interest Portion", "Paid On", "Note"]
+      assert header == [
+               "Debt",
+               "Amount",
+               "Principal Portion",
+               "Interest Portion",
+               "Paid On",
+               "Note"
+             ]
+
       assert row == ["Visa", "50", "50", "", "2026-07-11", "paid early, see \"budget\" note"]
     end
   end

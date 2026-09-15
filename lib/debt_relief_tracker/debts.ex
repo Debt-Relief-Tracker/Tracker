@@ -71,6 +71,11 @@ defmodule DebtReliefTracker.Debts do
 
   def change_debt(%Debt{} = debt, attrs \\ %{}), do: Debt.changeset(debt, attrs)
 
+  @doc "Stamps the cycle date a due payment was just posted or skipped for (DuePayments)."
+  def mark_due_handled(%Debt{} = debt, cycle_due_date) do
+    debt |> Debt.due_handled_changeset(cycle_due_date) |> Repo.update()
+  end
+
   @doc """
   Reconciles a debt to a newly-observed real balance (the "log all balances
   at once" flow, docs/plan.md Phase 5/Phase 4 interest modeling): the gap

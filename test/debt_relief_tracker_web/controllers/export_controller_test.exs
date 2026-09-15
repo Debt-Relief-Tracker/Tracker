@@ -8,7 +8,10 @@ defmodule DebtReliefTrackerWeb.ExportControllerTest do
   end
 
   describe "GET /export/debts.csv" do
-    test "returns a CSV attachment with the workspace's debts", %{conn: conn, workspace: workspace} do
+    test "returns a CSV attachment with the workspace's debts", %{
+      conn: conn,
+      workspace: workspace
+    } do
       {:ok, _debt} =
         Debts.create_debt(workspace, nil, %{
           "name" => "Visa",
@@ -30,7 +33,10 @@ defmodule DebtReliefTrackerWeb.ExportControllerTest do
 
     test "doesn't include another workspace's debts", %{conn: conn, workspace: workspace} do
       other_user =
-        Accounts.get_or_create_user_from_oidc!(%{"sub" => "other", "email" => "other@example.com"})
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "other",
+          "email" => "other@example.com"
+        })
 
       other_workspace = Accounts.current_workspace_for_user(other_user)
 
@@ -77,7 +83,10 @@ defmodule DebtReliefTrackerWeb.ExportControllerTest do
         })
 
       {:ok, _} =
-        Payments.log_payment(workspace, nil, debt, %{"amount" => "50.00", "paid_on" => "2026-07-11"})
+        Payments.log_payment(workspace, nil, debt, %{
+          "amount" => "50.00",
+          "paid_on" => "2026-07-11"
+        })
 
       conn = get(conn, ~p"/export/payments.csv")
 
