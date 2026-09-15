@@ -31,6 +31,7 @@ if database_url do
 
   config :debt_relief_tracker, DebtReliefTracker.Repo.Postgres,
     url: database_url,
+    ssl: System.get_env("DATABASE_USE_SSL") || true,
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
 else
   config :debt_relief_tracker, :ecto_adapter, :sqlite
