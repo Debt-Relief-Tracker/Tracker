@@ -41,7 +41,7 @@ defmodule DebtReliefTrackerWeb.OIDC do
     [
       client_id: cfg[:client_id],
       client_secret: cfg[:client_secret],
-      site: cfg[:issuer],
+      base_url: cfg[:issuer],
       redirect_uri: redirect_uri,
       authorization_params: [scope: "openid email profile"]
     ]
