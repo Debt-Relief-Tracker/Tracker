@@ -19,12 +19,17 @@ defmodule DebtReliefTracker.Payments do
     |> Repo.all()
   end
 
-  @doc "All payments across every debt in a workspace (for lifetime interest/principal totals)."
+  @doc """
+  All payments across every debt in a workspace (for lifetime
+  interest/principal totals, and CSV export), most recent first. Preloads
+  `:debt` since both consumers display/reference the debt's name.
+  """
   def list_payments_for_workspace(%Workspace{id: workspace_id}) do
     from(p in Payment,
       join: d in assoc(p, :debt),
       where: d.workspace_id == ^workspace_id,
-      order_by: [desc: p.paid_on, desc: p.id]
+      order_by: [desc: p.paid_on, desc: p.id],
+      preload: [debt: d]
     )
     |> Repo.all()
   end

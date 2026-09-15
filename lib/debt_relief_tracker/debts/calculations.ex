@@ -96,6 +96,51 @@ defmodule DebtReliefTracker.Debts.Calculations do
     |> Enum.reduce(Decimal.new(0), &Decimal.add/2)
   end
 
+  @doc """
+  Credit utilization (`balance / credit_limit`) for a single revolving debt.
+  `nil` when not applicable: installment debts, no `credit_limit` entered
+  yet, or a `credit_limit` of zero (would divide by zero). Not clamped at
+  100% -- an over-limit card should read e.g. 120%, not be silently capped.
+  Uses the confirmed `balance`, not `estimated_balance/2`: utilization is a
+  "what's reported against the limit" figure, not an interest-accrual
+  estimate.
+  """
+  def credit_utilization(%{type: :installment}), do: nil
+  def credit_utilization(%{type: :revolving, credit_limit: nil}), do: nil
+
+  def credit_utilization(%{type: :revolving, credit_limit: limit} = debt) do
+    limit = to_decimal(limit)
+
+    if Decimal.equal?(limit, 0) do
+      nil
+    else
+      debt.balance |> to_decimal() |> clamp_non_negative() |> Decimal.div(limit)
+    end
+  end
+
+  @doc """
+  Aggregate utilization across every revolving debt that has a `credit_limit`
+  set: `sum(balances) / sum(limits)`. `nil` if no debt qualifies, so the UI
+  can hide the stat entirely rather than show a misleading 0%.
+  """
+  def overall_credit_utilization(debts) do
+    eligible = Enum.filter(debts, &(&1.type == :revolving && &1.credit_limit))
+
+    case eligible do
+      [] ->
+        nil
+
+      _ ->
+        total_balance =
+          Enum.reduce(eligible, Decimal.new(0), &Decimal.add(to_decimal(&1.balance), &2))
+
+        total_limit =
+          Enum.reduce(eligible, Decimal.new(0), &Decimal.add(to_decimal(&1.credit_limit), &2))
+
+        if Decimal.equal?(total_limit, 0), do: nil, else: Decimal.div(total_balance, total_limit)
+    end
+  end
+
   @doc false
   def to_decimal(%Decimal{} = d), do: d
   def to_decimal(n) when is_integer(n), do: Decimal.new(n)

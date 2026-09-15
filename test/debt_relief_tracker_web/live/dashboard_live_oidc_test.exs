@@ -82,4 +82,45 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
     # Now viewing a workspace they don't own -- sharing hides.
     refute has_element?(view, "input[name='share[email]']")
   end
+
+  test "switching workspace picks up the target workspace's own currency", %{conn: conn} do
+    member =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "member",
+        "email" => "member@example.com",
+        "name" => "Member"
+      })
+
+    owner =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "owner",
+        "email" => "owner@example.com",
+        "name" => "Owner"
+      })
+
+    owner_workspace = Accounts.current_workspace_for_user(owner)
+    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com")
+
+    owner_settings = DebtReliefTracker.Settings.get_settings!(owner_workspace)
+    {:ok, _} = DebtReliefTracker.Settings.update_settings(owner_settings, %{"currency" => "GBP"})
+
+    {:ok, _debt} =
+      DebtReliefTracker.Debts.create_debt(owner_workspace, nil, %{
+        "name" => "Owner's Card",
+        "type" => "installment",
+        "balance" => "100.00",
+        "apr" => "1.00",
+        "fixed_payment" => "10.00"
+      })
+
+    conn = Plug.Test.init_test_session(conn, user_id: member.id)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    html =
+      view
+      |> form("form[phx-change=switch_workspace]", %{"workspace_id" => owner_workspace.id})
+      |> render_change()
+
+    assert html =~ "£100.00"
+  end
 end

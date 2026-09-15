@@ -19,7 +19,15 @@ defmodule DebtReliefTracker.ActivityLog do
   isn't known in no-auth mode.
   """
   def record(%Workspace{} = workspace, user, action, debt \\ nil, metadata \\ %{})
-      when action in [:debt_added, :debt_updated, :debt_paid_off, :debt_deleted, :payment_logged] do
+      when action in [
+             :debt_added,
+             :debt_updated,
+             :debt_paid_off,
+             :debt_deleted,
+             :payment_logged,
+             :payment_auto_logged,
+             :due_payment_skipped
+           ] do
     %Entry{}
     |> Entry.changeset(%{
       workspace_id: workspace.id,
@@ -37,12 +45,20 @@ defmodule DebtReliefTracker.ActivityLog do
   defp debt_id(%Debt{id: id}), do: id
   defp debt_id(nil), do: nil
 
-  @doc "Lists recent activity for a workspace, most recent first."
+  @doc """
+  Lists recent activity for a workspace, most recent first. Preloads `:user`
+  and `:debt` since both are shown in the activity log UI (`:debt` is `nil`
+  for a `:debt_deleted` entry -- see `Debts.delete_debt/3`). Ties on
+  `inserted_at` (same-second timestamp precision, easy to hit when several
+  actions happen in quick succession) break on `:id` descending, so ordering
+  is deterministic rather than whatever order the database happens to return.
+  """
   def list_recent(%Workspace{id: workspace_id}, limit \\ 50) do
     from(e in Entry,
       where: e.workspace_id == ^workspace_id,
-      order_by: [desc: e.inserted_at],
-      limit: ^limit
+      order_by: [desc: e.inserted_at, desc: e.id],
+      limit: ^limit,
+      preload: [:user, :debt]
     )
     |> Repo.all()
   end

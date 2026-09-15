@@ -25,6 +25,9 @@ defmodule DebtReliefTrackerWeb.Router do
     get "/auth/login", AuthController, :login
     get "/auth/callback", AuthController, :callback
     post "/auth/logout", AuthController, :logout
+
+    get "/export/debts.csv", ExportController, :debts
+    get "/export/payments.csv", ExportController, :payments
   end
 
   # Other scopes may use custom stacks.

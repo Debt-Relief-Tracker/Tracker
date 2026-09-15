@@ -207,6 +207,83 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     assert has_element?(view, "li.opacity-50", "Auto Loan (example)")
   end
 
+  test "a revolving debt with a credit limit shows its utilization in the rail", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    debt =
+      Debts.list_debts(workspace)
+      |> Enum.find(&(&1.name == "Visa Credit Card (example)"))
+
+    {:ok, _} = Debts.update_debt(workspace, nil, debt, %{"credit_limit" => "9000.00"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    assert has_element?(view, "aside li", "50% utilization")
+  end
+
+  test "a revolving debt without a credit limit shows no utilization badge", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    refute has_element?(view, "aside li", "utilization")
+  end
+
+  test "the overall credit utilization stat only appears once a debt has a credit limit set", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    {:ok, view, _html} = live(conn, ~p"/")
+    refute has_element?(view, ".stat.bg-pink-600")
+
+    debt =
+      Debts.list_debts(workspace)
+      |> Enum.find(&(&1.name == "Visa Credit Card (example)"))
+
+    {:ok, _} = Debts.update_debt(workspace, nil, debt, %{"credit_limit" => "9000.00"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    assert has_element?(view, ".stat.bg-pink-600 .stat-value", "50%")
+  end
+
+  test "renders CSV export links for debts and payments", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    assert html =~ ~s(href="/export/debts.csv")
+    assert html =~ ~s(href="/export/payments.csv")
+  end
+
+  test "opening the activity log shows human-readable entries for recent mutations", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    debt =
+      Debts.list_debts(workspace)
+      |> Enum.find(&(&1.name == "Auto Loan (example)"))
+
+    {:ok, _} =
+      Payments.log_payment(workspace, nil, debt, %{"amount" => "50.00", "paid_on" => "2026-07-11"})
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("button", "Activity log") |> render_click()
+    html = render(view)
+
+    assert has_element?(view, "h2", "Activity log")
+    assert html =~ "added Auto Loan (example)"
+    assert html =~ "logged a $50.00 payment on Auto Loan (example)"
+  end
+
+  test "closing the activity log hides it again", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("button", "Activity log") |> render_click()
+    assert has_element?(view, "h2", "Activity log")
+
+    view |> element("button", "Close") |> render_click()
+
+    refute has_element?(view, "h2", "Activity log")
+  end
+
   test "switching chart type pushes a matching Chart.js config to the PlanChart hook", %{
     conn: conn,
     workspace: workspace
@@ -348,6 +425,25 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
       |> render_click()
 
     assert html =~ "Additional margin"
+  end
+
+  test "selecting a currency persists it and re-renders balances with the new symbol", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    {:ok, view, html} = live(conn, ~p"/")
+    assert html =~ "$4,500.00"
+
+    html =
+      view
+      |> form("form[phx-change=select_currency]", %{"currency" => "EUR"})
+      |> render_change()
+
+    assert html =~ "€4,500.00"
+    refute html =~ "$4,500.00"
+
+    settings = DebtReliefTracker.Settings.get_settings!(workspace)
+    assert settings.currency == "EUR"
   end
 
   test "entering a value in margin mode stores monthly_budget as minimums + margin", %{
