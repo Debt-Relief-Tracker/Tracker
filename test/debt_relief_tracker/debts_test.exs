@@ -40,6 +40,35 @@ defmodule DebtReliefTracker.DebtsTest do
       assert {:error, changeset} = Debts.create_debt(workspace, nil, attrs)
       assert %{fixed_payment: ["can't be blank"]} = errors_on(changeset)
     end
+
+    test "requires due_day once auto_log_mode is enabled", %{workspace: workspace} do
+      attrs = %{
+        "name" => "Auto Loan",
+        "type" => "installment",
+        "balance" => "1000",
+        "apr" => "5",
+        "fixed_payment" => "100",
+        "auto_log_mode" => "confirm"
+      }
+
+      assert {:error, changeset} = Debts.create_debt(workspace, nil, attrs)
+      assert %{due_day: ["can't be blank"]} = errors_on(changeset)
+    end
+
+    test "rejects auto_log_mode on a revolving debt", %{workspace: workspace} do
+      attrs = %{
+        "name" => "Bad Card",
+        "type" => "revolving",
+        "balance" => "100",
+        "apr" => "10",
+        "minimum_payment_rate" => "0.02",
+        "auto_log_mode" => "confirm",
+        "due_day" => "15"
+      }
+
+      assert {:error, changeset} = Debts.create_debt(workspace, nil, attrs)
+      assert %{auto_log_mode: ["is only available for installment debts"]} = errors_on(changeset)
+    end
   end
 
   describe "mark_paid_off/3" do

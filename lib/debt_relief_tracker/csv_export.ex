@@ -9,7 +9,17 @@ defmodule DebtReliefTracker.CSVExport do
 
   alias NimbleCSV.RFC4180, as: CSV
 
-  @debts_header ["Name", "Type", "Balance", "APR", "Status", "Minimum Payment Floor", "Minimum Payment Rate", "Fixed Payment", "Credit Limit"]
+  @debts_header [
+    "Name",
+    "Type",
+    "Balance",
+    "APR",
+    "Status",
+    "Minimum Payment Floor",
+    "Minimum Payment Rate",
+    "Fixed Payment",
+    "Credit Limit"
+  ]
   @payments_header ["Debt", "Amount", "Principal Portion", "Interest Portion", "Paid On", "Note"]
 
   @doc "Renders a workspace's debts as CSV iodata, one row per debt."

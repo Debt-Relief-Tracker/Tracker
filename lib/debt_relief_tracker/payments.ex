@@ -39,8 +39,14 @@ defmodule DebtReliefTracker.Payments do
   portion (defaulting to the full amount when no split is given). Runs in a
   transaction: if the resulting balance would be negative, the whole
   operation is rolled back.
+
+  Accepts an `:action` option (default `:payment_logged`) so callers
+  posting on a debt owner's behalf -- e.g. `DuePayments`'s auto-log
+  scheduler -- can record a distinguishable `ActivityLog` action instead of
+  the normal human-driven one.
   """
-  def log_payment(%Workspace{} = workspace, user, %Debt{} = debt, attrs) do
+  def log_payment(%Workspace{} = workspace, user, %Debt{} = debt, attrs, opts \\ []) do
+    action = Keyword.get(opts, :action, :payment_logged)
     principal = principal_portion(attrs)
 
     # Always persist the computed split, not just whatever the caller
@@ -64,7 +70,7 @@ defmodule DebtReliefTracker.Payments do
                Debt.changeset(debt, %{"balance" => Decimal.sub(debt.balance, principal)})
              ) do
         {:ok, _entry} =
-          ActivityLog.record(workspace, user, :payment_logged, updated_debt, %{
+          ActivityLog.record(workspace, user, action, updated_debt, %{
             "amount" => Decimal.to_string(payment.amount)
           })
 

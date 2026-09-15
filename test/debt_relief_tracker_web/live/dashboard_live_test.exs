@@ -489,4 +489,162 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     reloaded = DebtReliefTracker.Debts.get_debt!(workspace, debt.id)
     assert Decimal.equal?(reloaded.balance, Decimal.new("4000.00"))
   end
+
+  describe "auto-logged payments" do
+    test "requires a due day once due-date tracking is turned on", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button", "Add debt") |> render_click()
+
+      view
+      |> form("form[phx-submit=save_debt]", %{"debt" => %{"type" => "installment"}})
+      |> render_change()
+
+      # A real user picking "Prompt me to confirm" fires this phx-change too,
+      # revealing the due_day field (and marking it "used" for error display)
+      # before the debt is ever submitted -- mirror that here rather than
+      # jumping straight to render_submit with auto_log_mode already set,
+      # which would leave due_day absent from the payload entirely (never
+      # rendered, so never submitted) instead of present-but-blank.
+      view
+      |> form("form[phx-submit=save_debt]", %{
+        "debt" => %{"type" => "installment", "auto_log_mode" => "confirm"}
+      })
+      |> render_change()
+
+      html =
+        view
+        |> form("form[phx-submit=save_debt]", %{
+          "debt" => %{
+            "name" => "New Loan",
+            "type" => "installment",
+            "balance" => "500.00",
+            "apr" => "5.00",
+            "fixed_payment" => "100.00",
+            "auto_log_mode" => "confirm"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "can&#39;t be blank"
+      assert has_element?(view, "h2", "Add debt")
+
+      refute Enum.any?(
+               Debts.list_debts(Accounts.ensure_default_workspace!()),
+               &(&1.name == "New Loan")
+             )
+    end
+
+    test "a confirm-mode debt whose due date has passed shows a prompt in the This month card", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => "Auto Loan Due",
+          "type" => "installment",
+          "balance" => "1000.00",
+          "apr" => "5.00",
+          "fixed_payment" => "150.00",
+          "auto_log_mode" => "confirm",
+          "due_day" => to_string(Date.utc_today().day)
+        })
+
+      {:ok, view, html} = live(conn, ~p"/")
+
+      assert html =~ "Auto Loan Due payment ($150.00) is due."
+
+      assert has_element?(
+               view,
+               "button[phx-click=confirm_due_payment][phx-value-id='#{debt.id}']"
+             )
+
+      assert has_element?(view, "button[phx-click=skip_due_payment][phx-value-id='#{debt.id}']")
+    end
+
+    test "clicking \"Log it\" posts the payment and clears the prompt", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => "Auto Loan Due",
+          "type" => "installment",
+          "balance" => "1000.00",
+          "apr" => "5.00",
+          "fixed_payment" => "150.00",
+          "auto_log_mode" => "confirm",
+          "due_day" => to_string(Date.utc_today().day)
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      html =
+        view
+        |> element("button[phx-click=confirm_due_payment][phx-value-id='#{debt.id}']")
+        |> render_click()
+
+      assert html =~ "Logged Auto Loan Due&#39;s payment."
+      refute html =~ "is due."
+
+      reloaded = Debts.get_debt!(workspace, debt.id)
+      assert Decimal.equal?(reloaded.balance, Decimal.new("850.00"))
+      assert reloaded.last_due_handled_on == Date.utc_today()
+    end
+
+    test "clicking \"Skip this month\" clears the prompt without posting a payment", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => "Auto Loan Due",
+          "type" => "installment",
+          "balance" => "1000.00",
+          "apr" => "5.00",
+          "fixed_payment" => "150.00",
+          "auto_log_mode" => "confirm",
+          "due_day" => to_string(Date.utc_today().day)
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      html =
+        view
+        |> element("button[phx-click=skip_due_payment][phx-value-id='#{debt.id}']")
+        |> render_click()
+
+      assert html =~ "Skipped Auto Loan Due this month."
+      refute html =~ "is due."
+
+      reloaded = Debts.get_debt!(workspace, debt.id)
+      assert Decimal.equal?(reloaded.balance, Decimal.new("1000.00"))
+      assert reloaded.last_due_handled_on == Date.utc_today()
+    end
+
+    test "an automatic payment posted in the background refreshes the dashboard", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => "Auto Loan Auto",
+          "type" => "installment",
+          "balance" => "1000.00",
+          "apr" => "5.00",
+          "fixed_payment" => "150.00",
+          "auto_log_mode" => "automatic",
+          "due_day" => to_string(Date.utc_today().day)
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      {:ok, _} = DebtReliefTracker.DuePayments.post_due_payment(workspace, nil, debt)
+      send(view.pid, {:due_payment_posted, debt.id})
+
+      html = render(view)
+      assert html =~ "An automatic payment was posted."
+      assert html =~ "$850.00"
+    end
+  end
 end
