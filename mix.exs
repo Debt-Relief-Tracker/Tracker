@@ -84,7 +84,13 @@ defmodule DebtReliefTracker.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup", "assets.setup", "assets.build"],
+      setup: [
+        "deps.get",
+        "ecto.setup",
+        "assets.setup",
+        "cmd --cd assets npm install",
+        "assets.build"
+      ],
       # Only the Sqlite repo is targeted here: it's the self-hosted default,
       # and the two-repo setup (docs/architecture/0001-dual-database-adapter.md)
       # means the untargeted ecto.* tasks would otherwise try (and fail) to
@@ -99,11 +105,7 @@ defmodule DebtReliefTracker.MixProject do
         "ecto.migrate --quiet -r DebtReliefTracker.Repo.Sqlite",
         "test"
       ],
-      "assets.setup": [
-        "tailwind.install --if-missing",
-        "esbuild.install --if-missing",
-        "cmd --cd assets npm install"
-      ],
+      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
       "assets.build": ["tailwind debt_relief_tracker", "esbuild debt_relief_tracker"],
       "assets.deploy": [
         "tailwind debt_relief_tracker --minify",
