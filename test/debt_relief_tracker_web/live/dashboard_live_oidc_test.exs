@@ -21,7 +21,17 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
       client_secret: "test-secret"
     )
 
-    on_exit(fn -> Application.put_env(:debt_relief_tracker, :oidc, nil) end)
+    # Emails triggered by handle_event (e.g. share_workspace) are sent from
+    # the LiveView's own process, not this test process, so Swoosh.Adapters.Test
+    # (which sends to `self()`/`$callers`) would otherwise deliver nowhere.
+    # This module isn't async, so it's safe to point it at this test process.
+    Application.put_env(:swoosh, :shared_test_process, self())
+
+    on_exit(fn ->
+      Application.put_env(:debt_relief_tracker, :oidc, nil)
+      Application.delete_env(:swoosh, :shared_test_process)
+    end)
+
     :ok
   end
 
@@ -64,7 +74,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
       })
 
     owner_workspace = Accounts.current_workspace_for_user(owner)
-    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com")
+    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com", owner)
 
     conn = Plug.Test.init_test_session(conn, user_id: member.id)
     {:ok, view, _html} = live(conn, ~p"/")
@@ -99,7 +109,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
       })
 
     owner_workspace = Accounts.current_workspace_for_user(owner)
-    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com")
+    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com", owner)
 
     owner_settings = DebtReliefTracker.Settings.get_settings!(owner_workspace)
     {:ok, _} = DebtReliefTracker.Settings.update_settings(owner_settings, %{"currency" => "GBP"})
@@ -122,5 +132,31 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
       |> render_change()
 
     assert html =~ "£100.00"
+  end
+
+  test "inviting an unknown email shows a pending badge that can be canceled", %{conn: conn} do
+    owner =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "owner",
+        "email" => "owner@example.com",
+        "name" => "Owner"
+      })
+
+    conn = Plug.Test.init_test_session(conn, user_id: owner.id)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    html =
+      view
+      |> form("form[phx-submit=share_workspace]", %{"share" => %{"email" => "new@example.com"}})
+      |> render_submit()
+
+    assert html =~ "Invited new@example.com"
+    assert has_element?(view, "span", "new@example.com")
+
+    view
+    |> element("button[phx-click=cancel_invitation]")
+    |> render_click()
+
+    refute has_element?(view, "span", "new@example.com")
   end
 end

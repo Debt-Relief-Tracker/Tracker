@@ -11,7 +11,14 @@ defmodule DebtReliefTracker.Accounts do
   import Ecto.Query, warn: false
 
   alias DebtReliefTracker.Repo
-  alias DebtReliefTracker.Accounts.{User, Workspace, WorkspaceMember}
+
+  alias DebtReliefTracker.Accounts.{
+    User,
+    Workspace,
+    WorkspaceMember,
+    WorkspaceInvitation,
+    UserNotifier
+  }
 
   @doc """
   Returns the single implicit user/workspace used in no-auth mode, creating
@@ -59,8 +66,37 @@ defmodule DebtReliefTracker.Accounts do
         {user, _workspace} =
           create_user_with_own_workspace!(user_attrs, "#{display_name}'s Debts")
 
+        fulfill_pending_invitations(user)
         user
     end
+  end
+
+  # Turns any pending invitations addressed to this email into real
+  # WorkspaceMember access, now that the invitee has an account. Only
+  # relevant on first login: share_workspace_with_email/3 only ever creates
+  # an invitation when no matching User exists yet, so an existing user
+  # never has invitations left to fulfill.
+  defp fulfill_pending_invitations(%User{email: nil}), do: :ok
+
+  defp fulfill_pending_invitations(%User{email: email} = user) do
+    from(i in WorkspaceInvitation, where: i.email == ^email)
+    |> Repo.all()
+    |> Enum.each(fn invitation ->
+      Repo.transaction(fn ->
+        {:ok, _member} =
+          %WorkspaceMember{}
+          |> WorkspaceMember.changeset(%{
+            workspace_id: invitation.workspace_id,
+            user_id: user.id,
+            role: :member
+          })
+          |> Repo.insert()
+
+        {:ok, _} = Repo.delete(invitation)
+      end)
+    end)
+
+    :ok
   end
 
   # Returns `{user, workspace}` -- both are needed by the two callers above,
@@ -128,15 +164,30 @@ defmodule DebtReliefTracker.Accounts do
   def owner?(%Workspace{owner_user_id: owner_id}, %User{id: user_id}), do: owner_id == user_id
 
   @doc """
-  Shares `workspace` with the user matching `email`, granting them member
-  access (docs/architecture/0002-auth-and-sharing-model.md: an explicit
-  grant, not attribution). Returns `{:error, :user_not_found}` if no user
-  with that email has ever logged in.
+  Shares `workspace` with `email` (docs/architecture/0002-auth-and-sharing-model.md:
+  an explicit grant, not attribution). If a `User` with that email has
+  already logged in once, grants them member access immediately and emails
+  them. If not, creates a pending `WorkspaceInvitation` and emails the
+  address a sign-in link; it's fulfilled automatically the first time that
+  email completes OIDC login (see `get_or_create_user_from_oidc!/1`).
   """
-  def share_workspace_with_email(%Workspace{} = workspace, email) do
+  def share_workspace_with_email(%Workspace{} = workspace, email, %User{} = inviter) do
     case Repo.get_by(User, email: email) do
       nil ->
-        {:error, :user_not_found}
+        %WorkspaceInvitation{}
+        |> WorkspaceInvitation.changeset(%{
+          workspace_id: workspace.id,
+          email: email,
+          invited_by_user_id: inviter.id
+        })
+        |> Repo.insert()
+        |> tap(fn
+          {:ok, invitation} ->
+            UserNotifier.deliver_workspace_invitation(invitation, workspace, inviter)
+
+          {:error, _changeset} ->
+            :ok
+        end)
 
       %User{} = user ->
         %WorkspaceMember{}
@@ -146,6 +197,30 @@ defmodule DebtReliefTracker.Accounts do
           role: :member
         })
         |> Repo.insert()
+        |> tap(fn
+          {:ok, _member} -> UserNotifier.deliver_workspace_shared(user, workspace, inviter)
+          {:error, _changeset} -> :ok
+        end)
+    end
+  end
+
+  @doc "Pending invitations for a workspace, oldest first."
+  def list_pending_invitations(%Workspace{id: workspace_id}) do
+    from(i in WorkspaceInvitation,
+      where: i.workspace_id == ^workspace_id,
+      order_by: i.inserted_at
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Cancels a pending invitation belonging to `workspace`. `{:error, :not_found}`
+  if it's already gone (accepted or previously canceled).
+  """
+  def cancel_invitation(%Workspace{id: workspace_id}, invitation_id) do
+    case Repo.get_by(WorkspaceInvitation, id: invitation_id, workspace_id: workspace_id) do
+      nil -> {:error, :not_found}
+      invitation -> Repo.delete(invitation)
     end
   end
 end

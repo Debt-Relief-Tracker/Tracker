@@ -45,6 +45,10 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
        |> assign(:oidc_enabled, OIDC.enabled?())
        |> assign(:workspace, workspace)
        |> assign(:workspaces, current_user && Accounts.list_workspaces_for_user(current_user))
+       |> assign(
+         :pending_invitations,
+         pending_invitations_for(workspace, OIDC.enabled?(), current_user)
+       )
        |> assign(:share_form, to_form(%{"email" => ""}, as: :share))
        |> assign(:strategy, :cash_flow)
        |> assign(:chart_type, :comparison)
@@ -70,6 +74,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   defp current_workspace(nil), do: Accounts.ensure_default_workspace!()
   defp current_workspace(%Accounts.User{} = user), do: Accounts.current_workspace_for_user(user)
+
+  defp pending_invitations_for(workspace, oidc_enabled, current_user) do
+    if (oidc_enabled and current_user) && Accounts.owner?(workspace, current_user) do
+      Accounts.list_pending_invitations(workspace)
+    else
+      []
+    end
+  end
 
   # A budget that at least covers minimum payments, so a brand-new workspace
   # (or the placeholder debts) shows a feasible plan instead of an
@@ -413,6 +425,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     {:noreply,
      socket
      |> assign(:workspace, workspace)
+     |> assign(
+       :pending_invitations,
+       pending_invitations_for(
+         workspace,
+         socket.assigns.oidc_enabled,
+         socket.assigns.current_user
+       )
+     )
      |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
      |> assign(:budget_mode, settings.budget_mode || :total)
      |> assign(:currency, settings.currency || "USD")
@@ -423,20 +443,47 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   end
 
   def handle_event("share_workspace", %{"share" => %{"email" => email}}, socket) do
-    case Accounts.share_workspace_with_email(socket.assigns.workspace, email) do
-      {:ok, _member} ->
+    case Accounts.share_workspace_with_email(
+           socket.assigns.workspace,
+           email,
+           socket.assigns.current_user
+         ) do
+      {:ok, %Accounts.WorkspaceMember{}} ->
         {:noreply,
          socket
          |> assign(:workspaces, Accounts.list_workspaces_for_user(socket.assigns.current_user))
          |> assign(:share_form, to_form(%{"email" => ""}, as: :share))
          |> put_flash(:info, "Shared with #{email}.")}
 
-      {:error, :user_not_found} ->
-        {:noreply, put_flash(socket, :error, "No one with that email has logged in yet.")}
+      {:ok, %Accounts.WorkspaceInvitation{}} ->
+        {:noreply,
+         socket
+         |> assign(
+           :pending_invitations,
+           Accounts.list_pending_invitations(socket.assigns.workspace)
+         )
+         |> assign(:share_form, to_form(%{"email" => ""}, as: :share))
+         |> put_flash(:info, "Invited #{email} -- they'll get access once they sign in.")}
 
-      {:error, _changeset} ->
+      {:error, %Ecto.Changeset{data: %Accounts.WorkspaceMember{}}} ->
         {:noreply, put_flash(socket, :error, "#{email} already has access.")}
+
+      {:error, %Ecto.Changeset{data: %Accounts.WorkspaceInvitation{}}} ->
+        {:noreply, put_flash(socket, :error, "#{email} has already been invited.")}
     end
+  end
+
+  def handle_event("cancel_invitation", %{"id" => id}, socket) do
+    if Accounts.owner?(socket.assigns.workspace, socket.assigns.current_user) do
+      Accounts.cancel_invitation(socket.assigns.workspace, id)
+    end
+
+    {:noreply,
+     assign(
+       socket,
+       :pending_invitations,
+       Accounts.list_pending_invitations(socket.assigns.workspace)
+     )}
   end
 
   # --- render ------------------------------------------------------------
@@ -475,6 +522,20 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             />
             <.button type="submit" class="btn btn-ghost btn-sm">Share</.button>
           </.form>
+
+          <div :if={@pending_invitations != []} class="flex items-center gap-1 flex-wrap">
+            <span :for={invitation <- @pending_invitations} class="badge badge-ghost gap-1">
+              {invitation.email}
+              <button
+                type="button"
+                phx-click="cancel_invitation"
+                phx-value-id={invitation.id}
+                aria-label={"Cancel invitation for #{invitation.email}"}
+              >
+                <.icon name="hero-x-mark" class="w-3 h-3" />
+              </button>
+            </span>
+          </div>
         </div>
 
         <div :if={@oidc_enabled} class="flex-none flex items-center gap-2 text-sm">
