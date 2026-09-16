@@ -126,19 +126,29 @@ if config_env() == :prod do
 
   # ## Configuring the mailer
   #
-  # In production you need to configure the mailer to use a different adapter.
-  # Here is an example configuration for Mailgun:
-  #
-  #     config :debt_relief_tracker, DebtReliefTracker.Mailer,
-  #       adapter: Swoosh.Adapters.Mailgun,
-  #       api_key: System.get_env("MAILGUN_API_KEY"),
-  #       domain: System.get_env("MAILGUN_DOMAIN")
-  #
-  # Most non-SMTP adapters require an API client. Swoosh supports Req, Hackney,
-  # and Finch out-of-the-box. This configuration is typically done at
-  # compile-time in your config/prod.exs:
-  #
-  #     config :swoosh, :api_client, Swoosh.ApiClient.Req
-  #
-  # See https://hexdocs.pm/swoosh/Swoosh.html#module-installation for details.
+  # Transactional email (workspace-share notifications and invitations) is
+  # sent via Resend. Unlike OIDC, this isn't an optional integration -- once
+  # configured, a missing key means invite emails silently vanish with no
+  # operator signal, so fail fast at boot instead (same style as
+  # SECRET_KEY_BASE above).
+  resend_api_key =
+    System.get_env("RESEND_API_KEY") ||
+      raise """
+      environment variable RESEND_API_KEY is missing.
+      Get an API key from https://resend.com/api-keys
+      """
+
+  config :debt_relief_tracker, DebtReliefTracker.Mailer,
+    adapter: Swoosh.Adapters.Resend,
+    api_key: resend_api_key
+
+  mailer_from_email =
+    System.get_env("MAILER_FROM_EMAIL") ||
+      raise """
+      environment variable MAILER_FROM_EMAIL is missing.
+      This must be an address on a domain verified with Resend.
+      """
+
+  config :debt_relief_tracker, :mailer,
+    from: {System.get_env("MAILER_FROM_NAME") || "Debt Relief Tracker", mailer_from_email}
 end

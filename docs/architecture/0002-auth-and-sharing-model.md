@@ -89,10 +89,17 @@ than to a single mutable global table everyone writes into.
   `Accounts.owner?/2` is true for the currently-viewed workspace) rather than
   a separate settings page — there wasn't enough surface area here to justify
   one.
-- Matches known users by email (`Accounts.share_workspace_with_email/2`) --
-  "known" means they've logged in via OIDC at least once already. No invite
-  links/tokens for users who've never logged in; out of scope unless a real
-  need for it shows up.
+- Matches known users by email (`Accounts.share_workspace_with_email/3`) --
+  "known" means they've logged in via OIDC at least once already, in which
+  case they're granted access immediately and emailed a notice. If the email
+  is unknown, a pending `WorkspaceInvitation` row is created instead and the
+  address is emailed a plain sign-in link (via Resend/`Swoosh`,
+  `Accounts.UserNotifier`) -- no separate shareable link/token is generated;
+  the invitee just signs in normally at `/auth/login`, and
+  `get_or_create_user_from_oidc!/1` fulfills any pending invitations for
+  their email the moment their `User` is created, turning them into real
+  `WorkspaceMember` access. The owner can see and cancel pending invitations
+  from the same header UI.
 - **Verification gap**: the actual browser → provider → callback → token
   exchange has not been run against a real OIDC provider (none available in
   the environment this was built in). Everything downstream of a session

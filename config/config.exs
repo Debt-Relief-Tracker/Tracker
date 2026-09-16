@@ -37,6 +37,12 @@ config :debt_relief_tracker, DebtReliefTrackerWeb.Endpoint,
 # at the `config/runtime.exs`.
 config :debt_relief_tracker, DebtReliefTracker.Mailer, adapter: Swoosh.Adapters.Local
 
+# The "From" address used when building outgoing emails (UserNotifier).
+# Independent of which Swoosh adapter is active -- read via
+# Application.get_env(:debt_relief_tracker, :mailer)[:from] wherever a
+# Swoosh.Email is built.
+config :debt_relief_tracker, :mailer, from: {"Debt Relief Tracker", "onboarding@resend.dev"}
+
 # Configure esbuild (the version is required)
 config :esbuild,
   version: "0.25.4",

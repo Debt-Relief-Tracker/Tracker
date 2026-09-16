@@ -1,6 +1,8 @@
 defmodule DebtReliefTracker.AccountsTest do
   use DebtReliefTracker.DataCase
 
+  import Swoosh.TestAssertions
+
   alias DebtReliefTracker.Accounts
 
   describe "ensure_default_workspace!/0" do
@@ -47,24 +49,85 @@ defmodule DebtReliefTracker.AccountsTest do
     end
   end
 
-  describe "share_workspace_with_email/2" do
-    test "grants member access to a known user" do
+  describe "share_workspace_with_email/3" do
+    test "grants member access to a known user and emails them" do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
       member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
       workspace = Accounts.current_workspace_for_user(owner)
 
-      assert {:ok, _member} = Accounts.share_workspace_with_email(workspace, "b@example.com")
+      assert {:ok, _member} =
+               Accounts.share_workspace_with_email(workspace, "b@example.com", owner)
 
       assert workspace in Accounts.list_workspaces_for_user(member)
       refute Accounts.owner?(workspace, member)
+      assert_email_sent(to: {member.display_name, "b@example.com"})
     end
 
-    test "returns an error when no user with that email has ever logged in" do
+    test "creates a pending invitation and emails the address when no user with that email has ever logged in" do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
       workspace = Accounts.current_workspace_for_user(owner)
 
-      assert Accounts.share_workspace_with_email(workspace, "nobody@example.com") ==
-               {:error, :user_not_found}
+      assert {:ok, invitation} =
+               Accounts.share_workspace_with_email(workspace, "nobody@example.com", owner)
+
+      assert invitation.email == "nobody@example.com"
+      assert invitation.workspace_id == workspace.id
+      assert_email_sent(to: "nobody@example.com")
+    end
+
+    test "returns an error when the same email has already been invited" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      assert {:ok, _invitation} =
+               Accounts.share_workspace_with_email(workspace, "nobody@example.com", owner)
+
+      assert {:error, changeset} =
+               Accounts.share_workspace_with_email(workspace, "nobody@example.com", owner)
+
+      assert %{workspace_id: ["has already been taken"]} = errors_on(changeset)
+    end
+
+    test "fulfills a pending invitation the first time that email logs in via OIDC" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, _invitation} =
+        Accounts.share_workspace_with_email(workspace, "new@example.com", owner)
+
+      new_user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "new",
+          "email" => "new@example.com",
+          "name" => "Newcomer"
+        })
+
+      assert workspace in Accounts.list_workspaces_for_user(new_user)
+      refute Accounts.owner?(workspace, new_user)
+      assert Accounts.list_pending_invitations(workspace) == []
+    end
+  end
+
+  describe "list_pending_invitations/1 and cancel_invitation/2" do
+    test "lists and cancels pending invitations scoped to the workspace" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, invitation} =
+        Accounts.share_workspace_with_email(workspace, "nobody@example.com", owner)
+
+      assert [%{id: id}] = Accounts.list_pending_invitations(workspace)
+      assert id == invitation.id
+
+      assert {:ok, _} = Accounts.cancel_invitation(workspace, invitation.id)
+      assert Accounts.list_pending_invitations(workspace) == []
+    end
+
+    test "cancel_invitation/2 returns {:error, :not_found} for a foreign or missing id" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      assert Accounts.cancel_invitation(workspace, -1) == {:error, :not_found}
     end
   end
 
@@ -74,7 +137,7 @@ defmodule DebtReliefTracker.AccountsTest do
       member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
       owner_workspace = Accounts.current_workspace_for_user(owner)
 
-      {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "b@example.com")
+      {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "b@example.com", owner)
       member_own_workspace = Accounts.current_workspace_for_user(member)
 
       assert Accounts.current_workspace_for_user(member, owner_workspace.id).id ==
