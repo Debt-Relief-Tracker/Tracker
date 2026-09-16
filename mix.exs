@@ -99,7 +99,11 @@ defmodule DebtReliefTracker.MixProject do
         "ecto.migrate --quiet -r DebtReliefTracker.Repo.Sqlite",
         "test"
       ],
-      "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
+      "assets.setup": [
+        "tailwind.install --if-missing",
+        "esbuild.install --if-missing",
+        "cmd --cd assets npm install"
+      ],
       "assets.build": ["tailwind debt_relief_tracker", "esbuild debt_relief_tracker"],
       "assets.deploy": [
         "tailwind debt_relief_tracker --minify",
