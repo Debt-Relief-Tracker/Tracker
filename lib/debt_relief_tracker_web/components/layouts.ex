@@ -31,44 +31,89 @@ defmodule DebtReliefTrackerWeb.Layouts do
     default: nil,
     doc: "the current [scope](https://hexdocs.pm/phoenix/scopes.html)"
 
+  attr :full_width, :boolean,
+    default: false,
+    doc:
+      "renders a full-viewport-height layout with no nav chrome/max-width, for dashboard-style pages"
+
   slot :inner_block, required: true
 
   def app(assigns) do
     ~H"""
-    <header class="navbar px-4 sm:px-6 lg:px-8">
-      <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2">
-          <img src={~p"/images/logo.svg"} width="36" />
-          <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
-        </a>
-      </div>
-      <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
-          </li>
-          <li>
-            <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">GitHub</a>
-          </li>
-          <li>
-            <.theme_toggle />
-          </li>
-          <li>
-            <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
-              Get Started <span aria-hidden="true">&rarr;</span>
-            </a>
-          </li>
-        </ul>
-      </div>
-    </header>
-
-    <main class="px-4 py-20 sm:px-6 lg:px-8">
-      <div class="mx-auto max-w-2xl space-y-4">
+    <%= if @full_width do %>
+      <div class="h-screen flex flex-col overflow-hidden" data-theme-scope>
         {render_slot(@inner_block)}
+        <.flash_group flash={@flash} />
+        <.app_footer />
       </div>
-    </main>
+    <% else %>
+      <header class="navbar px-4 sm:px-6 lg:px-8">
+        <div class="flex-1">
+          <a href="/" class="flex-1 flex w-fit items-center gap-2">
+            <img src={~p"/images/logo.svg"} width="36" />
+            <span class="text-sm font-semibold">v{Application.spec(:phoenix, :vsn)}</span>
+          </a>
+        </div>
+        <div class="flex-none">
+          <ul class="flex flex-column px-1 space-x-4 items-center">
+            <li>
+              <a href="https://phoenixframework.org/" class="btn btn-ghost">Website</a>
+            </li>
+            <li>
+              <a href="https://github.com/phoenixframework/phoenix" class="btn btn-ghost">
+                GitHub
+              </a>
+            </li>
+            <li>
+              <.theme_toggle />
+            </li>
+            <li>
+              <a href="https://hexdocs.pm/phoenix/overview.html" class="btn btn-primary">
+                Get Started <span aria-hidden="true">&rarr;</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      </header>
 
-    <.flash_group flash={@flash} />
+      <main class="px-4 py-20 sm:px-6 lg:px-8">
+        <div class="mx-auto max-w-2xl space-y-4">
+          {render_slot(@inner_block)}
+        </div>
+      </main>
+
+      <.flash_group flash={@flash} />
+      <.app_footer />
+    <% end %>
+    """
+  end
+
+  defp app_footer(assigns) do
+    ~H"""
+    <footer
+      id="app-footer"
+      class="shrink-0 h-10 flex items-center justify-center gap-2 border-t border-base-300 text-sm text-base-content/70"
+    >
+      <span>Debt Relief Tracker</span>
+      <span aria-hidden="true">·</span>
+      <.link
+        href="https://github.com/Debt-Relief-Tracker/Tracker"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="link link-hover"
+      >
+        GitHub
+      </.link>
+      <span aria-hidden="true">·</span>
+      <.link
+        href="https://github.com/Debt-Relief-Tracker/Tracker/blob/main/LICENSE"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="link link-hover"
+      >
+        MIT License
+      </.link>
+    </footer>
     """
   end
 
