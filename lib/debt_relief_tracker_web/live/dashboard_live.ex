@@ -567,7 +567,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="min-h-screen flex flex-col" data-theme-scope>
+    <div class="h-screen flex flex-col overflow-hidden" data-theme-scope>
       <header class="navbar px-4 border-b border-base-300 gap-3">
         <div class="flex-1 flex items-center gap-3">
           <span class="font-semibold">{@workspace.name}</span>
@@ -605,7 +605,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       <Layouts.flash_group flash={@flash} />
 
       <div class="flex flex-1 min-h-0">
-        <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-r border-base-300 p-3 flex flex-col gap-3 overflow-y-auto">
+        <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
           <.button phx-click="open_add_debt" class="btn btn-primary btn-sm w-full">
             <.icon name="hero-plus" class="size-4" /> Add debt
           </.button>
@@ -615,14 +615,8 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           <.button phx-click="open_activity_log" class="btn btn-soft btn-sm w-full">
             Activity log
           </.button>
-          <.link href={~p"/export/debts.csv"} class="btn btn-soft btn-sm w-full">
-            Export debts (CSV)
-          </.link>
-          <.link href={~p"/export/payments.csv"} class="btn btn-soft btn-sm w-full">
-            Export payments (CSV)
-          </.link>
 
-          <ul class="flex flex-col gap-2 mt-2">
+          <ul class="flex flex-col gap-2 mt-2 flex-1 min-h-0 overflow-y-auto">
             <li
               :for={debt <- @debts}
               class={[
@@ -1107,6 +1101,18 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           </select>
         </form>
         <p :if={!@modal.is_owner} class="text-sm opacity-70">{@currency}</p>
+      </section>
+
+      <section class="mb-6">
+        <h3 class="font-medium mb-2">Export</h3>
+        <div class="flex flex-col gap-2">
+          <.link href={~p"/export/debts.csv"} class="btn btn-soft btn-sm w-full">
+            Export debts (CSV)
+          </.link>
+          <.link href={~p"/export/payments.csv"} class="btn btn-soft btn-sm w-full">
+            Export payments (CSV)
+          </.link>
+        </div>
       </section>
 
       <section :if={@oidc_enabled and @modal.is_owner}>
