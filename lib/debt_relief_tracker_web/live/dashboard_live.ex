@@ -25,12 +25,68 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   @strategies [:cash_flow, :snowball, :avalanche]
   @chart_types [:comparison, :simulation, :monthly_payments, :freed_cashflow, :interest_breakdown]
 
+  # The onboarding tutorial: a step with no `:target` is a centered welcome
+  # card (no spotlight). Steps 5-6 set `:chart_type` because the strategy
+  # switcher is only rendered for non-comparison/interest_breakdown chart
+  # types (see render/1) -- reaching that step must switch the chart first
+  # so the target actually exists in the DOM.
+  @tutorial_steps [
+    %{
+      target: nil,
+      title: "Welcome to your debt tracker",
+      body: "A quick tour of the essentials -- feel free to skip anytime.",
+      chart_type: nil
+    },
+    %{
+      target: "#add-debt-button",
+      title: "Add a debt",
+      body: "Start here to add each loan, credit card, or line of credit you're tracking.",
+      chart_type: nil
+    },
+    %{
+      target: "#debt-list",
+      title: "Your debts",
+      body:
+        "Every debt you add shows up here, with quick actions to log a payment, edit, or mark it paid off.",
+      chart_type: nil
+    },
+    %{
+      target: "#budget-input",
+      title: "Set your budget",
+      body:
+        "Tell us how much you can put toward debt each month -- this drives every payoff projection.",
+      chart_type: nil
+    },
+    %{
+      target: "#chart-type-switcher",
+      title: "Chart views",
+      body:
+        "Switch between comparing strategies, simulating a payoff plan, and other views of your progress.",
+      chart_type: :comparison
+    },
+    %{
+      target: "#strategy-switcher",
+      title: "Payoff strategies",
+      body:
+        "Compare snowball, avalanche, and cash-flow strategies to see which pays off your debt fastest.",
+      chart_type: :simulation
+    },
+    %{
+      target: "#settings-button",
+      title: "Settings",
+      body:
+        "Set your currency, export your data, and come back here anytime to view this tutorial again.",
+      chart_type: nil
+    }
+  ]
+
   @impl true
   def mount(_params, session, socket) do
     if OIDC.enabled?() and is_nil(session["user_id"]) do
       {:ok, redirect(socket, to: ~p"/auth/login")}
     else
       current_user = current_user(session)
+      tutorial_user = current_user || Accounts.get_default_user!()
       workspace = current_workspace(current_user)
       settings = Settings.get_settings!(workspace)
       debts = Debts.list_debts(workspace)
@@ -60,6 +116,9 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
        |> assign(:modal, nil)
        |> assign(:form, nil)
        |> assign(:name_form, nil)
+       |> assign(:tutorial_user, tutorial_user)
+       |> assign(:tutorial, initial_tutorial(tutorial_user, connected?(socket)))
+       |> maybe_push_tutorial_step()
        |> assign(:debts, debts)
        |> assign(:due_prompts, due_prompts(debts))
        |> reload_lifetime_payments()
@@ -75,6 +134,46 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   defp current_workspace(nil), do: Accounts.ensure_default_workspace!()
   defp current_workspace(%Accounts.User{} = user), do: Accounts.current_workspace_for_user(user)
+
+  # Auto-starts the tutorial on a brand-new (or reset) user's first
+  # connected mount only -- `connected?` avoids a flash of the overlay on
+  # the disconnected initial render.
+  defp initial_tutorial(%Accounts.User{tutorial_seen: false}, true), do: %{step: 0}
+  defp initial_tutorial(_tutorial_user, _connected?), do: nil
+
+  defp apply_tutorial_chart_type(socket, %{chart_type: nil}), do: socket
+
+  defp apply_tutorial_chart_type(socket, %{chart_type: chart_type}) do
+    socket |> assign(:chart_type, chart_type) |> push_chart_data()
+  end
+
+  defp finish_tutorial(socket) do
+    {:ok, tutorial_user} = Accounts.set_tutorial_seen(socket.assigns.tutorial_user, true)
+
+    socket
+    |> assign(:tutorial_user, tutorial_user)
+    |> assign(:tutorial, nil)
+  end
+
+  defp maybe_push_tutorial_step(%{assigns: %{tutorial: nil}} = socket), do: socket
+
+  # The TutorialOverlay JS hook owns its DOM (phx-update="ignore") and
+  # renders each step from scratch on `pushEvent`, rather than by patching
+  # server-rendered HTML -- it has to compute the highlighted element's
+  # on-screen position with `getBoundingClientRect`, which LiveView has no
+  # visibility into (see assets/js/tutorial_overlay_hook.js).
+  defp maybe_push_tutorial_step(%{assigns: %{tutorial: %{step: step}}} = socket) do
+    tutorial_step = Enum.at(@tutorial_steps, step)
+
+    push_event(socket, "tutorial-step", %{
+      target: tutorial_step.target,
+      title: tutorial_step.title,
+      body: tutorial_step.body,
+      step: step + 1,
+      total: length(@tutorial_steps),
+      is_last: step == length(@tutorial_steps) - 1
+    })
+  end
 
   defp pending_invitations_for(workspace, oidc_enabled, current_user) do
     if (oidc_enabled and current_user) && Accounts.owner?(workspace, current_user) do
@@ -277,6 +376,49 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   def handle_event("close_modal", _params, socket) do
     {:noreply, socket |> assign(:modal, nil) |> assign(:form, nil) |> assign(:name_form, nil)}
+  end
+
+  # --- events: tutorial --------------------------------------------------------
+
+  def handle_event("tutorial_next", _params, socket) do
+    next_step = socket.assigns.tutorial.step + 1
+
+    if next_step < length(@tutorial_steps) do
+      {:noreply,
+       socket
+       |> assign(:tutorial, %{step: next_step})
+       |> apply_tutorial_chart_type(Enum.at(@tutorial_steps, next_step))
+       |> maybe_push_tutorial_step()}
+    else
+      {:noreply, finish_tutorial(socket)}
+    end
+  end
+
+  def handle_event("tutorial_prev", _params, socket) do
+    prev_step = max(socket.assigns.tutorial.step - 1, 0)
+
+    {:noreply,
+     socket
+     |> assign(:tutorial, %{step: prev_step})
+     |> apply_tutorial_chart_type(Enum.at(@tutorial_steps, prev_step))
+     |> maybe_push_tutorial_step()}
+  end
+
+  def handle_event("tutorial_skip", _params, socket) do
+    {:noreply, finish_tutorial(socket)}
+  end
+
+  def handle_event("restart_tutorial", _params, socket) do
+    {:ok, tutorial_user} = Accounts.set_tutorial_seen(socket.assigns.tutorial_user, false)
+
+    {:noreply,
+     socket
+     |> assign(:tutorial_user, tutorial_user)
+     |> assign(:modal, nil)
+     |> assign(:chart_type, :comparison)
+     |> push_chart_data()
+     |> assign(:tutorial, %{step: 0})
+     |> maybe_push_tutorial_step()}
   end
 
   def handle_event("mark_paid", %{"id" => id}, socket) do
@@ -585,6 +727,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           </form>
 
           <button
+            id="settings-button"
             type="button"
             phx-click="open_settings"
             class="btn btn-ghost btn-sm btn-circle"
@@ -604,7 +747,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
       <div class="flex flex-1 min-h-0">
         <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
-          <.button phx-click="open_add_debt" class="btn btn-primary btn-sm w-full">
+          <.button
+            id="add-debt-button"
+            phx-click="open_add_debt"
+            class="btn btn-primary btn-sm w-full"
+          >
             <.icon name="hero-plus" class="size-4" /> Add debt
           </.button>
           <.button phx-click="open_log_all_balances" class="btn btn-soft btn-sm w-full">
@@ -614,7 +761,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             Activity log
           </.button>
 
-          <ul class="flex flex-col gap-2 mt-2 flex-1 min-h-0 overflow-y-auto">
+          <ul id="debt-list" class="flex flex-col gap-2 mt-2 flex-1 min-h-0 overflow-y-auto">
             <li
               :for={debt <- @debts}
               class={[
@@ -691,6 +838,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
                 {if @budget_mode == :margin, do: "Additional margin", else: "Monthly budget"}
               </label>
               <input
+                id="budget-input"
                 type="number"
                 step="0.01"
                 name="monthly_budget"
@@ -716,7 +864,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
               </button>
             </div>
 
-            <div class="join">
+            <div id="chart-type-switcher" class="join">
               <button
                 :for={type <- @chart_types}
                 class={["btn btn-sm join-item", @chart_type == type && "btn-primary"]}
@@ -727,7 +875,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
               </button>
             </div>
 
-            <div :if={@chart_type != :comparison and @chart_type != :interest_breakdown} class="join">
+            <div
+              :if={@chart_type != :comparison and @chart_type != :interest_breakdown}
+              id="strategy-switcher"
+              class="join"
+            >
               <button
                 :for={strategy <- @strategy_options}
                 class={["btn btn-sm join-item", @strategy == strategy && "btn-primary"]}
@@ -770,6 +922,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         share_form={@share_form}
         pending_invitations={@pending_invitations}
       />
+      <.tutorial_overlay :if={@tutorial} />
     </Layouts.app>
     """
   end
@@ -1113,6 +1266,13 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         </div>
       </section>
 
+      <section class="mb-6">
+        <h3 class="font-medium mb-2">Tutorial</h3>
+        <.button type="button" phx-click="restart_tutorial" class="btn btn-soft btn-sm">
+          View tutorial again
+        </.button>
+      </section>
+
       <section :if={@oidc_enabled and @modal.is_owner}>
         <h3 class="font-medium mb-2">People</h3>
         <.form
@@ -1186,6 +1346,16 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         {render_slot(@inner_block)}
       </div>
     </div>
+    """
+  end
+
+  # The overlay's whole lifecycle -- spotlight, tooltip, Next/Back/Skip
+  # buttons -- is built and torn down by the TutorialOverlay hook itself via
+  # `pushEvent`/`handleEvent` (like PlanChart's canvas), so this container
+  # has no server-rendered content for LiveView to patch.
+  defp tutorial_overlay(assigns) do
+    ~H"""
+    <div id="tutorial-overlay" phx-hook="TutorialOverlay" phx-update="ignore"></div>
     """
   end
 

@@ -26,23 +26,42 @@ defmodule DebtReliefTracker.Accounts do
   every application start.
   """
   def ensure_default_workspace! do
+    get_owned_workspace!(get_default_user!())
+  end
+
+  @doc """
+  Returns the single implicit `User` used in no-auth mode (identified by a
+  `nil` `external_subject`), creating it and its own workspace on first boot
+  if it doesn't exist yet. Idempotent -- safe to call any time.
+  """
+  def get_default_user! do
     case Repo.one(from(u in User, where: is_nil(u.external_subject))) do
       nil ->
-        {_user, workspace} =
+        {user, _workspace} =
           create_user_with_own_workspace!(
             %{display_name: "You", external_subject: nil},
             "My Debts"
           )
 
-        workspace
+        user
 
       %User{} = user ->
-        get_owned_workspace!(user)
+        user
     end
   end
 
   @doc "Fetches a user by id."
   def get_user!(id), do: Repo.get!(User, id)
+
+  @doc """
+  Marks whether `user` has seen the dashboard's onboarding tutorial. Used
+  both to record completion/skip and to reset it via "View tutorial again."
+  """
+  def set_tutorial_seen(%User{} = user, seen?) do
+    user
+    |> User.tutorial_changeset(%{tutorial_seen: seen?})
+    |> Repo.update()
+  end
 
   @doc """
   Finds or creates the `User` for an OIDC identity (matched on the

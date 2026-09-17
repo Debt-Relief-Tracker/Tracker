@@ -8,6 +8,7 @@ defmodule DebtReliefTracker.Accounts.User do
     field :external_subject, :string
     field :email, :string
     field :display_name, :string
+    field :tutorial_seen, :boolean, default: false
 
     timestamps()
   end
@@ -17,5 +18,9 @@ defmodule DebtReliefTracker.Accounts.User do
     |> cast(attrs, [:external_subject, :email, :display_name])
     |> validate_required([:display_name])
     |> unique_constraint(:external_subject)
+  end
+
+  def tutorial_changeset(user, attrs) do
+    cast(user, attrs, [:tutorial_seen])
   end
 end

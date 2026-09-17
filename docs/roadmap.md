@@ -290,6 +290,22 @@ list:
       rather than requiring an exact-day match, so a container stopped over
       the due date still catches up on the next check instead of silently
       skipping that cycle.
+- [x] Onboarding tutorial: a skippable, one-time spotlight walkthrough of the
+      dashboard (add a debt, the debt list, the budget input, the chart-type
+      and strategy switchers, settings). Tracked via a new `tutorial_seen`
+      boolean on `Accounts.User` rather than `Settings` (workspace-scoped) --
+      this app has no per-authenticated-user record in no-auth mode
+      (`current_user` is `nil` there per ADR 0002), but
+      `Accounts.ensure_default_workspace!/0` already resolves a real
+      singleton `User` row for that mode, now exposed as
+      `Accounts.get_default_user!/0` and used as the tutorial's "current
+      user" when there's no OIDC session. No tour library added -- a
+      `TutorialOverlay` JS hook (same `phx-update="ignore"` +
+      `pushEvent`/`handleEvent` shape as `PlanChart`) positions a spotlight
+      and tooltip against the target element's `getBoundingClientRect()`,
+      since that's client-side-only information LiveView can't compute
+      itself. "View tutorial again" in the settings modal resets
+      `tutorial_seen` and restarts it.
 
 ## Verification
 
