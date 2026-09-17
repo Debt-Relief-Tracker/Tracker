@@ -567,7 +567,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="h-screen flex flex-col overflow-hidden" data-theme-scope>
+    <Layouts.app flash={@flash} full_width>
       <header class="navbar px-4 border-b border-base-300 gap-3">
         <div class="flex-1 flex items-center gap-3">
           <span class="font-semibold">{@workspace.name}</span>
@@ -601,8 +601,6 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
         <div class="flex-none"><Layouts.theme_toggle /></div>
       </header>
-
-      <Layouts.flash_group flash={@flash} />
 
       <div class="flex flex-1 min-h-0">
         <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
@@ -772,7 +770,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         share_form={@share_form}
         pending_invitations={@pending_invitations}
       />
-    </div>
+    </Layouts.app>
     """
   end
 
