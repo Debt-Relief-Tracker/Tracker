@@ -16,4 +16,11 @@ defmodule DebtReliefTracker.Accounts.Workspace do
     |> cast(attrs, [:name, :owner_user_id])
     |> validate_required([:name, :owner_user_id])
   end
+
+  @doc "For renaming an existing workspace only -- owner is immutable after creation."
+  def rename_changeset(workspace, attrs) do
+    workspace
+    |> cast(attrs, [:name])
+    |> validate_required([:name])
+  end
 end

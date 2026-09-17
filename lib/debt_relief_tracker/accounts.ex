@@ -223,4 +223,37 @@ defmodule DebtReliefTracker.Accounts do
       invitation -> Repo.delete(invitation)
     end
   end
+
+  @doc "Renames `workspace`. Caller is responsible for authorizing the rename."
+  def update_workspace(%Workspace{} = workspace, attrs) do
+    workspace
+    |> Workspace.rename_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc """
+  Accepted members of a workspace, excluding the owner's own membership row,
+  oldest first, preloaded with :user.
+  """
+  def list_workspace_members(%Workspace{id: workspace_id}) do
+    from(m in WorkspaceMember,
+      where: m.workspace_id == ^workspace_id and m.role != :owner,
+      order_by: m.inserted_at,
+      preload: :user
+    )
+    |> Repo.all()
+  end
+
+  @doc """
+  Removes a member's access to `workspace`. `{:error, :not_found}` if already
+  gone; `{:error, :cannot_remove_owner}` if `member_id` resolves to the
+  workspace's own owner row.
+  """
+  def remove_member(%Workspace{id: workspace_id}, member_id) do
+    case Repo.get_by(WorkspaceMember, id: member_id, workspace_id: workspace_id) do
+      nil -> {:error, :not_found}
+      %WorkspaceMember{role: :owner} -> {:error, :cannot_remove_owner}
+      member -> Repo.delete(member)
+    end
+  end
 end

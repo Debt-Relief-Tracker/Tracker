@@ -84,11 +84,17 @@ than to a single mutable global table everyone writes into.
   browser pipeline — with only one route in the whole app, gating in
   `mount/3` is simpler and was preferred per earlier "keep it simple"
   feedback on this project.
-- Sharing lives directly in `DashboardLive`'s header (a workspace `<select>`
-  shown once `length(@workspaces) > 1`, and an email input shown only when
-  `Accounts.owner?/2` is true for the currently-viewed workspace) rather than
-  a separate settings page — there wasn't enough surface area here to justify
-  one.
+- The workspace `<select>` switcher stays inline in `DashboardLive`'s header
+  (shown once `length(@workspaces) > 1`). Sharing (invite-by-email, pending
+  invitations, and now accepted-member removal) lives in a settings modal
+  instead, opened via a gear button that's always visible in the header --
+  once renaming and currency joined it, there was enough surface area to
+  justify pulling it out of the header into its own modal. It's still not a
+  separate *route*/page, just a `DashboardLive` modal like the others
+  (`docs/plan.md`'s "modals, not new routes" convention). The invite
+  form/pending-invitation list and the accepted-members list are only
+  rendered inside that modal when `Accounts.owner?/2` is true for the
+  currently-viewed workspace.
 - Matches known users by email (`Accounts.share_workspace_with_email/3`) --
   "known" means they've logged in via OIDC at least once already, in which
   case they're granted access immediately and emailed a notice. If the email
@@ -98,8 +104,15 @@ than to a single mutable global table everyone writes into.
   the invitee just signs in normally at `/auth/login`, and
   `get_or_create_user_from_oidc!/1` fulfills any pending invitations for
   their email the moment their `User` is created, turning them into real
-  `WorkspaceMember` access. The owner can see and cancel pending invitations
-  from the same header UI.
+  `WorkspaceMember` access. The owner can see and cancel pending invitations,
+  and see and remove already-accepted members (`Accounts.remove_member/2`),
+  from the settings modal. Removal (pending or accepted) is silent -- no
+  email is sent, matching the existing no-notification behavior of
+  canceling a pending invitation.
+- The workspace name (`Accounts.update_workspace/2`) and `Settings.currency`
+  are both owner-only edits from the settings modal; non-owner members see
+  them as read-only text. This is a deliberate tightening for currency,
+  which previously had no owner-check at all.
 - **Verification gap**: the actual browser → provider → callback → token
   exchange has not been run against a real OIDC provider (none available in
   the environment this was built in). Everything downstream of a session
