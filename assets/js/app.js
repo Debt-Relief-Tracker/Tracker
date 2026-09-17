@@ -25,12 +25,13 @@ import {LiveSocket} from "phoenix_live_view"
 import {hooks as colocatedHooks} from "phoenix-colocated/debt_relief_tracker"
 import topbar from "../vendor/topbar"
 import PlanChart from "./plan_chart_hook"
+import TutorialOverlay from "./tutorial_overlay_hook"
 
 const csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,
   params: {_csrf_token: csrfToken},
-  hooks: {...colocatedHooks, PlanChart},
+  hooks: {...colocatedHooks, PlanChart, TutorialOverlay},
 })
 
 // Show progress bar on live navigation and form submits

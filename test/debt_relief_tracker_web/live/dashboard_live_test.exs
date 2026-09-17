@@ -668,4 +668,59 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
       assert html =~ "$850.00"
     end
   end
+
+  describe "onboarding tutorial" do
+    test "auto-starts on a brand-new user's first connected mount", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/")
+
+      assert html =~ ~s(id="tutorial-overlay")
+      assert_push_event(view, "tutorial-step", %{target: nil, step: 1, is_last: false})
+    end
+
+    test "skipping marks it seen and it doesn't show again on a later mount", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/")
+      assert html =~ ~s(id="tutorial-overlay")
+
+      html = render_click(view, "tutorial_skip", %{})
+      refute html =~ ~s(id="tutorial-overlay")
+      assert Accounts.get_default_user!().tutorial_seen
+
+      {:ok, _view, html} = live(conn, ~p"/")
+      refute html =~ ~s(id="tutorial-overlay")
+    end
+
+    test "advancing to the strategy step selects a chart type that makes the switcher visible", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+      refute has_element?(view, "#strategy-switcher")
+
+      for _ <- 1..5, do: render_click(view, "tutorial_next", %{})
+
+      assert has_element?(view, "#strategy-switcher")
+    end
+
+    test "clicking through every step finishes and marks it seen", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      html = for _ <- 1..7, do: render_click(view, "tutorial_next", %{})
+      html = List.last(html)
+
+      refute html =~ ~s(id="tutorial-overlay")
+      assert Accounts.get_default_user!().tutorial_seen
+    end
+
+    test "\"View tutorial again\" in Settings resets tutorial_seen and restarts it", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+      render_click(view, "tutorial_skip", %{})
+      assert Accounts.get_default_user!().tutorial_seen
+
+      view |> element("button[phx-click=open_settings]") |> render_click()
+      html = view |> element("button", "View tutorial again") |> render_click()
+
+      assert html =~ ~s(id="tutorial-overlay")
+      refute html =~ "Settings</h2>"
+      refute Accounts.get_default_user!().tutorial_seen
+    end
+  end
 end
