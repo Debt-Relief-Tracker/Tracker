@@ -254,13 +254,15 @@ Post-initial-build additions, not part of the original `minimum.md` feature
 list:
 
 - [x] `Settings.currency` (already existed, defaulted to `"USD"`, but was
-      never read anywhere) is now wired through: a `<select>` next to the
-      budget-mode buttons, `format_money/2` takes a currency and looks up a
-      small symbol map (`USD`/`EUR`/`GBP`/`CAD`/`AUD`/`JPY`), and the pushed
-      Chart.js config carries `currency` so the `PlanChart` hook's
-      `Intl.NumberFormat` tick/tooltip formatters match. No dedicated
-      settings page -- kept as an inline header control per the existing
-      "not enough surface area to justify one" precedent from ADR 0002.
+      never read anywhere) is now wired through: a `<select>`,
+      `format_money/2` takes a currency and looks up a small symbol map
+      (`USD`/`EUR`/`GBP`/`CAD`/`AUD`/`JPY`), and the pushed Chart.js config
+      carries `currency` so the `PlanChart` hook's `Intl.NumberFormat`
+      tick/tooltip formatters match. Originally an inline header control per
+      the "not enough surface area to justify a settings page" precedent from
+      ADR 0002; later moved into the settings modal (owner-only edit) once
+      workspace renaming and member management joined it there -- see the
+      updated ADR 0002 note.
 - [x] Activity log UI: a 4th modal (`ActivityLog.list_recent/2`, already
       existed and was already fed by every mutation, just never surfaced),
       stream-backed via the existing `<.table>` core component, with a

@@ -131,6 +131,70 @@ defmodule DebtReliefTracker.AccountsTest do
     end
   end
 
+  describe "update_workspace/2" do
+    test "renames the workspace" do
+      workspace = Accounts.ensure_default_workspace!()
+
+      assert {:ok, renamed} = Accounts.update_workspace(workspace, %{"name" => "Our Debts"})
+      assert renamed.name == "Our Debts"
+      assert Accounts.get_workspace!(workspace.id).name == "Our Debts"
+    end
+
+    test "returns an error changeset for a blank name" do
+      workspace = Accounts.ensure_default_workspace!()
+
+      assert {:error, changeset} = Accounts.update_workspace(workspace, %{"name" => ""})
+      assert %{name: ["can't be blank"]} = errors_on(changeset)
+    end
+  end
+
+  describe "list_workspace_members/1 and remove_member/2" do
+    test "lists accepted members excluding the owner's own row" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, _} = Accounts.share_workspace_with_email(workspace, "b@example.com", owner)
+
+      assert [%{user: %{id: user_id}}] = Accounts.list_workspace_members(workspace)
+      assert user_id == member.id
+    end
+
+    test "remove_member/2 deletes a member's access" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, _} = Accounts.share_workspace_with_email(workspace, "b@example.com", owner)
+      assert [membership] = Accounts.list_workspace_members(workspace)
+
+      assert {:ok, _} = Accounts.remove_member(workspace, membership.id)
+      assert Accounts.list_workspace_members(workspace) == []
+      refute workspace in Accounts.list_workspaces_for_user(member)
+    end
+
+    test "remove_member/2 returns {:error, :not_found} for a foreign or missing id" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      assert Accounts.remove_member(workspace, -1) == {:error, :not_found}
+    end
+
+    test "remove_member/2 returns {:error, :cannot_remove_owner} for the owner's own row" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      owner_membership =
+        DebtReliefTracker.Repo.get_by!(DebtReliefTracker.Accounts.WorkspaceMember,
+          workspace_id: workspace.id,
+          user_id: owner.id
+        )
+
+      assert Accounts.remove_member(workspace, owner_membership.id) ==
+               {:error, :cannot_remove_owner}
+    end
+  end
+
   describe "current_workspace_for_user/2" do
     test "prefers the given id when the user belongs to it, else falls back to the first" do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})

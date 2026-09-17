@@ -434,6 +434,8 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     {:ok, view, html} = live(conn, ~p"/")
     assert html =~ "$4,500.00"
 
+    view |> element("button[phx-click=open_settings]") |> render_click()
+
     html =
       view
       |> form("form[phx-change=select_currency]", %{"currency" => "EUR"})
@@ -444,6 +446,23 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
 
     settings = DebtReliefTracker.Settings.get_settings!(workspace)
     assert settings.currency == "EUR"
+  end
+
+  test "renaming the tracker from the settings modal updates the header and persists", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("button[phx-click=open_settings]") |> render_click()
+
+    html =
+      view
+      |> form("#workspace-name-form", %{"workspace" => %{"name" => "Our Debts"}})
+      |> render_submit()
+
+    assert html =~ "Our Debts"
+    assert DebtReliefTracker.Accounts.get_workspace!(workspace.id).name == "Our Debts"
   end
 
   test "entering a value in margin mode stores monthly_budget as minimums + margin", %{

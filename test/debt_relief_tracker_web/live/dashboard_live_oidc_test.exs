@@ -11,6 +11,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
   use DebtReliefTrackerWeb.ConnCase
 
   import Phoenix.LiveViewTest
+  import Swoosh.TestAssertions
 
   alias DebtReliefTracker.Accounts
 
@@ -54,6 +55,8 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
     assert html =~ "Alex"
     assert html =~ "Alex&#39;s Debts"
     refute has_element?(view, "select[name=workspace_id]")
+
+    view |> element("button[phx-click=open_settings]") |> render_click()
     assert has_element?(view, "input[name='share[email]']")
   end
 
@@ -80,8 +83,11 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
     {:ok, view, _html} = live(conn, ~p"/")
 
     assert has_element?(view, "select[name=workspace_id]")
+
     # Defaults to member's own workspace, which they own -- sharing shows.
+    view |> element("button[phx-click=open_settings]") |> render_click()
     assert has_element?(view, "input[name='share[email]']")
+    view |> element("button[phx-click=close_modal]") |> render_click()
 
     html =
       view
@@ -89,7 +95,9 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
       |> render_change()
 
     assert html =~ "Owner&#39;s Debts"
+
     # Now viewing a workspace they don't own -- sharing hides.
+    view |> element("button[phx-click=open_settings]") |> render_click()
     refute has_element?(view, "input[name='share[email]']")
   end
 
@@ -145,9 +153,11 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
     conn = Plug.Test.init_test_session(conn, user_id: owner.id)
     {:ok, view, _html} = live(conn, ~p"/")
 
+    view |> element("button[phx-click=open_settings]") |> render_click()
+
     html =
       view
-      |> form("form[phx-submit=share_workspace]", %{"share" => %{"email" => "new@example.com"}})
+      |> form("#settings-share-form", %{"share" => %{"email" => "new@example.com"}})
       |> render_submit()
 
     assert html =~ "Invited new@example.com"
@@ -158,5 +168,113 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
     |> render_click()
 
     refute has_element?(view, "span", "new@example.com")
+  end
+
+  test "a non-owner member sees the tracker name and currency as read-only, with no People section",
+       %{conn: conn} do
+    owner =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "owner",
+        "email" => "owner@example.com",
+        "name" => "Owner"
+      })
+
+    member =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "member",
+        "email" => "member@example.com",
+        "name" => "Member"
+      })
+
+    owner_workspace = Accounts.current_workspace_for_user(owner)
+    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com", owner)
+
+    conn = Plug.Test.init_test_session(conn, user_id: member.id)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view
+    |> form("form[phx-change=switch_workspace]", %{"workspace_id" => owner_workspace.id})
+    |> render_change()
+
+    view |> element("button[phx-click=open_settings]") |> render_click()
+
+    refute has_element?(view, "#workspace-name-form")
+    refute has_element?(view, "select[name=currency]")
+    refute has_element?(view, "input[name='share[email]']")
+
+    # Defense-in-depth: crafted rename/currency submissions are server-side no-ops.
+    view
+    |> render_hook("update_workspace_name", %{"workspace" => %{"name" => "Hijacked"}})
+
+    assert Accounts.get_workspace!(owner_workspace.id).name == owner_workspace.name
+
+    view |> render_hook("select_currency", %{"currency" => "JPY"})
+
+    assert DebtReliefTracker.Settings.get_settings!(owner_workspace).currency !=
+             "JPY"
+  end
+
+  test "owner renames the workspace and a subsequent invite email reflects the new name", %{
+    conn: conn
+  } do
+    owner =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "owner",
+        "email" => "owner@example.com",
+        "name" => "Owner"
+      })
+
+    conn = Plug.Test.init_test_session(conn, user_id: owner.id)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("button[phx-click=open_settings]") |> render_click()
+
+    view
+    |> form("#workspace-name-form", %{"workspace" => %{"name" => "Our Debts"}})
+    |> render_submit()
+
+    view
+    |> form("#settings-share-form", %{"share" => %{"email" => "new@example.com"}})
+    |> render_submit()
+
+    assert_email_sent(subject: "You've been invited to Our Debts")
+  end
+
+  test "owner sees pending and accepted people, and can remove an accepted member", %{conn: conn} do
+    owner =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "owner",
+        "email" => "owner@example.com",
+        "name" => "Owner"
+      })
+
+    member =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "member",
+        "email" => "member@example.com",
+        "name" => "Member"
+      })
+
+    owner_workspace = Accounts.current_workspace_for_user(owner)
+    {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com", owner)
+
+    conn = Plug.Test.init_test_session(conn, user_id: owner.id)
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("button[phx-click=open_settings]") |> render_click()
+
+    view
+    |> form("#settings-share-form", %{"share" => %{"email" => "new@example.com"}})
+    |> render_submit()
+
+    assert has_element?(view, "span", "new@example.com")
+    assert has_element?(view, "span", "Member")
+
+    view
+    |> element("button[phx-click=remove_member]")
+    |> render_click()
+
+    refute has_element?(view, "span", "Member")
+    refute owner_workspace in Accounts.list_workspaces_for_user(member)
   end
 end

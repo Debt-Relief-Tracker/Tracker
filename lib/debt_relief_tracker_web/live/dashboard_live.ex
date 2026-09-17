@@ -59,6 +59,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
        |> assign(:currency, settings.currency || "USD")
        |> assign(:modal, nil)
        |> assign(:form, nil)
+       |> assign(:name_form, nil)
        |> assign(:debts, debts)
        |> assign(:due_prompts, due_prompts(debts))
        |> reload_lifetime_payments()
@@ -81,6 +82,17 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     else
       []
     end
+  end
+
+  # Whether the current session may rename the workspace or change its
+  # currency. In no-auth mode there's exactly one implicit user/workspace, so
+  # this is always true there -- same reasoning as `current_user/1` returning
+  # `nil` when OIDC is off.
+  defp workspace_owner?(%{oidc_enabled: false}), do: true
+  defp workspace_owner?(%{oidc_enabled: true, current_user: nil}), do: false
+
+  defp workspace_owner?(%{oidc_enabled: true, current_user: user, workspace: workspace}) do
+    Accounts.owner?(workspace, user)
   end
 
   # A budget that at least covers minimum payments, so a brand-new workspace
@@ -249,8 +261,22 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> stream(:activity_entries, entries, reset: true)}
   end
 
+  def handle_event("open_settings", _params, socket) do
+    %{workspace: workspace} = socket.assigns
+    is_owner = workspace_owner?(socket.assigns)
+
+    {:noreply,
+     socket
+     |> assign(:modal, %{
+       type: :settings,
+       is_owner: is_owner,
+       accepted_members: if(is_owner, do: Accounts.list_workspace_members(workspace), else: [])
+     })
+     |> assign(:name_form, to_form(Accounts.Workspace.rename_changeset(workspace, %{})))}
+  end
+
   def handle_event("close_modal", _params, socket) do
-    {:noreply, socket |> assign(:modal, nil) |> assign(:form, nil)}
+    {:noreply, socket |> assign(:modal, nil) |> assign(:form, nil) |> assign(:name_form, nil)}
   end
 
   def handle_event("mark_paid", %{"id" => id}, socket) do
@@ -400,9 +426,45 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   end
 
   def handle_event("select_currency", %{"currency" => currency}, socket) do
-    settings = Settings.get_settings!(socket.assigns.workspace)
-    {:ok, _} = Settings.update_settings(settings, %{"currency" => currency})
-    {:noreply, socket |> assign(:currency, currency) |> push_chart_data()}
+    if workspace_owner?(socket.assigns) do
+      settings = Settings.get_settings!(socket.assigns.workspace)
+      {:ok, _} = Settings.update_settings(settings, %{"currency" => currency})
+      {:noreply, socket |> assign(:currency, currency) |> push_chart_data()}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("validate_workspace_name", %{"workspace" => params}, socket) do
+    changeset =
+      socket.assigns.workspace
+      |> Accounts.Workspace.rename_changeset(params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :name_form, to_form(changeset))}
+  end
+
+  def handle_event("update_workspace_name", %{"workspace" => params}, socket) do
+    if workspace_owner?(socket.assigns) do
+      case Accounts.update_workspace(socket.assigns.workspace, params) do
+        {:ok, workspace} ->
+          workspaces =
+            socket.assigns.current_user &&
+              Accounts.list_workspaces_for_user(socket.assigns.current_user)
+
+          {:noreply,
+           socket
+           |> assign(:workspace, workspace)
+           |> assign(:workspaces, workspaces)
+           |> assign(:name_form, to_form(Accounts.Workspace.rename_changeset(workspace, %{})))
+           |> put_flash(:info, "Renamed to #{workspace.name}.")}
+
+        {:error, changeset} ->
+          {:noreply, assign(socket, :name_form, to_form(changeset))}
+      end
+    else
+      {:noreply, socket}
+    end
   end
 
   # --- events: OIDC mode only -- workspace switching & sharing ---------------
@@ -486,6 +548,20 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      )}
   end
 
+  def handle_event("remove_member", %{"id" => id}, socket) do
+    %{workspace: workspace, current_user: current_user, modal: modal} = socket.assigns
+
+    if current_user && Accounts.owner?(workspace, current_user) do
+      Accounts.remove_member(workspace, id)
+    end
+
+    {:noreply,
+     assign(socket, :modal, %{
+       modal
+       | accepted_members: Accounts.list_workspace_members(workspace)
+     })}
+  end
+
   # --- render ------------------------------------------------------------
 
   @impl true
@@ -508,34 +584,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             </select>
           </form>
 
-          <.form
-            :if={@oidc_enabled and Accounts.owner?(@workspace, @current_user)}
-            for={@share_form}
-            phx-submit="share_workspace"
-            class="flex items-center gap-1"
+          <button
+            type="button"
+            phx-click="open_settings"
+            class="btn btn-ghost btn-sm btn-circle"
+            aria-label="Settings"
           >
-            <input
-              type="email"
-              name="share[email]"
-              placeholder="Share with email…"
-              class="input input-sm"
-            />
-            <.button type="submit" class="btn btn-ghost btn-sm">Share</.button>
-          </.form>
-
-          <div :if={@pending_invitations != []} class="flex items-center gap-1 flex-wrap">
-            <span :for={invitation <- @pending_invitations} class="badge badge-ghost gap-1">
-              {invitation.email}
-              <button
-                type="button"
-                phx-click="cancel_invitation"
-                phx-value-id={invitation.id}
-                aria-label={"Cancel invitation for #{invitation.email}"}
-              >
-                <.icon name="hero-x-mark" class="w-3 h-3" />
-              </button>
-            </span>
-          </div>
+            <.icon name="hero-cog-6-tooth" class="w-5 h-5" />
+          </button>
         </div>
 
         <div :if={@oidc_enabled} class="flex-none flex items-center gap-2 text-sm">
@@ -668,14 +724,6 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
               </button>
             </div>
 
-            <form phx-change="select_currency">
-              <select name="currency" class="select select-xs">
-                <option :for={code <- currency_codes()} value={code} selected={code == @currency}>
-                  {code}
-                </option>
-              </select>
-            </form>
-
             <div class="join">
               <button
                 :for={type <- @chart_types}
@@ -719,6 +767,16 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         :if={@modal && @modal.type == :activity_log}
         entries={@streams.activity_entries}
         currency={@currency}
+      />
+      <.settings_modal
+        :if={@modal && @modal.type == :settings}
+        modal={@modal}
+        workspace={@workspace}
+        name_form={@name_form}
+        currency={@currency}
+        oidc_enabled={@oidc_enabled}
+        share_form={@share_form}
+        pending_invitations={@pending_invitations}
       />
     </div>
     """
@@ -1003,6 +1061,103 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         </:col>
         <:col :let={entry} label="Activity">{activity_description(entry, @currency)}</:col>
       </.table>
+      <div class="flex justify-end mt-4">
+        <.button type="button" phx-click="close_modal">Close</.button>
+      </div>
+    </.modal>
+    """
+  end
+
+  attr :modal, :map, required: true
+  attr :workspace, :map, required: true
+  attr :name_form, :any, required: true
+  attr :currency, :string, required: true
+  attr :oidc_enabled, :boolean, required: true
+  attr :share_form, :any, required: true
+  attr :pending_invitations, :list, required: true
+
+  defp settings_modal(assigns) do
+    ~H"""
+    <.modal on_cancel="close_modal">
+      <h2 class="font-semibold text-lg mb-4">Settings</h2>
+
+      <section class="mb-6">
+        <h3 class="font-medium mb-2">Tracker name</h3>
+        <.form
+          :if={@modal.is_owner}
+          for={@name_form}
+          id="workspace-name-form"
+          phx-change="validate_workspace_name"
+          phx-submit="update_workspace_name"
+          class="flex items-center gap-2"
+        >
+          <.input field={@name_form[:name]} />
+          <.button type="submit" variant="primary" class="btn-sm">Save</.button>
+        </.form>
+        <p :if={!@modal.is_owner} class="text-sm opacity-70">{@workspace.name}</p>
+      </section>
+
+      <section class="mb-6">
+        <h3 class="font-medium mb-2">Currency</h3>
+        <form :if={@modal.is_owner} phx-change="select_currency">
+          <select name="currency" class="select select-sm">
+            <option :for={code <- currency_codes()} value={code} selected={code == @currency}>
+              {code}
+            </option>
+          </select>
+        </form>
+        <p :if={!@modal.is_owner} class="text-sm opacity-70">{@currency}</p>
+      </section>
+
+      <section :if={@oidc_enabled and @modal.is_owner}>
+        <h3 class="font-medium mb-2">People</h3>
+        <.form
+          for={@share_form}
+          id="settings-share-form"
+          phx-submit="share_workspace"
+          class="flex items-center gap-2 mb-3"
+        >
+          <input
+            type="email"
+            name="share[email]"
+            placeholder="Invite by email…"
+            class="input input-sm flex-1"
+          />
+          <.button type="submit" class="btn btn-sm">Invite</.button>
+        </.form>
+
+        <ul class="flex flex-col gap-1">
+          <li
+            :for={invitation <- @pending_invitations}
+            class="flex items-center justify-between text-sm"
+          >
+            <span>{invitation.email} <span class="badge badge-ghost badge-sm">pending</span></span>
+            <button
+              type="button"
+              phx-click="cancel_invitation"
+              phx-value-id={invitation.id}
+              aria-label={"Cancel invitation for #{invitation.email}"}
+            >
+              <.icon name="hero-x-mark" class="w-3 h-3" />
+            </button>
+          </li>
+          <li
+            :for={member <- @modal.accepted_members}
+            class="flex items-center justify-between text-sm"
+          >
+            <span>{member.user.display_name}</span>
+            <button
+              type="button"
+              phx-click="remove_member"
+              phx-value-id={member.id}
+              aria-label={"Remove #{member.user.display_name}"}
+            >
+              <.icon name="hero-x-mark" class="w-3 h-3" />
+            </button>
+          </li>
+        </ul>
+      </section>
+
       <div class="flex justify-end mt-4">
         <.button type="button" phx-click="close_modal">Close</.button>
       </div>
