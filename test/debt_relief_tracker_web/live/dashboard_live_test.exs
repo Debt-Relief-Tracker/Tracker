@@ -245,8 +245,10 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     assert has_element?(view, ".stat.bg-pink-600 .stat-value", "50%")
   end
 
-  test "renders CSV export links for debts and payments", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/")
+  test "renders CSV export links for debts and payments in the settings modal", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    html = view |> element("button[phx-click=open_settings]") |> render_click()
 
     assert html =~ ~s(href="/export/debts.csv")
     assert html =~ ~s(href="/export/payments.csv")
