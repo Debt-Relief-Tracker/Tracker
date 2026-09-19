@@ -30,21 +30,27 @@ defmodule DebtReliefTrackerWeb.AuthController do
   end
 
   def callback(conn, params) do
-    session_params = get_session(conn, :oidc_session_params) || %{}
+    if OIDC.enabled?() do
+      session_params = get_session(conn, :oidc_session_params) || %{}
 
-    case OIDC.callback(url(~p"/auth/callback"), params, session_params) do
-      {:ok, claims} ->
-        user = Accounts.get_or_create_user_from_oidc!(claims)
+      case OIDC.callback(url(~p"/auth/callback"), params, session_params) do
+        {:ok, claims} ->
+          user = Accounts.get_or_create_user_from_oidc!(claims)
 
-        conn
-        |> delete_session(:oidc_session_params)
-        |> put_session(:user_id, user.id)
-        |> redirect(to: ~p"/")
+          conn
+          |> delete_session(:oidc_session_params)
+          |> put_session(:user_id, user.id)
+          |> redirect(to: ~p"/")
 
-      {:error, _reason} ->
-        conn
-        |> put_flash(:error, "Login failed. Please try again.")
-        |> redirect(to: ~p"/")
+        {:error, _reason} ->
+          conn
+          |> put_flash(:error, "Login failed. Please try again.")
+          |> redirect(to: ~p"/")
+      end
+    else
+      conn
+      |> put_flash(:error, "Login failed. Please try again.")
+      |> redirect(to: ~p"/")
     end
   end
 
