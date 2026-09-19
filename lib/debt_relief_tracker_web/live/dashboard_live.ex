@@ -20,10 +20,18 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   alias DebtReliefTracker.Debts.{Debt, Calculations}
   alias DebtReliefTracker.Payments.Payment
+  alias DebtReliefTracker.Settings.Setting
   alias DebtReliefTrackerWeb.{Charts, OIDC}
 
   @strategies [:cash_flow, :snowball, :avalanche]
-  @chart_types [:comparison, :simulation, :monthly_payments, :freed_cashflow, :interest_breakdown]
+  @chart_types [
+    :comparison,
+    :simulation,
+    :monthly_payments,
+    :freed_cashflow,
+    :interest_breakdown,
+    :retirement_roadmap
+  ]
 
   # The onboarding tutorial: a step with no `:target` is a centered welcome
   # card (no spotlight). Steps 5-6 set `:chart_type` because the strategy
@@ -113,6 +121,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
        |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
        |> assign(:budget_mode, settings.budget_mode || :total)
        |> assign(:currency, settings.currency || "USD")
+       |> assign(:settings, settings)
        |> assign(:modal, nil)
        |> assign(:form, nil)
        |> assign(:name_form, nil)
@@ -194,6 +203,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     Accounts.owner?(workspace, user)
   end
 
+  defp show_retirement_prompt?(settings) do
+    not Settings.retirement_profile_set?(settings) and
+      not settings.retirement_onboarding_dismissed
+  end
+
   # A budget that at least covers minimum payments, so a brand-new workspace
   # (or the placeholder debts) shows a feasible plan instead of an
   # "insufficient budget" error on first load. The user can raise it from
@@ -254,11 +268,12 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       debts: debts,
       monthly_budget: budget,
       lifetime_payments: lifetime_payments,
-      currency: currency
+      currency: currency,
+      settings: settings
     } = socket.assigns
 
     {message, config} =
-      Charts.build(chart_type, strategy, strategies, debts, budget, lifetime_payments)
+      Charts.build(chart_type, strategy, strategies, debts, budget, lifetime_payments, settings)
 
     socket = assign(socket, :chart_message, message)
 
@@ -376,6 +391,55 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   def handle_event("close_modal", _params, socket) do
     {:noreply, socket |> assign(:modal, nil) |> assign(:form, nil) |> assign(:name_form, nil)}
+  end
+
+  # --- events: retirement onboarding -----------------------------------------
+
+  def handle_event("open_retirement_onboarding", _params, socket) do
+    changeset = Setting.retirement_changeset(socket.assigns.settings, %{})
+
+    {:noreply,
+     socket
+     |> assign(:modal, %{type: :retirement_onboarding})
+     |> assign(:form, to_form(changeset))}
+  end
+
+  def handle_event("validate_retirement_profile", %{"setting" => params}, socket) do
+    changeset =
+      socket.assigns.settings
+      |> Setting.retirement_changeset(params)
+      |> Map.put(:action, :validate)
+
+    {:noreply, assign(socket, :form, to_form(changeset))}
+  end
+
+  def handle_event("save_retirement_profile", %{"setting" => params}, socket) do
+    case Settings.update_retirement_profile(socket.assigns.settings, params) do
+      {:ok, settings} ->
+        {:noreply,
+         socket
+         |> assign(:settings, settings)
+         |> assign(:modal, nil)
+         |> assign(:form, nil)
+         |> put_flash(:info, "Retirement profile saved.")
+         |> assign_plan()}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+    end
+  end
+
+  def handle_event("dismiss_retirement_prompt", _params, socket) do
+    {:ok, settings} =
+      Settings.update_settings(socket.assigns.settings, %{
+        "retirement_onboarding_dismissed" => "true"
+      })
+
+    {:noreply,
+     socket
+     |> assign(:settings, settings)
+     |> assign(:modal, nil)
+     |> assign(:form, nil)}
   end
 
   # --- events: tutorial --------------------------------------------------------
@@ -812,6 +876,31 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         </aside>
 
         <main class="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
+          <div
+            :if={show_retirement_prompt?(@settings)}
+            id="retirement-onboarding-banner"
+            class="alert alert-info flex items-center justify-between"
+          >
+            <span>See how paying off debt sooner could grow your retirement savings.</span>
+            <div class="flex items-center gap-2">
+              <.button
+                type="button"
+                phx-click="open_retirement_onboarding"
+                class="btn btn-primary btn-sm"
+              >
+                Set up retirement plan
+              </.button>
+              <button
+                type="button"
+                phx-click="dismiss_retirement_prompt"
+                class="btn btn-ghost btn-xs"
+                aria-label="Dismiss"
+              >
+                <.icon name="hero-x-mark" class="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
           <% strategy_result = @strategies[@strategy] %>
           <% debt_remaining = Calculations.total_remaining_balance(@debts) %>
           <% interest_remaining = projected_interest_remaining(strategy_result) %>
@@ -876,7 +965,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             </div>
 
             <div
-              :if={@chart_type != :comparison and @chart_type != :interest_breakdown}
+              :if={@chart_type not in [:comparison, :interest_breakdown, :retirement_roadmap]}
               id="strategy-switcher"
               class="join"
             >
@@ -921,6 +1010,11 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         oidc_enabled={@oidc_enabled}
         share_form={@share_form}
         pending_invitations={@pending_invitations}
+        settings={@settings}
+      />
+      <.retirement_onboarding_modal
+        :if={@modal && @modal.type == :retirement_onboarding}
+        form={@form}
       />
       <.tutorial_overlay :if={@tutorial} />
     </Layouts.app>
@@ -1220,6 +1314,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   attr :oidc_enabled, :boolean, required: true
   attr :share_form, :any, required: true
   attr :pending_invitations, :list, required: true
+  attr :settings, :map, required: true
 
   defp settings_modal(assigns) do
     ~H"""
@@ -1270,6 +1365,24 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         <h3 class="font-medium mb-2">Tutorial</h3>
         <.button type="button" phx-click="restart_tutorial" class="btn btn-soft btn-sm">
           View tutorial again
+        </.button>
+      </section>
+
+      <section class="mb-6">
+        <h3 class="font-medium mb-2">Retirement planning</h3>
+        <p class="text-sm opacity-70 mb-2">
+          <%= if Settings.retirement_profile_set?(@settings) do %>
+            Retiring at age {@settings.retirement_age} (currently {@settings.current_age}).
+          <% else %>
+            Not set up yet.
+          <% end %>
+        </p>
+        <.button type="button" phx-click="open_retirement_onboarding" class="btn btn-soft btn-sm">
+          <%= if Settings.retirement_profile_set?(@settings) do %>
+            Edit retirement profile
+          <% else %>
+            Set up retirement profile
+          <% end %>
         </.button>
       </section>
 
@@ -1325,6 +1438,64 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       <div class="flex justify-end mt-4">
         <.button type="button" phx-click="close_modal">Close</.button>
       </div>
+    </.modal>
+    """
+  end
+
+  attr :form, :any, required: true
+
+  defp retirement_onboarding_modal(assigns) do
+    ~H"""
+    <.modal on_cancel="close_modal">
+      <h2 class="font-semibold text-lg mb-4">Plan your retirement</h2>
+      <p class="text-sm opacity-70 mb-4">
+        See how paying off debt sooner grows your retirement savings, by redirecting more of
+        your income into investing once you're debt-free.
+      </p>
+      <.form
+        for={@form}
+        id="retirement-onboarding-form"
+        phx-change="validate_retirement_profile"
+        phx-submit="save_retirement_profile"
+        class="flex flex-col gap-3"
+      >
+        <.input field={@form[:current_age]} type="number" label="Current age" />
+        <.input field={@form[:retirement_age]} type="number" label="Target retirement age" />
+        <.input
+          field={@form[:current_retirement_savings]}
+          type="number"
+          step="0.01"
+          label="Current retirement savings"
+        />
+        <.input
+          field={@form[:monthly_retirement_contribution]}
+          type="number"
+          step="0.01"
+          label="Current monthly retirement contribution"
+        />
+        <.input
+          field={@form[:monthly_gross_income]}
+          type="number"
+          step="0.01"
+          label="Monthly gross income"
+        />
+        <.input
+          field={@form[:post_debt_investment_pct]}
+          type="number"
+          step="0.1"
+          label="% of income to invest once debt-free"
+        />
+        <.input
+          field={@form[:expected_annual_return_pct]}
+          type="number"
+          step="0.1"
+          label="Expected annual return (%)"
+        />
+        <div class="flex justify-end gap-2 mt-2">
+          <.button type="button" phx-click="dismiss_retirement_prompt">Skip for now</.button>
+          <.button type="submit" variant="primary">Save</.button>
+        </div>
+      </.form>
     </.modal>
     """
   end
@@ -1470,4 +1641,5 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   defp chart_label(:monthly_payments), do: "Monthly payments"
   defp chart_label(:freed_cashflow), do: "Cash flow freed"
   defp chart_label(:interest_breakdown), do: "Interest vs. principal"
+  defp chart_label(:retirement_roadmap), do: "Retirement roadmap"
 end

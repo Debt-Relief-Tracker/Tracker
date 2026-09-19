@@ -117,6 +117,19 @@ function applyCurrencyFormatting(config) {
     }
 
     setTooltipLabel(config, (ctx) => `${ctx.dataset.label}: ${tooltipCurrency.format(ctx.parsed.y)}`)
+
+    // Only the retirement roadmap chart's datasets carry a parallel
+    // `monthlyContribution` array (see DebtReliefTrackerWeb.Charts) -- add
+    // the extra tooltip line only when it's actually present, so every
+    // other line chart's tooltip is untouched.
+    if (config.data?.datasets?.some((d) => d.monthlyContribution)) {
+      setTooltipAfterLabel(config, (ctx) => {
+        const contribution = ctx.dataset.monthlyContribution?.[ctx.dataIndex]
+        return contribution == null
+          ? ""
+          : `Contributing ${tooltipCurrency.format(contribution)}/mo`
+      })
+    }
   } else if (config.type === "doughnut") {
     setTooltipLabel(config, (ctx) => `${ctx.label}: ${tooltipCurrency.format(ctx.parsed)}`)
   }
@@ -130,6 +143,14 @@ function setTooltipLabel(config, labelFn) {
   const tooltip = (plugins.tooltip ||= {})
   const callbacks = (tooltip.callbacks ||= {})
   callbacks.label = labelFn
+}
+
+function setTooltipAfterLabel(config, afterLabelFn) {
+  const options = (config.options ||= {})
+  const plugins = (options.plugins ||= {})
+  const tooltip = (plugins.tooltip ||= {})
+  const callbacks = (tooltip.callbacks ||= {})
+  callbacks.afterLabel = afterLabelFn
 }
 
 // Renders whichever payoff-plan chart is selected (docs/plan.md Phase 5).

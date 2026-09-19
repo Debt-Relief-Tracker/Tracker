@@ -307,6 +307,48 @@ list:
       itself. "View tutorial again" in the settings modal resets
       `tutorial_seen` and restarts it.
 
+## Phase 9 — Retirement roadmapping
+
+Post-initial-build addition: a 6th chart type comparing how each debt payoff
+strategy affects long-run retirement savings, not just debt payoff itself.
+
+- [x] Retirement profile fields added to `Settings.Setting` (one row per
+      workspace, same as `monthly_budget`/`currency` -- no new context, per
+      the reuse guideline) rather than `Accounts.User`: `current_age`,
+      `retirement_age` (nullable, doubling as the "onboarding not completed"
+      signal), `current_retirement_savings`, `monthly_retirement_contribution`,
+      `monthly_gross_income`, `post_debt_investment_pct` (default 15%, the
+      common "invest 15% of income once debt-free" rule of thumb),
+      `expected_annual_return_pct` (default 7%), and
+      `retirement_onboarding_dismissed`. A dedicated `Setting.retirement_changeset/2`
+      requires the profile fields as a group (used by the onboarding/edit
+      modal); the general `changeset/2` leaves them optional.
+- [x] `DebtReliefTracker.Planning.Retirement` -- a pure calculation module
+      alongside `Planning`/`Debts.Calculations` -- projects monthly
+      compound-growth balances to retirement. Each strategy has a
+      "debt-free month" (`total_months` from `Planning.simulate/4`): before
+      it, the contribution is whatever the user currently invests; from it
+      onward, it switches to the recommended post-debt rate
+      (`post_debt_investment_pct` of `monthly_gross_income`) for the rest of
+      the horizon. A strategy that pays off debt sooner switches to the
+      (larger) post-debt contribution sooner and compounds longer at that
+      rate -- the mechanism that makes a faster strategy project a bigger
+      nest egg. The baseline line never switches, for comparison.
+- [x] `Charts.build/6` became `Charts.build/7` (a `settings` parameter added
+      to every clause) with a new `:retirement_roadmap` clause: one line per
+      strategy plus a dashed baseline, x-axis in age rather than month
+      count, reusing the existing `@palette`/`@total_line_color` so no
+      `PlanChart` JS hook changes were needed.
+- [x] Onboarding is a dismissible banner on the dashboard (not a
+      mount-blocking modal -- tried initially, but forcing a modal open on
+      every mount with no profile set would have collided with the existing
+      tutorial-overlay auto-start and made the dashboard unusable in
+      existing/manual-testing flows until dismissed) plus a "Set up/Edit
+      retirement profile" entry in the Settings modal, both opening the same
+      `:retirement_onboarding` modal via the standard
+      open/validate/save `handle_event` + changeset-backed `<.form>` pattern
+      used by add/edit-debt.
+
 ## Verification
 
 - [x] `mix precommit` passing (130 tests; compile --warning-as-errors,
