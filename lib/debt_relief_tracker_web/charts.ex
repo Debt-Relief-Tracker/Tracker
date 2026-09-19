@@ -8,6 +8,7 @@ defmodule DebtReliefTrackerWeb.Charts do
 
   alias DebtReliefTracker.Debts.Calculations
   alias DebtReliefTracker.Planning
+  alias DebtReliefTracker.Planning.Retirement
 
   @strategies [:cash_flow, :snowball, :avalanche]
 
@@ -38,24 +39,52 @@ defmodule DebtReliefTrackerWeb.Charts do
   plot yet (`nil` otherwise), `config` is a Chart.js config map ready to
   push to the client (`nil` when `message` is set).
   """
-  def build(:comparison, _strategy, strategies, _debts, _budget, _lifetime_payments) do
+  def build(:comparison, _strategy, strategies, _debts, _budget, _lifetime_payments, _settings) do
     comparison_config(strategies)
   end
 
-  def build(:simulation, strategy, strategies, debts, _budget, _lifetime_payments) do
+  def build(:simulation, strategy, strategies, debts, _budget, _lifetime_payments, _settings) do
     simulation_config(strategy, strategies, debts)
   end
 
-  def build(:monthly_payments, strategy, strategies, debts, _budget, _lifetime_payments) do
+  def build(
+        :monthly_payments,
+        strategy,
+        strategies,
+        debts,
+        _budget,
+        _lifetime_payments,
+        _settings
+      ) do
     monthly_payments_config(strategy, strategies, debts)
   end
 
-  def build(:freed_cashflow, strategy, _strategies, debts, budget, _lifetime_payments) do
+  def build(:freed_cashflow, strategy, _strategies, debts, budget, _lifetime_payments, _settings) do
     freed_cashflow_config(strategy, debts, budget)
   end
 
-  def build(:interest_breakdown, _strategy, _strategies, _debts, _budget, lifetime_payments) do
+  def build(
+        :interest_breakdown,
+        _strategy,
+        _strategies,
+        _debts,
+        _budget,
+        lifetime_payments,
+        _settings
+      ) do
     interest_breakdown_config(lifetime_payments)
+  end
+
+  def build(
+        :retirement_roadmap,
+        _strategy,
+        _strategies,
+        debts,
+        budget,
+        _lifetime_payments,
+        settings
+      ) do
+    retirement_roadmap_config(settings, debts, budget)
   end
 
   # --- comparison: dual-axis bar chart (interest $ + months, per strategy) ---
@@ -339,6 +368,98 @@ defmodule DebtReliefTrackerWeb.Charts do
 
       {nil, config}
     end
+  end
+
+  # --- retirement roadmap: baseline + one line per strategy -------------------
+
+  defp retirement_roadmap_config(settings, debts, budget) do
+    cond do
+      is_nil(settings.current_age) or is_nil(settings.retirement_age) ->
+        {"Set up your retirement profile to see how debt strategies affect your nest egg.", nil}
+
+      settings.retirement_age <= settings.current_age ->
+        {"Retirement age must be after current age -- update your retirement profile.", nil}
+
+      true ->
+        {nil, retirement_roadmap_chart(settings, debts, budget)}
+    end
+  end
+
+  defp retirement_roadmap_chart(settings, debts, budget) do
+    months = Retirement.months_to_retirement(settings)
+    years = div(months, 12)
+    labels = for y <- 0..years, do: settings.current_age + y
+
+    baseline_dataset = %{
+      label: "Baseline (no debt strategy)",
+      data: settings |> Retirement.baseline_projection() |> yearly_samples(),
+      monthlyContribution:
+        settings |> Retirement.baseline_contributions() |> yearly_contribution_samples(),
+      borderColor: @total_line_color,
+      backgroundColor: @total_line_color,
+      borderDash: [6, 4],
+      fill: false,
+      tension: 0.2,
+      pointRadius: 0
+    }
+
+    strategy_datasets =
+      @strategies
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {strategy, i} ->
+        case Retirement.strategy_projection_with_contributions(debts, settings, budget, strategy) do
+          {:ok, %{balances: balances, contributions: contributions}} ->
+            [
+              %{
+                label: strategy_label(strategy),
+                data: yearly_samples(balances),
+                monthlyContribution: yearly_contribution_samples(contributions),
+                borderColor: color(i),
+                backgroundColor: color(i),
+                fill: false,
+                tension: 0.2,
+                pointRadius: 0
+              }
+            ]
+
+          {:error, _reason} ->
+            []
+        end
+      end)
+
+    %{
+      type: "line",
+      data: %{labels: labels, datasets: [baseline_dataset | strategy_datasets]},
+      options: %{
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: %{mode: "index", intersect: false},
+        scales: %{
+          x: %{title: %{display: true, text: "Age"}},
+          y: %{
+            beginAtZero: true,
+            title: %{display: true, text: "Projected retirement savings ($)"}
+          }
+        }
+      }
+    }
+  end
+
+  defp yearly_samples(monthly_balances) do
+    monthly_balances |> Enum.take_every(12) |> Enum.map(&Decimal.to_float/1)
+  end
+
+  # One contribution figure per label: the rate in effect at the start of
+  # each year (year 0 = month 1's contribution), clamped to the last month's
+  # entry for the final label -- matching `yearly_samples/1`'s year-boundary
+  # sampling of the (one-longer, "starting balance included") balance series.
+  defp yearly_contribution_samples(contributions) do
+    count = length(contributions)
+
+    0..div(count, 12)
+    |> Enum.map(fn year ->
+      contributions |> Enum.at(min(year * 12, count - 1)) |> Decimal.to_float()
+    end)
   end
 
   defp color(i), do: Enum.at(@palette, rem(i, length(@palette)))

@@ -317,6 +317,143 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     end
   end
 
+  describe "retirement roadmap" do
+    test "the retirement roadmap chart shows a setup message until the profile is filled in", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      html =
+        view
+        |> element("button[phx-click=select_chart][phx-value-type=retirement_roadmap]")
+        |> render_click()
+
+      assert html =~ "Set up your retirement profile"
+      refute has_element?(view, "canvas#plan-chart")
+    end
+
+    test "a fresh workspace shows the retirement onboarding banner", %{conn: conn} do
+      {:ok, _view, html} = live(conn, ~p"/")
+      assert html =~ ~s(id="retirement-onboarding-banner")
+    end
+
+    test "clicking the banner's setup button opens the onboarding form", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+
+      assert has_element?(view, "#retirement-onboarding-form")
+    end
+
+    test "saving a valid retirement profile closes the modal, hides the banner, and renders the chart",
+         %{conn: conn, workspace: workspace} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+
+      html =
+        view
+        |> form("#retirement-onboarding-form", %{
+          "setting" => %{
+            "current_age" => "30",
+            "retirement_age" => "65",
+            "current_retirement_savings" => "1000",
+            "monthly_retirement_contribution" => "100",
+            "monthly_gross_income" => "4000",
+            "post_debt_investment_pct" => "15",
+            "expected_annual_return_pct" => "7"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Retirement profile saved."
+      refute has_element?(view, "#retirement-onboarding-form")
+      refute has_element?(view, "#retirement-onboarding-banner")
+
+      settings = DebtReliefTracker.Settings.get_settings!(workspace)
+      assert settings.retirement_age == 65
+
+      view
+      |> element("button[phx-click=select_chart][phx-value-type=retirement_roadmap]")
+      |> render_click()
+
+      assert has_element?(view, "canvas#plan-chart")
+    end
+
+    test "rejects a retirement age that isn't after the current age", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+
+      html =
+        view
+        |> form("#retirement-onboarding-form", %{
+          "setting" => %{
+            "current_age" => "40",
+            "retirement_age" => "40",
+            "current_retirement_savings" => "0",
+            "monthly_retirement_contribution" => "0",
+            "monthly_gross_income" => "0",
+            "post_debt_investment_pct" => "15",
+            "expected_annual_return_pct" => "7"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "must be greater than current age"
+      assert has_element?(view, "#retirement-onboarding-form")
+    end
+
+    test "dismissing the banner hides it and it doesn't reappear on a later mount", %{conn: conn} do
+      {:ok, view, html} = live(conn, ~p"/")
+      assert html =~ ~s(id="retirement-onboarding-banner")
+
+      html = view |> element("button[phx-click=dismiss_retirement_prompt]") |> render_click()
+      refute html =~ ~s(id="retirement-onboarding-banner")
+
+      {:ok, _view, html} = live(conn, ~p"/")
+      refute html =~ ~s(id="retirement-onboarding-banner")
+    end
+
+    test "skipping from the modal also dismisses the banner", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+      html = view |> element("button", "Skip for now") |> render_click()
+
+      refute has_element?(view, "#retirement-onboarding-form")
+      refute html =~ ~s(id="retirement-onboarding-banner")
+    end
+
+    test "editing the profile from Settings pre-fills the existing values", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, settings} =
+        workspace
+        |> DebtReliefTracker.Settings.get_settings!()
+        |> DebtReliefTracker.Settings.update_retirement_profile(%{
+          "current_age" => "35",
+          "retirement_age" => "60",
+          "current_retirement_savings" => "2000",
+          "monthly_retirement_contribution" => "200",
+          "monthly_gross_income" => "6000",
+          "post_debt_investment_pct" => "15",
+          "expected_annual_return_pct" => "7"
+        })
+
+      assert settings.retirement_age == 60
+
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_settings]") |> render_click()
+      html = view |> element("button", "Edit retirement profile") |> render_click()
+
+      assert html =~ ~s(value="35")
+      assert html =~ ~s(value="60")
+    end
+  end
+
   test "switching strategy re-simulates the plan", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 

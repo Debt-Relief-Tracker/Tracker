@@ -27,4 +27,15 @@ defmodule DebtReliefTracker.Settings do
     |> Setting.changeset(attrs)
     |> Repo.update()
   end
+
+  def update_retirement_profile(%Setting{} = setting, attrs) do
+    setting
+    |> Setting.retirement_changeset(attrs)
+    |> Repo.update()
+  end
+
+  @doc "Whether a workspace has completed the retirement onboarding profile."
+  def retirement_profile_set?(%Setting{current_age: current_age, retirement_age: retirement_age}) do
+    not is_nil(current_age) and not is_nil(retirement_age)
+  end
 end
