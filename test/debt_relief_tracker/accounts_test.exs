@@ -159,6 +159,31 @@ defmodule DebtReliefTracker.AccountsTest do
     end
   end
 
+  describe "list_confirmed_members/1" do
+    test "includes the owner, owner first" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, _} = Accounts.share_workspace_with_email(workspace, "b@example.com", owner)
+
+      assert [first, second] = Accounts.list_confirmed_members(workspace)
+      assert first.role == :owner
+      assert first.user.id == owner.id
+      assert second.user.id == member.id
+    end
+
+    test "excludes a pending invitation with no user yet" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, _invitation} =
+        Accounts.share_workspace_with_email(workspace, "nobody@example.com", owner)
+
+      assert [%{role: :owner}] = Accounts.list_confirmed_members(workspace)
+    end
+  end
+
   describe "list_workspace_members/1 and remove_member/2" do
     test "lists accepted members excluding the owner's own row" do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
@@ -189,6 +214,34 @@ defmodule DebtReliefTracker.AccountsTest do
       workspace = Accounts.current_workspace_for_user(owner)
 
       assert Accounts.remove_member(workspace, -1) == {:error, :not_found}
+    end
+
+    test "remove_member/2 downgrades the member's retirement profile back to manual instead of losing it" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, _} = Accounts.share_workspace_with_email(workspace, "b@example.com", owner)
+
+      {:ok, profile} =
+        Settings.add_member_retirement_profile(workspace, member, %{
+          "current_age" => "30",
+          "retirement_age" => "65",
+          "current_retirement_savings" => "0",
+          "monthly_retirement_contribution" => "0",
+          "monthly_gross_income" => "0",
+          "post_debt_investment_pct" => "15.0",
+          "expected_annual_return_pct" => "7.0"
+        })
+
+      assert [membership] = Accounts.list_workspace_members(workspace)
+      assert {:ok, _} = Accounts.remove_member(workspace, membership.id)
+
+      assert [reloaded] = Settings.list_retirement_profiles(workspace)
+      assert reloaded.id == profile.id
+      assert reloaded.user_id == nil
+      assert reloaded.name == member.display_name
+      assert reloaded.claim_email == member.email
     end
 
     test "remove_member/2 returns {:error, :cannot_remove_owner} for the owner's own row" do

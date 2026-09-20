@@ -3,7 +3,7 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
 
   alias DebtReliefTracker.Planning.Retirement
   alias DebtReliefTracker.Debts.Debt
-  alias DebtReliefTracker.Settings.Setting
+  alias DebtReliefTracker.Settings.RetirementProfile
 
   defp debt(attrs) do
     struct(
@@ -19,9 +19,9 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
     )
   end
 
-  defp setting(attrs) do
+  defp profile(attrs) do
     struct(
-      %Setting{
+      %RetirementProfile{
         current_retirement_savings: Decimal.new("0"),
         monthly_retirement_contribution: Decimal.new("0"),
         monthly_gross_income: Decimal.new("0"),
@@ -34,29 +34,41 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
 
   describe "months_to_retirement/1" do
     test "converts a year gap to months" do
-      assert Retirement.months_to_retirement(setting(current_age: 30, retirement_age: 65)) == 420
+      assert Retirement.months_to_retirement(profile(current_age: 30, retirement_age: 65)) == 420
+    end
+  end
+
+  describe "combined_months_to_retirement/1" do
+    test "is the longest of every profile's own horizon" do
+      profiles = [
+        profile(current_age: 30, retirement_age: 35),
+        profile(current_age: 40, retirement_age: 60)
+      ]
+
+      assert Retirement.combined_months_to_retirement(profiles) == 240
     end
   end
 
   describe "baseline_projection/1" do
     test "zero contribution and zero rate leaves the balance unchanged" do
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           current_retirement_savings: Decimal.new("1000"),
           monthly_retirement_contribution: Decimal.new("0"),
           expected_annual_return_pct: Decimal.new("0")
         )
+      ]
 
-      balances = Retirement.baseline_projection(settings)
+      balances = Retirement.baseline_projection(profiles)
       assert length(balances) == 13
       assert Enum.all?(balances, &Decimal.equal?(&1, Decimal.new("1000")))
     end
 
     test "compounds growth on the prior balance before adding the month's contribution" do
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           current_retirement_savings: Decimal.new("1000"),
@@ -64,8 +76,9 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
           # 12% annual -> 1% monthly, so the arithmetic below is easy to hand-check.
           expected_annual_return_pct: Decimal.new("12")
         )
+      ]
 
-      [start, month1, month2 | _] = Retirement.baseline_projection(settings)
+      [start, month1, month2 | _] = Retirement.baseline_projection(profiles)
 
       assert Decimal.equal?(start, Decimal.new("1000.00"))
       # 1000 * 1.01 + 100 = 1110.00
@@ -73,20 +86,92 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
       # 1110 * 1.01 + 100 = 1221.10
       assert Decimal.equal?(month2, Decimal.new("1221.10"))
     end
+
+    test "sums two people's independently-compounding balances" do
+      profiles = [
+        profile(
+          current_age: 30,
+          retirement_age: 31,
+          current_retirement_savings: Decimal.new("1000"),
+          monthly_retirement_contribution: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        ),
+        profile(
+          current_age: 40,
+          retirement_age: 41,
+          current_retirement_savings: Decimal.new("500"),
+          monthly_retirement_contribution: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        )
+      ]
+
+      balances = Retirement.baseline_projection(profiles)
+      assert length(balances) == 13
+      assert Enum.all?(balances, &Decimal.equal?(&1, Decimal.new("1500")))
+    end
+
+    test "a shorter-horizon person's balance holds flat (0% return) once padded past their own retirement" do
+      profiles = [
+        profile(
+          current_age: 30,
+          retirement_age: 31,
+          current_retirement_savings: Decimal.new("0"),
+          monthly_retirement_contribution: Decimal.new("100"),
+          expected_annual_return_pct: Decimal.new("0")
+        ),
+        profile(
+          current_age: 30,
+          retirement_age: 32,
+          current_retirement_savings: Decimal.new("0"),
+          monthly_retirement_contribution: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        )
+      ]
+
+      balances = Retirement.baseline_projection(profiles)
+      # 24-month combined horizon (the second profile's).
+      assert length(balances) == 25
+      # First profile contributes for 12 months (reaching 1200), then holds
+      # flat at 1200 for the remaining 12 months since the second profile
+      # never contributes anything.
+      assert Decimal.equal?(Enum.at(balances, 12), Decimal.new("1200.00"))
+      assert Decimal.equal?(Enum.at(balances, 24), Decimal.new("1200.00"))
+    end
   end
 
   describe "baseline_contributions/1" do
     test "holds the current contribution flat for the whole horizon" do
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           monthly_retirement_contribution: Decimal.new("75")
         )
+      ]
 
-      contributions = Retirement.baseline_contributions(settings)
+      contributions = Retirement.baseline_contributions(profiles)
       assert length(contributions) == 12
       assert Enum.all?(contributions, &Decimal.equal?(&1, Decimal.new("75")))
+    end
+
+    test "sums contributions across people and zero-pads a shorter horizon" do
+      profiles = [
+        profile(
+          current_age: 30,
+          retirement_age: 31,
+          monthly_retirement_contribution: Decimal.new("75")
+        ),
+        profile(
+          current_age: 30,
+          retirement_age: 32,
+          monthly_retirement_contribution: Decimal.new("25")
+        )
+      ]
+
+      contributions = Retirement.baseline_contributions(profiles)
+      assert length(contributions) == 24
+      assert Enum.take(contributions, 12) |> Enum.all?(&Decimal.equal?(&1, Decimal.new("100")))
+      assert Enum.drop(contributions, 12) |> Enum.all?(&Decimal.equal?(&1, Decimal.new("25")))
     end
   end
 
@@ -102,17 +187,18 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           monthly_retirement_contribution: Decimal.new("50"),
           monthly_gross_income: Decimal.new("4000"),
           post_debt_investment_pct: Decimal.new("15.0")
         )
+      ]
 
       assert {:ok, contributions} =
-               Retirement.strategy_contributions(debts, settings, Decimal.new("100"), :snowball)
+               Retirement.strategy_contributions(debts, profiles, Decimal.new("100"), :snowball)
 
       # Debt-free after month 2 -- months 1-2 at $50, months 3-12 at $600
       # (15% of $4000).
@@ -131,25 +217,26 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           monthly_retirement_contribution: Decimal.new("50"),
           monthly_gross_income: Decimal.new("4000"),
           post_debt_investment_pct: Decimal.new("15.0")
         )
+      ]
 
       assert {:ok, %{balances: balances, contributions: contributions}} =
                Retirement.strategy_projection_with_contributions(
                  debts,
-                 settings,
+                 profiles,
                  Decimal.new("100"),
                  :snowball
                )
 
       assert {:ok, ^balances} =
-               Retirement.strategy_projection(debts, settings, Decimal.new("100"), :snowball)
+               Retirement.strategy_projection(debts, profiles, Decimal.new("100"), :snowball)
 
       assert length(contributions) == 12
     end
@@ -164,14 +251,14 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings = setting(current_age: 30, retirement_age: 31)
+      profiles = [profile(current_age: 30, retirement_age: 31)]
 
-      assert Retirement.strategy_contributions(debts, settings, Decimal.new("10"), :snowball) ==
+      assert Retirement.strategy_contributions(debts, profiles, Decimal.new("10"), :snowball) ==
                {:error, :insufficient_budget}
 
       assert Retirement.strategy_projection_with_contributions(
                debts,
-               settings,
+               profiles,
                Decimal.new("10"),
                :snowball
              ) == {:error, :insufficient_budget}
@@ -190,8 +277,8 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           current_retirement_savings: Decimal.new("0"),
@@ -200,9 +287,10 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
           post_debt_investment_pct: Decimal.new("15.0"),
           expected_annual_return_pct: Decimal.new("0")
         )
+      ]
 
       assert {:ok, balances} =
-               Retirement.strategy_projection(debts, settings, Decimal.new("100"), :snowball)
+               Retirement.strategy_projection(debts, profiles, Decimal.new("100"), :snowball)
 
       # Debt-free after month 2 (200 balance / 100 payment). Months 1-2
       # contribute the current $50 (0% return, so balances are a running
@@ -225,8 +313,8 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 35,
           current_retirement_savings: Decimal.new("0"),
@@ -235,18 +323,19 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
           post_debt_investment_pct: Decimal.new("15.0"),
           expected_annual_return_pct: Decimal.new("7.0")
         )
+      ]
 
       {:ok, strategy_balances} =
-        Retirement.strategy_projection(debts, settings, Decimal.new("100"), :snowball)
+        Retirement.strategy_projection(debts, profiles, Decimal.new("100"), :snowball)
 
-      baseline_balances = Retirement.baseline_projection(settings)
+      baseline_balances = Retirement.baseline_projection(profiles)
 
       assert Decimal.compare(List.last(strategy_balances), List.last(baseline_balances)) == :gt
     end
 
     test "with no debts, the post-debt rate applies from month one and the series diverges from baseline" do
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           current_retirement_savings: Decimal.new("0"),
@@ -255,11 +344,12 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
           post_debt_investment_pct: Decimal.new("15.0"),
           expected_annual_return_pct: Decimal.new("0")
         )
+      ]
 
       assert {:ok, balances} =
-               Retirement.strategy_projection([], settings, Decimal.new("100"), :snowball)
+               Retirement.strategy_projection([], profiles, Decimal.new("100"), :snowball)
 
-      baseline = Retirement.baseline_projection(settings)
+      baseline = Retirement.baseline_projection(profiles)
 
       # 12 months at the post-debt rate ($600/mo, 0% return) from month one.
       assert Decimal.equal?(List.last(balances), Decimal.new("7200.00"))
@@ -276,9 +366,9 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings = setting(current_age: 30, retirement_age: 31)
+      profiles = [profile(current_age: 30, retirement_age: 31)]
 
-      assert Retirement.strategy_projection(debts, settings, Decimal.new("10"), :snowball) ==
+      assert Retirement.strategy_projection(debts, profiles, Decimal.new("10"), :snowball) ==
                {:error, :insufficient_budget}
     end
 
@@ -296,8 +386,8 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 31,
           monthly_retirement_contribution: Decimal.new("50"),
@@ -305,9 +395,10 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
           post_debt_investment_pct: Decimal.new("15.0"),
           expected_annual_return_pct: Decimal.new("0")
         )
+      ]
 
       assert {:ok, balances} =
-               Retirement.strategy_projection(debts, settings, Decimal.new("10"), :snowball)
+               Retirement.strategy_projection(debts, profiles, Decimal.new("10"), :snowball)
 
       assert length(balances) == 13
       assert Decimal.equal?(List.last(balances), Decimal.new("600.00"))
@@ -333,8 +424,8 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 45,
           monthly_retirement_contribution: Decimal.new("100"),
@@ -342,19 +433,66 @@ defmodule DebtReliefTracker.Planning.RetirementTest do
           post_debt_investment_pct: Decimal.new("15.0"),
           expected_annual_return_pct: Decimal.new("7.0")
         )
+      ]
 
       # At this budget, avalanche (highest APR first) pays off in 43 months
       # versus 45 for cash_flow, per `Planning.simulate/4` -- confirmed
       # directly rather than re-deriving the amortization by hand here.
       {:ok, avalanche} =
-        Retirement.strategy_projection(debts, settings, Decimal.new("200"), :avalanche)
+        Retirement.strategy_projection(debts, profiles, Decimal.new("200"), :avalanche)
 
       {:ok, cash_flow} =
-        Retirement.strategy_projection(debts, settings, Decimal.new("200"), :cash_flow)
+        Retirement.strategy_projection(debts, profiles, Decimal.new("200"), :cash_flow)
 
       # Avalanche clears its debts sooner, so it switches to the (larger)
       # post-debt contribution sooner and compounds longer at that rate.
       assert Decimal.compare(List.last(avalanche), List.last(cash_flow)) == :gt
+    end
+
+    test "two people retire independently: the earlier retiree's contributions stop while the other's continue" do
+      # A debt that takes 100 months to pay off at this budget -- far longer
+      # than either profile's horizon below -- so the post-debt switch never
+      # kicks in and both profiles use their current contribution throughout.
+      debts = [
+        debt(
+          id: 1,
+          type: :installment,
+          balance: Decimal.new("1000"),
+          apr: Decimal.new("0"),
+          fixed_payment: Decimal.new("10")
+        )
+      ]
+
+      profiles = [
+        profile(
+          current_age: 30,
+          retirement_age: 31,
+          current_retirement_savings: Decimal.new("0"),
+          monthly_retirement_contribution: Decimal.new("100"),
+          monthly_gross_income: Decimal.new("0"),
+          post_debt_investment_pct: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        ),
+        profile(
+          current_age: 30,
+          retirement_age: 32,
+          current_retirement_savings: Decimal.new("0"),
+          monthly_retirement_contribution: Decimal.new("100"),
+          monthly_gross_income: Decimal.new("0"),
+          post_debt_investment_pct: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        )
+      ]
+
+      assert {:ok, balances} =
+               Retirement.strategy_projection(debts, profiles, Decimal.new("10"), :snowball)
+
+      assert length(balances) == 25
+      # Month 12: both have contributed 1200 each -> 2400 combined.
+      assert Decimal.equal?(Enum.at(balances, 12), Decimal.new("2400.00"))
+      # Month 24: person A stopped at month 12 (stays at 1200), person B
+      # reaches 2400 -> 3600 combined.
+      assert Decimal.equal?(Enum.at(balances, 24), Decimal.new("3600.00"))
     end
   end
 end

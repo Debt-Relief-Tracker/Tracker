@@ -318,7 +318,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
   end
 
   describe "retirement roadmap" do
-    test "the retirement roadmap chart shows a setup message until the profile is filled in", %{
+    test "the retirement roadmap chart shows a setup message until someone has a profile", %{
       conn: conn
     } do
       {:ok, view, _html} = live(conn, ~p"/")
@@ -328,7 +328,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
         |> element("button[phx-click=select_chart][phx-value-type=retirement_roadmap]")
         |> render_click()
 
-      assert html =~ "Set up your retirement profile"
+      assert html =~ "Set up a retirement profile for at least one person"
       refute has_element?(view, "canvas#plan-chart")
     end
 
@@ -337,24 +337,42 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
       assert html =~ ~s(id="retirement-onboarding-banner")
     end
 
-    test "clicking the banner's setup button opens the onboarding form", %{conn: conn} do
+    test "clicking the banner's setup button opens the roster modal, not the add form directly",
+         %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
 
-      assert has_element?(view, "#retirement-onboarding-form")
+      refute has_element?(view, "#retirement-profile-form")
+      assert has_element?(view, "button[phx-click=open_add_retirement_profile]")
     end
 
-    test "saving a valid retirement profile closes the modal, hides the banner, and renders the chart",
+    test "'Add person' opens a separate form modal, defaulting to the current member", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+      view |> element("button[phx-click=open_add_retirement_profile]") |> render_click()
+
+      assert has_element?(view, "#retirement-profile-form")
+      # Only one confirmed member (the implicit no-auth user) exists yet, so
+      # the "existing member" / "someone without an account" choice doesn't
+      # need to be shown -- there's exactly one sensible default.
+      assert has_element?(view, "select#retirement_profile_user_id")
+    end
+
+    test "adding a retirement profile returns to the roster, hides the banner, and renders the chart",
          %{conn: conn, workspace: workspace} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+      view |> element("button[phx-click=open_add_retirement_profile]") |> render_click()
 
       html =
         view
-        |> form("#retirement-onboarding-form", %{
-          "setting" => %{
+        |> form("#retirement-profile-form", %{
+          "retirement_profile" => %{
             "current_age" => "30",
             "retirement_age" => "65",
             "current_retirement_savings" => "1000",
@@ -366,12 +384,17 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
         })
         |> render_submit()
 
-      assert html =~ "Retirement profile saved."
-      refute has_element?(view, "#retirement-onboarding-form")
-      refute has_element?(view, "#retirement-onboarding-banner")
+      assert html =~ "Retirement profile added."
+      refute html =~ ~s(id="retirement-onboarding-banner")
+      # Back on the roster, not still in the add form.
+      refute has_element?(view, "#retirement-profile-form")
+      assert html =~ "retiring at 65"
 
-      settings = DebtReliefTracker.Settings.get_settings!(workspace)
-      assert settings.retirement_age == 65
+      assert [profile] = DebtReliefTracker.Settings.list_retirement_profiles(workspace)
+      assert profile.retirement_age == 65
+      assert profile.user_id == DebtReliefTracker.Accounts.get_default_user!().id
+
+      view |> element("button", "Close") |> render_click()
 
       view
       |> element("button[phx-click=select_chart][phx-value-type=retirement_roadmap]")
@@ -380,15 +403,69 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
       assert has_element?(view, "canvas#plan-chart")
     end
 
+    test "can add a second person with no account of their own", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      owner = DebtReliefTracker.Accounts.get_default_user!()
+
+      {:ok, _} =
+        DebtReliefTracker.Settings.add_member_retirement_profile(workspace, owner, %{
+          "current_age" => "30",
+          "retirement_age" => "65",
+          "current_retirement_savings" => "0",
+          "monthly_retirement_contribution" => "0",
+          "monthly_gross_income" => "0",
+          "post_debt_investment_pct" => "15",
+          "expected_annual_return_pct" => "7"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      # A profile already exists, so the banner (and its setup button) is
+      # gone -- open via the Settings modal's "Manage" entry point instead.
+      view |> element("button[phx-click=open_settings]") |> render_click()
+      view |> element("button", "Manage retirement profiles") |> render_click()
+      view |> element("button[phx-click=open_add_retirement_profile]") |> render_click()
+
+      # The only confirmed member already has a profile, so there's no one
+      # left to pick from the "existing member" list -- the form goes
+      # straight to the manual name/email fields.
+      refute has_element?(view, "select#retirement_profile_user_id")
+
+      html =
+        view
+        |> form("#retirement-profile-form", %{
+          "retirement_profile" => %{
+            "name" => "Spouse",
+            "claim_email" => "spouse@example.com",
+            "current_age" => "28",
+            "retirement_age" => "60",
+            "current_retirement_savings" => "500",
+            "monthly_retirement_contribution" => "50",
+            "monthly_gross_income" => "3000",
+            "post_debt_investment_pct" => "15",
+            "expected_annual_return_pct" => "7"
+          }
+        })
+        |> render_submit()
+
+      assert html =~ "Retirement profile added."
+
+      profiles = DebtReliefTracker.Settings.list_retirement_profiles(workspace)
+      assert length(profiles) == 2
+      assert Enum.any?(profiles, &(&1.name == "Spouse" and &1.user_id == nil))
+    end
+
     test "rejects a retirement age that isn't after the current age", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+      view |> element("button[phx-click=open_add_retirement_profile]") |> render_click()
 
       html =
         view
-        |> form("#retirement-onboarding-form", %{
-          "setting" => %{
+        |> form("#retirement-profile-form", %{
+          "retirement_profile" => %{
             "current_age" => "40",
             "retirement_age" => "40",
             "current_retirement_savings" => "0",
@@ -401,7 +478,24 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
         |> render_submit()
 
       assert html =~ "must be greater than current age"
-      assert has_element?(view, "#retirement-onboarding-form")
+      assert has_element?(view, "#retirement-profile-form")
+    end
+
+    test "canceling the add form returns to the roster without saving anything", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
+      view |> element("button[phx-click=open_add_retirement_profile]") |> render_click()
+      assert has_element?(view, "#retirement-profile-form")
+
+      view |> element("button[phx-click=cancel_retirement_profile_form]") |> render_click()
+
+      refute has_element?(view, "#retirement-profile-form")
+      assert has_element?(view, "button[phx-click=open_add_retirement_profile]")
+      assert DebtReliefTracker.Settings.list_retirement_profiles(workspace) == []
     end
 
     test "dismissing the banner hides it and it doesn't reappear on a later mount", %{conn: conn} do
@@ -415,24 +509,22 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
       refute html =~ ~s(id="retirement-onboarding-banner")
     end
 
-    test "skipping from the modal also dismisses the banner", %{conn: conn} do
+    test "skipping from the roster modal also dismisses the banner", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/")
 
       view |> element("button[phx-click=open_retirement_onboarding]") |> render_click()
       html = view |> element("button", "Skip for now") |> render_click()
 
-      refute has_element?(view, "#retirement-onboarding-form")
+      refute has_element?(view, "button[phx-click=open_add_retirement_profile]")
       refute html =~ ~s(id="retirement-onboarding-banner")
     end
 
-    test "editing the profile from Settings pre-fills the existing values", %{
-      conn: conn,
-      workspace: workspace
-    } do
-      {:ok, settings} =
-        workspace
-        |> DebtReliefTracker.Settings.get_settings!()
-        |> DebtReliefTracker.Settings.update_retirement_profile(%{
+    test "editing a profile from Settings opens the form modal pre-filled with the existing values",
+         %{conn: conn, workspace: workspace} do
+      owner = DebtReliefTracker.Accounts.get_default_user!()
+
+      {:ok, _profile} =
+        DebtReliefTracker.Settings.add_member_retirement_profile(workspace, owner, %{
           "current_age" => "35",
           "retirement_age" => "60",
           "current_retirement_savings" => "2000",
@@ -442,15 +534,51 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
           "expected_annual_return_pct" => "7"
         })
 
-      assert settings.retirement_age == 60
-
       {:ok, view, _html} = live(conn, ~p"/")
 
       view |> element("button[phx-click=open_settings]") |> render_click()
-      html = view |> element("button", "Edit retirement profile") |> render_click()
+      view |> element("button", "Manage retirement profiles") |> render_click()
+      html = view |> element("button[phx-click=edit_retirement_profile]") |> render_click()
 
+      assert html =~ "Edit retirement profile"
       assert html =~ ~s(value="35")
       assert html =~ ~s(value="60")
+    end
+
+    test "saving an edited profile returns to the roster with the updated value", %{
+      conn: conn,
+      workspace: workspace
+    } do
+      owner = DebtReliefTracker.Accounts.get_default_user!()
+
+      {:ok, _profile} =
+        DebtReliefTracker.Settings.add_member_retirement_profile(workspace, owner, %{
+          "current_age" => "30",
+          "retirement_age" => "65",
+          "current_retirement_savings" => "0",
+          "monthly_retirement_contribution" => "0",
+          "monthly_gross_income" => "0",
+          "post_debt_investment_pct" => "15",
+          "expected_annual_return_pct" => "7"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/")
+      view |> element("button[phx-click=open_settings]") |> render_click()
+      view |> element("button", "Manage retirement profiles") |> render_click()
+      view |> element("button[phx-click=edit_retirement_profile]") |> render_click()
+
+      # Regression: this used to reset @form to nil while leaving the modal
+      # open back in add-mode, crashing the LiveView on the next render.
+      html =
+        view
+        |> form("#retirement-profile-form", %{"retirement_profile" => %{"current_age" => "31"}})
+        |> render_submit()
+
+      refute has_element?(view, "#retirement-profile-form")
+      assert html =~ "currently 31"
+
+      assert [profile] = DebtReliefTracker.Settings.list_retirement_profiles(workspace)
+      assert profile.current_age == 31
     end
   end
 

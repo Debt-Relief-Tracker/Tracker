@@ -20,7 +20,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   alias DebtReliefTracker.Debts.{Debt, Calculations}
   alias DebtReliefTracker.Payments.Payment
-  alias DebtReliefTracker.Settings.Setting
+  alias DebtReliefTracker.Settings.RetirementProfile
   alias DebtReliefTrackerWeb.{Charts, OIDC}
 
   @strategies [:cash_flow, :snowball, :avalanche]
@@ -94,6 +94,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     tutorial_user = current_user || Accounts.get_default_user!()
     workspace = current_workspace(current_user)
     settings = Settings.get_settings!(workspace)
+    retirement_profiles = Settings.list_retirement_profiles(workspace)
     debts = Debts.list_debts(workspace)
 
     if connected?(socket) do
@@ -119,6 +120,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:budget_mode, settings.budget_mode || :total)
      |> assign(:currency, settings.currency || "USD")
      |> assign(:settings, settings)
+     |> assign(:retirement_profiles, retirement_profiles)
      |> assign(:modal, nil)
      |> assign(:form, nil)
      |> assign(:name_form, nil)
@@ -193,10 +195,42 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     Accounts.owner?(workspace, user)
   end
 
-  defp show_retirement_prompt?(settings) do
-    not Settings.retirement_profile_set?(settings) and
-      not settings.retirement_onboarding_dismissed
+  defp show_retirement_prompt?(retirement_profiles, dismissed?) do
+    retirement_profiles == [] and not dismissed?
   end
+
+  # Confirmed members (owner included) who don't already have a retirement
+  # profile in this workspace -- the choices offered by the retirement
+  # onboarding modal's "existing member" picker.
+  defp eligible_retirement_members(workspace, retirement_profiles) do
+    already_profiled = MapSet.new(retirement_profiles, & &1.user_id)
+
+    workspace
+    |> Accounts.list_confirmed_members()
+    |> Enum.map(& &1.user)
+    |> Enum.reject(&(&1.id in already_profiled))
+  end
+
+  defp retirement_profile_changeset(workspace, "manual", params) do
+    RetirementProfile.manual_changeset(%RetirementProfile{}, workspace, params)
+  end
+
+  defp retirement_profile_changeset(workspace, "member", %{"user_id" => user_id} = params) do
+    RetirementProfile.member_changeset(
+      %RetirementProfile{},
+      workspace,
+      Accounts.get_user!(user_id),
+      params
+    )
+  end
+
+  # The add-form's default params for whichever source is now in effect --
+  # pre-selects the first eligible member so the "existing member" `<select>`
+  # always has a real `user_id` from the moment the form first renders.
+  defp next_add_params("member", eligible_members),
+    do: %{"user_id" => to_string(hd(eligible_members).id)}
+
+  defp next_add_params("manual", _eligible_members), do: %{}
 
   # A budget that at least covers minimum payments, so a brand-new workspace
   # (or the placeholder debts) shows a feasible plan instead of an
@@ -259,11 +293,19 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       monthly_budget: budget,
       lifetime_payments: lifetime_payments,
       currency: currency,
-      settings: settings
+      retirement_profiles: retirement_profiles
     } = socket.assigns
 
     {message, config} =
-      Charts.build(chart_type, strategy, strategies, debts, budget, lifetime_payments, settings)
+      Charts.build(
+        chart_type,
+        strategy,
+        strategies,
+        debts,
+        budget,
+        lifetime_payments,
+        retirement_profiles
+      )
 
     socket = assign(socket, :chart_message, message)
 
@@ -384,39 +426,147 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   end
 
   # --- events: retirement onboarding -----------------------------------------
+  #
+  # Two separate modal screens, not one crowded form: `:retirement_onboarding`
+  # is the household roster (list + "Add person"), `:retirement_profile_form`
+  # is the add/edit form, opened on demand and always returning to the roster
+  # afterward. `@modal.source` tracks the add-form's "existing member" vs
+  # "someone without an account" radio choice between change events;
+  # `@modal.editing_profile_id` (non-nil while editing) switches
+  # `validate_retirement_profile` and the submit target between the add-flow
+  # and the plain per-profile `update_changeset/2`.
 
   def handle_event("open_retirement_onboarding", _params, socket) do
-    changeset = Setting.retirement_changeset(socket.assigns.settings, %{})
+    {:noreply, assign(socket, :modal, %{type: :retirement_onboarding})}
+  end
+
+  def handle_event("open_add_retirement_profile", _params, socket) do
+    %{workspace: workspace, retirement_profiles: profiles} = socket.assigns
+    eligible_members = eligible_retirement_members(workspace, profiles)
+    source = if eligible_members == [], do: "manual", else: "member"
+
+    changeset =
+      retirement_profile_changeset(workspace, source, next_add_params(source, eligible_members))
 
     {:noreply,
      socket
-     |> assign(:modal, %{type: :retirement_onboarding})
+     |> assign(:modal, %{
+       type: :retirement_profile_form,
+       editing_profile_id: nil,
+       editing_manual?: false,
+       eligible_members: eligible_members,
+       source: source
+     })
      |> assign(:form, to_form(changeset))}
   end
 
-  def handle_event("validate_retirement_profile", %{"setting" => params}, socket) do
-    changeset =
-      socket.assigns.settings
-      |> Setting.retirement_changeset(params)
-      |> Map.put(:action, :validate)
-
-    {:noreply, assign(socket, :form, to_form(changeset))}
+  def handle_event("cancel_retirement_profile_form", _params, socket) do
+    {:noreply, socket |> assign(:modal, %{type: :retirement_onboarding}) |> assign(:form, nil)}
   end
 
-  def handle_event("save_retirement_profile", %{"setting" => params}, socket) do
-    case Settings.update_retirement_profile(socket.assigns.settings, params) do
-      {:ok, settings} ->
+  def handle_event("validate_retirement_profile", params, socket) do
+    %{workspace: workspace, modal: modal, retirement_profiles: profiles} = socket.assigns
+    profile_params = Map.get(params, "retirement_profile", %{})
+
+    case modal.editing_profile_id do
+      nil ->
+        source = Map.get(params, "source", modal.source)
+
+        changeset =
+          workspace
+          |> retirement_profile_changeset(source, profile_params)
+          |> Map.put(:action, :validate)
+
         {:noreply,
          socket
-         |> assign(:settings, settings)
-         |> assign(:modal, nil)
+         |> assign(:modal, %{modal | source: source})
+         |> assign(:form, to_form(changeset))}
+
+      editing_id ->
+        changeset =
+          profiles
+          |> Enum.find(&(&1.id == editing_id))
+          |> RetirementProfile.update_changeset(profile_params)
+          |> Map.put(:action, :validate)
+
+        {:noreply, assign(socket, :form, to_form(changeset))}
+    end
+  end
+
+  def handle_event("add_retirement_profile", params, socket) do
+    %{workspace: workspace, modal: modal} = socket.assigns
+    source = Map.get(params, "source", modal.source)
+    profile_params = Map.get(params, "retirement_profile", %{})
+
+    result =
+      case source do
+        "manual" ->
+          Settings.add_manual_retirement_profile(workspace, profile_params)
+
+        "member" ->
+          user = Accounts.get_user!(profile_params["user_id"])
+          Settings.add_member_retirement_profile(workspace, user, profile_params)
+      end
+
+    case result do
+      {:ok, _profile} ->
+        {:noreply,
+         socket
+         |> assign(:retirement_profiles, Settings.list_retirement_profiles(workspace))
+         |> assign(:modal, %{type: :retirement_onboarding})
          |> assign(:form, nil)
-         |> put_flash(:info, "Retirement profile saved.")
+         |> put_flash(:info, "Retirement profile added.")
          |> assign_plan()}
 
       {:error, changeset} ->
         {:noreply, assign(socket, :form, to_form(changeset))}
     end
+  end
+
+  def handle_event("edit_retirement_profile", %{"id" => id}, socket) do
+    profile = Enum.find(socket.assigns.retirement_profiles, &(&1.id == String.to_integer(id)))
+    changeset = RetirementProfile.update_changeset(profile, %{})
+
+    {:noreply,
+     socket
+     |> assign(:modal, %{
+       type: :retirement_profile_form,
+       editing_profile_id: profile.id,
+       editing_manual?: is_nil(profile.user_id),
+       eligible_members: [],
+       source: nil
+     })
+     |> assign(:form, to_form(changeset))}
+  end
+
+  def handle_event("update_retirement_profile", %{"retirement_profile" => params}, socket) do
+    %{workspace: workspace, modal: modal, retirement_profiles: profiles} = socket.assigns
+    profile = Enum.find(profiles, &(&1.id == modal.editing_profile_id))
+
+    case Settings.update_retirement_profile(profile, params) do
+      {:ok, _profile} ->
+        {:noreply,
+         socket
+         |> assign(:retirement_profiles, Settings.list_retirement_profiles(workspace))
+         |> assign(:modal, %{type: :retirement_onboarding})
+         |> assign(:form, nil)
+         |> assign_plan()}
+
+      {:error, changeset} ->
+        {:noreply, assign(socket, :form, to_form(changeset))}
+    end
+  end
+
+  def handle_event("delete_retirement_profile", %{"id" => id}, socket) do
+    %{workspace: workspace, retirement_profiles: profiles} = socket.assigns
+    profile = Enum.find(profiles, &(&1.id == String.to_integer(id)))
+
+    {:ok, _} = Settings.delete_retirement_profile(profile)
+
+    {:noreply,
+     socket
+     |> assign(:retirement_profiles, Settings.list_retirement_profiles(workspace))
+     |> assign_plan()}
   end
 
   def handle_event("dismiss_retirement_prompt", _params, socket) do
@@ -669,6 +819,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   def handle_event("switch_workspace", %{"workspace_id" => id}, socket) do
     workspace = Accounts.get_workspace!(id)
     settings = Settings.get_settings!(workspace)
+    retirement_profiles = Settings.list_retirement_profiles(workspace)
     debts = Debts.list_debts(workspace)
 
     if connected?(socket) do
@@ -694,6 +845,8 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
      |> assign(:budget_mode, settings.budget_mode || :total)
      |> assign(:currency, settings.currency || "USD")
+     |> assign(:settings, settings)
+     |> assign(:retirement_profiles, retirement_profiles)
      |> assign(:debts, debts)
      |> assign(:due_prompts, due_prompts(debts))
      |> reload_lifetime_payments()
@@ -867,7 +1020,9 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
         <main class="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
           <div
-            :if={show_retirement_prompt?(@settings)}
+            :if={
+              show_retirement_prompt?(@retirement_profiles, @settings.retirement_onboarding_dismissed)
+            }
             id="retirement-onboarding-banner"
             class="alert alert-info flex items-center justify-between"
           >
@@ -1001,9 +1156,15 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         share_form={@share_form}
         pending_invitations={@pending_invitations}
         settings={@settings}
+        retirement_profiles={@retirement_profiles}
       />
       <.retirement_onboarding_modal
         :if={@modal && @modal.type == :retirement_onboarding}
+        retirement_profiles={@retirement_profiles}
+      />
+      <.retirement_profile_form_modal
+        :if={@modal && @modal.type == :retirement_profile_form}
+        modal={@modal}
         form={@form}
       />
       <.tutorial_overlay :if={@tutorial} />
@@ -1305,6 +1466,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   attr :share_form, :any, required: true
   attr :pending_invitations, :list, required: true
   attr :settings, :map, required: true
+  attr :retirement_profiles, :list, required: true
 
   defp settings_modal(assigns) do
     ~H"""
@@ -1360,19 +1522,16 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
       <section class="mb-6">
         <h3 class="font-medium mb-2">Retirement planning</h3>
-        <p class="text-sm opacity-70 mb-2">
-          <%= if Settings.retirement_profile_set?(@settings) do %>
-            Retiring at age {@settings.retirement_age} (currently {@settings.current_age}).
-          <% else %>
-            Not set up yet.
-          <% end %>
-        </p>
+        <p :if={@retirement_profiles == []} class="text-sm opacity-70 mb-2">Not set up yet.</p>
+        <ul :if={@retirement_profiles != []} class="text-sm opacity-70 mb-2">
+          <li :for={profile <- @retirement_profiles}>
+            {RetirementProfile.display_name(profile)}: retiring at {profile.retirement_age} (currently {profile.current_age})
+          </li>
+        </ul>
         <.button type="button" phx-click="open_retirement_onboarding" class="btn btn-soft btn-sm">
-          <%= if Settings.retirement_profile_set?(@settings) do %>
-            Edit retirement profile
-          <% else %>
-            Set up retirement profile
-          <% end %>
+          {if @retirement_profiles == [],
+            do: "Set up retirement profile",
+            else: "Manage retirement profiles"}
         </.button>
       </section>
 
@@ -1432,23 +1591,117 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     """
   end
 
-  attr :form, :any, required: true
+  attr :retirement_profiles, :list, required: true
 
   defp retirement_onboarding_modal(assigns) do
     ~H"""
     <.modal on_cancel="close_modal">
-      <h2 class="font-semibold text-lg mb-4">Plan your retirement</h2>
+      <h2 class="font-semibold text-lg mb-4">Plan your household's retirement</h2>
       <p class="text-sm opacity-70 mb-4">
-        See how paying off debt sooner grows your retirement savings, by redirecting more of
-        your income into investing once you're debt-free.
+        See how paying off debt sooner grows your household's retirement savings, by redirecting
+        more of everyone's income into investing once you're debt-free.
       </p>
+
+      <p :if={@retirement_profiles == []} class="text-sm opacity-70 mb-4">
+        No one in the household has a retirement profile yet.
+      </p>
+
+      <ul :if={@retirement_profiles != []} class="flex flex-col gap-2 mb-4">
+        <li :for={profile <- @retirement_profiles} class="flex items-center justify-between text-sm">
+          <span>
+            {RetirementProfile.display_name(profile)} -- retiring at {profile.retirement_age} (currently {profile.current_age})
+          </span>
+          <div class="flex gap-2">
+            <button type="button" phx-click="edit_retirement_profile" phx-value-id={profile.id}>
+              <.icon name="hero-pencil" class="w-3 h-3" />
+            </button>
+            <button type="button" phx-click="delete_retirement_profile" phx-value-id={profile.id}>
+              <.icon name="hero-x-mark" class="w-3 h-3" />
+            </button>
+          </div>
+        </li>
+      </ul>
+
+      <.button
+        type="button"
+        phx-click="open_add_retirement_profile"
+        class="btn btn-soft btn-sm w-full mb-4"
+      >
+        <.icon name="hero-plus" class="w-4 h-4" /> Add person
+      </.button>
+
+      <div class="flex justify-end gap-2 mt-2">
+        <.button
+          :if={@retirement_profiles == []}
+          type="button"
+          phx-click="dismiss_retirement_prompt"
+        >
+          Skip for now
+        </.button>
+        <.button type="button" phx-click="close_modal">Close</.button>
+      </div>
+    </.modal>
+    """
+  end
+
+  attr :modal, :map, required: true
+  attr :form, :any, required: true
+
+  defp retirement_profile_form_modal(assigns) do
+    adding? = is_nil(assigns.modal.editing_profile_id)
+    show_member_picker? = adding? and assigns.modal.source == "member"
+
+    show_manual_fields? =
+      (adding? and assigns.modal.source == "manual") or
+        (not adding? and assigns.modal.editing_manual?)
+
+    assigns =
+      assign(assigns,
+        adding?: adding?,
+        show_member_picker?: show_member_picker?,
+        show_manual_fields?: show_manual_fields?
+      )
+
+    ~H"""
+    <.modal on_cancel="cancel_retirement_profile_form">
+      <h2 class="font-semibold text-lg mb-4">
+        {if @adding?, do: "Add a person", else: "Edit retirement profile"}
+      </h2>
+
       <.form
         for={@form}
-        id="retirement-onboarding-form"
+        id="retirement-profile-form"
         phx-change="validate_retirement_profile"
-        phx-submit="save_retirement_profile"
+        phx-submit={if @adding?, do: "add_retirement_profile", else: "update_retirement_profile"}
         class="flex flex-col gap-3"
       >
+        <div :if={@adding? and @modal.eligible_members != []} class="flex gap-4 text-sm">
+          <label class="flex items-center gap-1">
+            <input type="radio" name="source" value="member" checked={@modal.source == "member"} />
+            Existing member
+          </label>
+          <label class="flex items-center gap-1">
+            <input type="radio" name="source" value="manual" checked={@modal.source == "manual"} />
+            Someone without an account
+          </label>
+        </div>
+
+        <.input
+          :if={@show_member_picker?}
+          field={@form[:user_id]}
+          type="select"
+          label="Household member"
+          options={Enum.map(@modal.eligible_members, &{&1.display_name, &1.id})}
+        />
+
+        <.input :if={@show_manual_fields?} field={@form[:name]} label="Name" />
+        <.input
+          :if={@show_manual_fields?}
+          field={@form[:claim_email]}
+          type="email"
+          label="Email (optional -- links their account automatically if they sign in later)"
+        />
+
         <.input field={@form[:current_age]} type="number" label="Current age" />
         <.input field={@form[:retirement_age]} type="number" label="Target retirement age" />
         <.input
@@ -1482,8 +1735,10 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           label="Expected annual return (%)"
         />
         <div class="flex justify-end gap-2 mt-2">
-          <.button type="button" phx-click="dismiss_retirement_prompt">Skip for now</.button>
-          <.button type="submit" variant="primary">Save</.button>
+          <.button type="button" phx-click="cancel_retirement_profile_form">Cancel</.button>
+          <.button type="submit" variant="primary">
+            {if @adding?, do: "Add person", else: "Save"}
+          </.button>
         </div>
       </.form>
     </.modal>

@@ -4,7 +4,7 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
   alias DebtReliefTrackerWeb.Charts
   alias DebtReliefTracker.Planning
   alias DebtReliefTracker.Debts.Debt
-  alias DebtReliefTracker.Settings.Setting
+  alias DebtReliefTracker.Settings.RetirementProfile
 
   defp debt(attrs) do
     struct(
@@ -20,9 +20,9 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
     )
   end
 
-  defp setting(attrs) do
+  defp profile(attrs) do
     struct(
-      %Setting{
+      %RetirementProfile{
         current_retirement_savings: Decimal.new("0"),
         monthly_retirement_contribution: Decimal.new("0"),
         monthly_gross_income: Decimal.new("0"),
@@ -280,37 +280,14 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
   end
 
   describe "build/7 :retirement_roadmap" do
-    test "returns a message when the retirement profile isn't set up yet" do
+    test "returns a message when no one has a retirement profile yet" do
       assert {message, nil} =
-               Charts.build(
-                 :retirement_roadmap,
-                 :cash_flow,
-                 %{},
-                 [],
-                 Decimal.new("100"),
-                 [],
-                 setting(current_age: nil, retirement_age: nil)
-               )
+               Charts.build(:retirement_roadmap, :cash_flow, %{}, [], Decimal.new("100"), [], [])
 
       assert message =~ "retirement profile"
     end
 
-    test "returns a message when retirement age isn't after current age" do
-      assert {message, nil} =
-               Charts.build(
-                 :retirement_roadmap,
-                 :cash_flow,
-                 %{},
-                 [],
-                 Decimal.new("100"),
-                 [],
-                 setting(current_age: 40, retirement_age: 40)
-               )
-
-      assert message =~ "Retirement age must be after current age"
-    end
-
-    test "returns a baseline plus one dataset per strategy when the profile is set" do
+    test "returns a baseline plus one dataset per strategy when a profile is set" do
       debts = [
         debt(
           id: 1,
@@ -321,13 +298,14 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
         )
       ]
 
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 32,
           monthly_retirement_contribution: Decimal.new("100"),
           monthly_gross_income: Decimal.new("4000")
         )
+      ]
 
       {message, config} =
         Charts.build(
@@ -337,16 +315,16 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
           debts,
           Decimal.new("100"),
           [],
-          settings
+          profiles
         )
 
       assert message == nil
       assert config.type == "line"
-      assert config.data.labels == [30, 31, 32]
+      assert config.data.labels == ["Year 0", "Year 1", "Year 2"]
 
       # Lines are drawn with pointRadius: 0, so without index-mode/non-intersect
       # interaction, hovering would almost never land exactly on a point and
-      # tooltips (showing the value per age) would never fire.
+      # tooltips (showing the value per year) would never fire.
       assert config.options.interaction == %{mode: "index", intersect: false}
 
       labels = Enum.map(config.data.datasets, & &1.label)
@@ -387,27 +365,28 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
         )
       ]
 
-      settings = setting(current_age: 30, retirement_age: 32)
+      profiles = [profile(current_age: 30, retirement_age: 32)]
 
       {message, config} =
-        Charts.build(:retirement_roadmap, :cash_flow, %{}, debts, Decimal.new("10"), [], settings)
+        Charts.build(:retirement_roadmap, :cash_flow, %{}, debts, Decimal.new("10"), [], profiles)
 
       assert message == nil
       assert [%{label: "Baseline (no debt strategy)"}] = config.data.datasets
     end
 
     test "with no debts, every strategy line matches every other strategy line and diverges from baseline" do
-      settings =
-        setting(
+      profiles = [
+        profile(
           current_age: 30,
           retirement_age: 32,
           monthly_retirement_contribution: Decimal.new("100"),
           monthly_gross_income: Decimal.new("4000"),
           post_debt_investment_pct: Decimal.new("15.0")
         )
+      ]
 
       {nil, config} =
-        Charts.build(:retirement_roadmap, :cash_flow, %{}, [], Decimal.new("100"), [], settings)
+        Charts.build(:retirement_roadmap, :cash_flow, %{}, [], Decimal.new("100"), [], profiles)
 
       [baseline | strategy_datasets] = config.data.datasets
       assert baseline.label == "Baseline (no debt strategy)"
@@ -415,6 +394,42 @@ defmodule DebtReliefTrackerWeb.ChartsTest do
       strategy_series = Enum.map(strategy_datasets, & &1.data)
       assert Enum.uniq(strategy_series) == [hd(strategy_series)]
       refute hd(strategy_series) == baseline.data
+    end
+
+    test "sums two people's independent projections, each stopping contributions at their own retirement age" do
+      profiles = [
+        profile(
+          current_age: 30,
+          retirement_age: 31,
+          current_retirement_savings: Decimal.new("0"),
+          monthly_retirement_contribution: Decimal.new("100"),
+          monthly_gross_income: Decimal.new("0"),
+          post_debt_investment_pct: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        ),
+        profile(
+          current_age: 30,
+          retirement_age: 32,
+          current_retirement_savings: Decimal.new("0"),
+          monthly_retirement_contribution: Decimal.new("100"),
+          monthly_gross_income: Decimal.new("0"),
+          post_debt_investment_pct: Decimal.new("0"),
+          expected_annual_return_pct: Decimal.new("0")
+        )
+      ]
+
+      {nil, config} =
+        Charts.build(:retirement_roadmap, :cash_flow, %{}, [], Decimal.new("100"), [], profiles)
+
+      # Household horizon is the longer of the two (2 years). With 0% return,
+      # person A (1yr horizon) contributes $1200 over year 1 then stops --
+      # their balance holds flat at $1200 through year 2. Person B (2yr
+      # horizon) keeps contributing, reaching $1200 at year 1 and $2400 at
+      # year 2. Summed: 0, 1200+1200=2400, 1200+2400=3600.
+      assert config.data.labels == ["Year 0", "Year 1", "Year 2"]
+
+      baseline = Enum.find(config.data.datasets, &(&1.label == "Baseline (no debt strategy)"))
+      assert baseline.data == [0.0, 2400.0, 3600.0]
     end
   end
 

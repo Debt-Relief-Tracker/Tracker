@@ -78,30 +78,37 @@ defmodule DebtReliefTracker.Accounts do
   def get_or_create_user_from_oidc!(%{"sub" => subject} = claims) do
     admin? = admin_claim?(claims)
 
-    case Repo.get_by(User, external_subject: subject) do
-      %User{is_admin: ^admin?} = user ->
-        user
+    user =
+      case Repo.get_by(User, external_subject: subject) do
+        %User{is_admin: ^admin?} = user ->
+          user
 
-      %User{} = user ->
-        {:ok, user} = Repo.update(User.admin_changeset(user, %{is_admin: admin?}))
-        user
+        %User{} = user ->
+          {:ok, user} = Repo.update(User.admin_changeset(user, %{is_admin: admin?}))
+          user
 
-      nil ->
-        display_name = claims["name"] || claims["email"] || "New user"
+        nil ->
+          display_name = claims["name"] || claims["email"] || "New user"
 
-        user_attrs = %{
-          display_name: display_name,
-          external_subject: subject,
-          email: claims["email"]
-        }
+          user_attrs = %{
+            display_name: display_name,
+            external_subject: subject,
+            email: claims["email"]
+          }
 
-        {user, _workspace} =
-          create_user_with_own_workspace!(user_attrs, "#{display_name}'s Debts", admin?)
+          {user, _workspace} =
+            create_user_with_own_workspace!(user_attrs, "#{display_name}'s Debts", admin?)
 
-        fulfill_pending_invitations(user)
-        maybe_deliver_welcome_email(user)
-        user
-    end
+          fulfill_pending_invitations(user)
+          maybe_deliver_welcome_email(user)
+          user
+      end
+
+    # Cheap (one indexed query, no-op if nothing matches) and run on every
+    # login, not just the first -- also covers a manual retirement profile
+    # added *after* this person already has an account.
+    Settings.claim_retirement_profiles(user)
+    user
   end
 
   # `OIDC_ROLES_CLAIM` (config/runtime.exs) -- default claims never carry
@@ -296,15 +303,43 @@ defmodule DebtReliefTracker.Accounts do
   end
 
   @doc """
+  Every confirmed member of a workspace, owner included, preloaded with
+  :user, owner first then oldest first. Unlike `list_workspace_members/1`
+  (built for the "People" sharing list, which intentionally hides the
+  owner's own row), callers that need the full roster of people who
+  actually have access -- e.g. picking who to add a retirement profile for
+  -- want this instead.
+  """
+  def list_confirmed_members(%Workspace{id: workspace_id}) do
+    from(m in WorkspaceMember, where: m.workspace_id == ^workspace_id, preload: :user)
+    |> Repo.all()
+    |> Enum.sort_by(&{&1.role != :owner, &1.inserted_at})
+  end
+
+  @doc """
   Removes a member's access to `workspace`. `{:error, :not_found}` if already
   gone; `{:error, :cannot_remove_owner}` if `member_id` resolves to the
   workspace's own owner row.
   """
-  def remove_member(%Workspace{id: workspace_id}, member_id) do
-    case Repo.get_by(WorkspaceMember, id: member_id, workspace_id: workspace_id) do
-      nil -> {:error, :not_found}
-      %WorkspaceMember{role: :owner} -> {:error, :cannot_remove_owner}
-      member -> Repo.delete(member)
+  def remove_member(%Workspace{} = workspace, member_id) do
+    case Repo.get_by(WorkspaceMember, id: member_id, workspace_id: workspace.id) do
+      nil ->
+        {:error, :not_found}
+
+      %WorkspaceMember{role: :owner} ->
+        {:error, :cannot_remove_owner}
+
+      %WorkspaceMember{} = member ->
+        member = Repo.preload(member, :user)
+
+        case Repo.delete(member) do
+          {:ok, _} = result ->
+            Settings.unlink_retirement_profile(workspace, member.user)
+            result
+
+          {:error, _} = error ->
+            error
+        end
     end
   end
 

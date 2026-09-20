@@ -39,11 +39,27 @@ defmodule DebtReliefTrackerWeb.Charts do
   plot yet (`nil` otherwise), `config` is a Chart.js config map ready to
   push to the client (`nil` when `message` is set).
   """
-  def build(:comparison, _strategy, strategies, _debts, _budget, _lifetime_payments, _settings) do
+  def build(
+        :comparison,
+        _strategy,
+        strategies,
+        _debts,
+        _budget,
+        _lifetime_payments,
+        _retirement_profiles
+      ) do
     comparison_config(strategies)
   end
 
-  def build(:simulation, strategy, strategies, debts, _budget, _lifetime_payments, _settings) do
+  def build(
+        :simulation,
+        strategy,
+        strategies,
+        debts,
+        _budget,
+        _lifetime_payments,
+        _retirement_profiles
+      ) do
     simulation_config(strategy, strategies, debts)
   end
 
@@ -54,12 +70,20 @@ defmodule DebtReliefTrackerWeb.Charts do
         debts,
         _budget,
         _lifetime_payments,
-        _settings
+        _retirement_profiles
       ) do
     monthly_payments_config(strategy, strategies, debts)
   end
 
-  def build(:freed_cashflow, strategy, _strategies, debts, budget, _lifetime_payments, _settings) do
+  def build(
+        :freed_cashflow,
+        strategy,
+        _strategies,
+        debts,
+        budget,
+        _lifetime_payments,
+        _retirement_profiles
+      ) do
     freed_cashflow_config(strategy, debts, budget)
   end
 
@@ -70,7 +94,7 @@ defmodule DebtReliefTrackerWeb.Charts do
         _debts,
         _budget,
         lifetime_payments,
-        _settings
+        _retirement_profiles
       ) do
     interest_breakdown_config(lifetime_payments)
   end
@@ -82,9 +106,9 @@ defmodule DebtReliefTrackerWeb.Charts do
         debts,
         budget,
         _lifetime_payments,
-        settings
+        retirement_profiles
       ) do
-    retirement_roadmap_config(settings, debts, budget)
+    retirement_roadmap_config(retirement_profiles, debts, budget)
   end
 
   # --- comparison: dual-axis bar chart (interest $ + months, per strategy) ---
@@ -372,29 +396,27 @@ defmodule DebtReliefTrackerWeb.Charts do
 
   # --- retirement roadmap: baseline + one line per strategy -------------------
 
-  defp retirement_roadmap_config(settings, debts, budget) do
-    cond do
-      is_nil(settings.current_age) or is_nil(settings.retirement_age) ->
-        {"Set up your retirement profile to see how debt strategies affect your nest egg.", nil}
-
-      settings.retirement_age <= settings.current_age ->
-        {"Retirement age must be after current age -- update your retirement profile.", nil}
-
-      true ->
-        {nil, retirement_roadmap_chart(settings, debts, budget)}
+  defp retirement_roadmap_config(retirement_profiles, debts, budget) do
+    if Enum.empty?(retirement_profiles) do
+      {"Set up a retirement profile for at least one person to see how debt strategies affect your household's nest egg.",
+       nil}
+    else
+      {nil, retirement_roadmap_chart(retirement_profiles, debts, budget)}
     end
   end
 
-  defp retirement_roadmap_chart(settings, debts, budget) do
-    months = Retirement.months_to_retirement(settings)
+  defp retirement_roadmap_chart(retirement_profiles, debts, budget) do
+    months = Retirement.combined_months_to_retirement(retirement_profiles)
     years = div(months, 12)
-    labels = for y <- 0..years, do: settings.current_age + y
+    labels = for y <- 0..years, do: "Year #{y}"
 
     baseline_dataset = %{
       label: "Baseline (no debt strategy)",
-      data: settings |> Retirement.baseline_projection() |> yearly_samples(),
+      data: retirement_profiles |> Retirement.baseline_projection() |> yearly_samples(),
       monthlyContribution:
-        settings |> Retirement.baseline_contributions() |> yearly_contribution_samples(),
+        retirement_profiles
+        |> Retirement.baseline_contributions()
+        |> yearly_contribution_samples(),
       borderColor: @total_line_color,
       backgroundColor: @total_line_color,
       borderDash: [6, 4],
@@ -407,7 +429,12 @@ defmodule DebtReliefTrackerWeb.Charts do
       @strategies
       |> Enum.with_index()
       |> Enum.flat_map(fn {strategy, i} ->
-        case Retirement.strategy_projection_with_contributions(debts, settings, budget, strategy) do
+        case Retirement.strategy_projection_with_contributions(
+               debts,
+               retirement_profiles,
+               budget,
+               strategy
+             ) do
           {:ok, %{balances: balances, contributions: contributions}} ->
             [
               %{
@@ -435,7 +462,7 @@ defmodule DebtReliefTrackerWeb.Charts do
         maintainAspectRatio: false,
         interaction: %{mode: "index", intersect: false},
         scales: %{
-          x: %{title: %{display: true, text: "Age"}},
+          x: %{title: %{display: true, text: "Years from now"}},
           y: %{
             beginAtZero: true,
             title: %{display: true, text: "Projected retirement savings ($)"}
