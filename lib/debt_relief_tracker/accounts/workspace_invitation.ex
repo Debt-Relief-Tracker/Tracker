@@ -11,6 +11,9 @@ defmodule DebtReliefTracker.Accounts.WorkspaceInvitation do
 
   alias DebtReliefTracker.Accounts.{User, Workspace}
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "workspace_invitations" do
     field :email, :string
     belongs_to :workspace, Workspace

@@ -4,6 +4,9 @@ defmodule DebtReliefTracker.Debts.Debt do
 
   alias DebtReliefTracker.Accounts.Workspace
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "debts" do
     field :name, :string
     field :type, Ecto.Enum, values: [:revolving, :installment]

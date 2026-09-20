@@ -15,7 +15,7 @@ defmodule DebtReliefTracker.Debts do
   def list_debts(%Workspace{id: workspace_id}) do
     from(d in Debt,
       where: d.workspace_id == ^workspace_id,
-      order_by: [asc: d.position, asc: d.id]
+      order_by: [asc: d.position, asc: d.inserted_at, asc: d.id]
     )
     |> Repo.all()
   end

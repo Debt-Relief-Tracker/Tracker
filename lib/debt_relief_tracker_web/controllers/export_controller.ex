@@ -36,9 +36,11 @@ defmodule DebtReliefTrackerWeb.ExportController do
   # context shouldn't need to know about.
   defp resolve_workspace(conn) do
     if OIDC.enabled?() do
-      case get_session(conn, :user_id) do
-        nil -> :unauthenticated
-        user_id -> {:ok, user_id |> Accounts.get_user!() |> Accounts.current_workspace_for_user()}
+      with user_id when not is_nil(user_id) <- get_session(conn, :user_id),
+           {:ok, uuid} <- Ecto.UUID.cast(user_id) do
+        {:ok, uuid |> Accounts.get_user!() |> Accounts.current_workspace_for_user()}
+      else
+        _ -> :unauthenticated
       end
     else
       {:ok, Accounts.ensure_default_workspace!()}

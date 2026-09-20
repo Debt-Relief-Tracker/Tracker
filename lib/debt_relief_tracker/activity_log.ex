@@ -51,7 +51,9 @@ defmodule DebtReliefTracker.ActivityLog do
   for a `:debt_deleted` entry -- see `Debts.delete_debt/3`). Ties on
   `inserted_at` (same-second timestamp precision, easy to hit when several
   actions happen in quick succession) break on `:id` descending, so ordering
-  is deterministic rather than whatever order the database happens to return.
+  is at least deterministic across page reloads -- ids are UUIDs, so this
+  tiebreak is an arbitrary-but-stable order within a same-second tie, not an
+  approximation of insertion order (see the UUID primary-key migration).
   """
   def list_recent(%Workspace{id: workspace_id}, limit \\ 50) do
     from(e in Entry,

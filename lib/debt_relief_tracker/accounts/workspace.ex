@@ -4,6 +4,9 @@ defmodule DebtReliefTracker.Accounts.Workspace do
 
   alias DebtReliefTracker.Accounts.User
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "workspaces" do
     field :name, :string
     belongs_to :owner, User, foreign_key: :owner_user_id

@@ -10,6 +10,9 @@ defmodule DebtReliefTracker.Accounts.SentEmail do
 
   alias DebtReliefTracker.Accounts.User
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "sent_emails" do
     field :template, Ecto.Enum, values: [:welcome, :workspace_shared, :workspace_invitation]
     field :to, :string

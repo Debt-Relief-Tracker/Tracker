@@ -7,6 +7,8 @@ defmodule DebtReliefTracker.Settings.SiteSetting do
   use Ecto.Schema
   import Ecto.Changeset
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+
   schema "site_settings" do
     field :site_name, :string
     field :from_name, :string

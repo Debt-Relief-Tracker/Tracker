@@ -9,7 +9,7 @@ import Config
 
 config :debt_relief_tracker,
   ecto_repos: [DebtReliefTracker.Repo.Sqlite, DebtReliefTracker.Repo.Postgres],
-  generators: [timestamp_type: :utc_datetime]
+  generators: [timestamp_type: :utc_datetime, binary_id: true]
 
 # Both repos share one priv/repo/migrations directory (see
 # docs/architecture/0001-dual-database-adapter.md) since only one adapter is

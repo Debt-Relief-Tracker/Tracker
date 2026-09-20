@@ -372,7 +372,7 @@ defmodule DebtReliefTracker.Accounts do
   exist (e.g. an invitation that's since been accepted or canceled).
   """
   def resend_email(%SentEmail{template: :welcome, user_id: user_id}) do
-    case user_id && Repo.get(User, user_id) do
+    case user_id && fetch(User, user_id) do
       nil -> {:error, :gone}
       user -> {:ok, UserNotifier.deliver_welcome_email(user)}
     end
@@ -381,9 +381,9 @@ defmodule DebtReliefTracker.Accounts do
   def resend_email(%SentEmail{template: :workspace_shared, metadata: metadata}) do
     with %{"workspace_id" => workspace_id, "inviter_id" => inviter_id, "user_id" => user_id} <-
            metadata,
-         %User{} = user <- Repo.get(User, user_id),
-         %Workspace{} = workspace <- Repo.get(Workspace, workspace_id),
-         %User{} = inviter <- Repo.get(User, inviter_id) do
+         %User{} = user <- fetch(User, user_id),
+         %Workspace{} = workspace <- fetch(Workspace, workspace_id),
+         %User{} = inviter <- fetch(User, inviter_id) do
       {:ok, UserNotifier.deliver_workspace_shared(user, workspace, inviter)}
     else
       _ -> {:error, :gone}
@@ -392,12 +392,25 @@ defmodule DebtReliefTracker.Accounts do
 
   def resend_email(%SentEmail{template: :workspace_invitation, metadata: metadata}) do
     with %{"invitation_id" => invitation_id} <- metadata,
-         %WorkspaceInvitation{} = invitation <- Repo.get(WorkspaceInvitation, invitation_id),
-         %Workspace{} = workspace <- Repo.get(Workspace, invitation.workspace_id),
-         %User{} = inviter <- Repo.get(User, invitation.invited_by_user_id) do
+         %WorkspaceInvitation{} = invitation <- fetch(WorkspaceInvitation, invitation_id),
+         %Workspace{} = workspace <- fetch(Workspace, invitation.workspace_id),
+         %User{} = inviter <- fetch(User, invitation.invited_by_user_id) do
       {:ok, UserNotifier.deliver_workspace_invitation(invitation, workspace, inviter)}
     else
       _ -> {:error, :gone}
+    end
+  end
+
+  # `Repo.get/2` raises `Ecto.Query.CastError` (rather than returning `nil`)
+  # when the id can't be cast to the schema's primary key type -- which a
+  # stale integer id embedded in `sent_emails.metadata` (from before ids
+  # were converted to UUIDs) would trigger. Guarding with `Ecto.UUID.cast/1`
+  # first lets a bad id flow into the existing `{:error, :gone}` path above
+  # instead of crashing the admin LiveView.
+  defp fetch(schema, id) do
+    case Ecto.UUID.cast(id) do
+      {:ok, uuid} -> Repo.get(schema, uuid)
+      :error -> nil
     end
   end
 end

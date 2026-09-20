@@ -50,9 +50,14 @@ defmodule DebtReliefTrackerWeb.UserAuth do
 
   defp resolve_scope(session) do
     cond do
-      not OIDC.enabled?() -> {:ok, Scope.for_user(nil)}
-      user_id = session["user_id"] -> {:ok, Scope.for_user(Accounts.get_user!(user_id))}
-      true -> :redirect
+      not OIDC.enabled?() ->
+        {:ok, Scope.for_user(nil)}
+
+      (user_id = session["user_id"]) && match?({:ok, _}, Ecto.UUID.cast(user_id)) ->
+        {:ok, Scope.for_user(Accounts.get_user!(user_id))}
+
+      true ->
+        :redirect
     end
   end
 end

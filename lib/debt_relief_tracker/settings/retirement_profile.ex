@@ -18,6 +18,9 @@ defmodule DebtReliefTracker.Settings.RetirementProfile do
 
   alias DebtReliefTracker.Accounts.{User, Workspace}
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "retirement_profiles" do
     field :name, :string
     field :claim_email, :string

@@ -138,7 +138,7 @@ defmodule DebtReliefTracker.AccountsTest do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
       workspace = Accounts.current_workspace_for_user(owner)
 
-      assert Accounts.cancel_invitation(workspace, -1) == {:error, :not_found}
+      assert Accounts.cancel_invitation(workspace, Ecto.UUID.generate()) == {:error, :not_found}
     end
   end
 
@@ -213,7 +213,7 @@ defmodule DebtReliefTracker.AccountsTest do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
       workspace = Accounts.current_workspace_for_user(owner)
 
-      assert Accounts.remove_member(workspace, -1) == {:error, :not_found}
+      assert Accounts.remove_member(workspace, Ecto.UUID.generate()) == {:error, :not_found}
     end
 
     test "remove_member/2 downgrades the member's retirement profile back to manual instead of losing it" do

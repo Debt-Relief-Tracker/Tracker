@@ -524,7 +524,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   end
 
   def handle_event("edit_retirement_profile", %{"id" => id}, socket) do
-    profile = Enum.find(socket.assigns.retirement_profiles, &(&1.id == String.to_integer(id)))
+    profile = Enum.find(socket.assigns.retirement_profiles, &(&1.id == id))
     changeset = RetirementProfile.update_changeset(profile, %{})
 
     {:noreply,
@@ -559,7 +559,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   def handle_event("delete_retirement_profile", %{"id" => id}, socket) do
     %{workspace: workspace, retirement_profiles: profiles} = socket.assigns
-    profile = Enum.find(profiles, &(&1.id == String.to_integer(id)))
+    profile = Enum.find(profiles, &(&1.id == id))
 
     {:ok, _} = Settings.delete_retirement_profile(profile)
 
@@ -722,7 +722,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     %{workspace: workspace, debts: debts} = socket.assigns
 
     Enum.each(balances, fn {id, value} ->
-      debt = Enum.find(debts, &(&1.id == String.to_integer(id)))
+      debt = Enum.find(debts, &(&1.id == id))
 
       if debt && value != "" do
         {:ok, _} = Debts.reconcile_balance(workspace, nil, debt, value)

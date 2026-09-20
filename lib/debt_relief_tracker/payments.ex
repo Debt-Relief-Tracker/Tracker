@@ -15,7 +15,10 @@ defmodule DebtReliefTracker.Payments do
   alias DebtReliefTracker.Payments.Payment
 
   def list_payments_for_debt(%Debt{id: debt_id}) do
-    from(p in Payment, where: p.debt_id == ^debt_id, order_by: [desc: p.paid_on, desc: p.id])
+    from(p in Payment,
+      where: p.debt_id == ^debt_id,
+      order_by: [desc: p.paid_on, desc: p.inserted_at, desc: p.id]
+    )
     |> Repo.all()
   end
 
@@ -28,7 +31,7 @@ defmodule DebtReliefTracker.Payments do
     from(p in Payment,
       join: d in assoc(p, :debt),
       where: d.workspace_id == ^workspace_id,
-      order_by: [desc: p.paid_on, desc: p.id],
+      order_by: [desc: p.paid_on, desc: p.inserted_at, desc: p.id],
       preload: [debt: d]
     )
     |> Repo.all()

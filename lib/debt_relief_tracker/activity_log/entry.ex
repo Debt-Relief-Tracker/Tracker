@@ -5,6 +5,9 @@ defmodule DebtReliefTracker.ActivityLog.Entry do
   alias DebtReliefTracker.Accounts.{User, Workspace}
   alias DebtReliefTracker.Debts.Debt
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "activity_logs" do
     field :action, Ecto.Enum,
       values: [

@@ -4,6 +4,9 @@ defmodule DebtReliefTracker.Settings.Setting do
 
   alias DebtReliefTracker.Accounts.Workspace
 
+  @primary_key {:id, :binary_id, autogenerate: true}
+  @foreign_key_type :binary_id
+
   schema "settings" do
     field :monthly_budget, :decimal
     field :currency, :string, default: "USD"
