@@ -1,5 +1,26 @@
 This is a web application written using the Phoenix web framework.
 
+## THIS APP IS LIVE -- MIGRATIONS MUST BE PERFECT
+
+This is not a toy project. It is deployed and in active use, and its database
+holds the user's own real personal financial data (loans, payments,
+retirement info) -- not seed/fixture data. There is no staging environment.
+
+- **Never** write a migration you have not fully verified. Read it back after
+  writing it and confirm: the direction is correct, it is reversible (or
+  explicitly and correctly marked irreversible), it won't lock/rewrite large
+  tables in a way that causes downtime, and it matches the schema changes the
+  corresponding code actually needs.
+- **Never** run destructive or irreversible commands against the database
+  (`mix ecto.reset`, `mix ecto.drop`, manual `DROP`/`TRUNCATE`, editing rows
+  by hand) without explicit, in-the-moment user confirmation.
+- **Never** start or stop the dev server (`mix phx.server`) -- the user runs
+  it themselves and uses it concurrently with real data while you work.
+- If a migration has been written but not yet run, say so explicitly and
+  confirm with the user before running it -- don't assume it's safe just
+  because it compiles.
+- When in doubt about any schema change, pause and ask rather than guessing.
+
 ## Project-specific notes
 
 - See `docs/plan.md`, `docs/roadmap.md`, and `docs/architecture/*.md` for the
