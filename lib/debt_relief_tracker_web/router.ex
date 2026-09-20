@@ -17,7 +17,13 @@ defmodule DebtReliefTrackerWeb.Router do
   scope "/", DebtReliefTrackerWeb do
     pipe_through :browser
 
-    live "/", DashboardLive, :index
+    live_session :default, on_mount: [{DebtReliefTrackerWeb.UserAuth, :mount_current_scope}] do
+      live "/", DashboardLive, :index
+    end
+
+    live_session :admin, on_mount: [{DebtReliefTrackerWeb.UserAuth, :require_admin_scope}] do
+      live "/admin", AdminLive
+    end
 
     # Optional OIDC login (docs/architecture/0002-auth-and-sharing-model.md) --
     # these routes exist unconditionally but no-op back to "/" if OIDC isn't

@@ -71,6 +71,57 @@ email (from the dashboard header). See
 [`docs/architecture/0002-auth-and-sharing-model.md`](docs/architecture/0002-auth-and-sharing-model.md)
 for the full design.
 
+### Admin access
+
+A `/admin` area (site name/mailer identity, and the sent-email log with
+resend) is gated by an **admin role read from your OIDC provider** -- not a
+role stored only in this app. Default `openid email profile` OIDC scopes
+never carry roles, so the app looks for a role list in a custom, namespaced
+ID-token claim, whose name is set by `OIDC_ROLES_CLAIM` (default
+`https://debt-relief-tracker.app/roles`). A user is granted admin access
+whenever that claim's list includes the string `"admin"`; this is re-synced
+from the token on every login, so revoking the role in your IdP takes effect
+the next time that person logs in.
+
+**Auth0 setup (step by step)**, since that's this deployment's IdP:
+
+1. **Dashboard → User Management → Roles → Create Role.** Name it `admin`
+   (this exact string is what the app checks for).
+2. **Dashboard → User Management → Users** → open the user who should be an
+   admin → **Roles** tab → **Assign Roles** → pick `admin`.
+3. **Dashboard → Actions → Library → Build Custom** → trigger: **Login /
+   Post Login**. Add:
+   ```js
+   exports.onExecutePostLogin = async (event, api) => {
+     const claim = event.secrets.ROLES_CLAIM || 'https://debt-relief-tracker.app/roles';
+     const roles = event.authorization?.roles || [];
+     api.idToken.setCustomClaim(claim, roles);
+   };
+   ```
+   (Add `ROLES_CLAIM` under the Action's **Secrets** if you changed
+   `OIDC_ROLES_CLAIM` from the default, so the claim name always matches
+   what the app expects.)
+4. **Deploy** the Action, then **Actions → Flows → Login** → drag the new
+   Action into the flow → **Apply**.
+5. Log out and back in to the app; the claim now rides in the ID token and
+   admin access is granted on that login.
+
+**Other OIDC providers** need the same three ingredients, configured in
+whatever that provider calls its claims/token customization:
+
+- **Okta**: Security → API → Authorization Servers → your server → **Claims**
+  tab → Add Claim, with a Groups/Expression claim mapped into the ID token
+  under your chosen claim name.
+- **Keycloak**: Client → **Client Scopes** → add a **Mapper** of type "User
+  Realm Role" (or "User Client Role"), set the **Token Claim Name** to your
+  `OIDC_ROLES_CLAIM` value, and add it to the ID token.
+- **Any other provider**: look for "custom claims", "claims mapping", or
+  "token customization" in its docs -- the goal is always an ID-token claim,
+  at the configured name, containing a list of role strings.
+
+In local no-auth dev mode (no `OIDC_ISSUER`/`OIDC_CLIENT_ID`/
+`OIDC_CLIENT_SECRET` set), `/admin` is reachable without any of this.
+
 ## Local development
 
 * Run `mix setup` to install everything: Elixir deps, the SQLite database,
@@ -104,11 +155,14 @@ above.
 
 ## Email
 
-Transactional email (workspace invites/share notices) is sent via
-[Resend](https://resend.com) through Swoosh. In dev/test, mail is captured
-locally and never actually sent -- no Resend account needed (view it at
-`/dev/mailbox` in dev).
+Transactional email (workspace invites/share notices, and a welcome email on
+signup) is sent via [Resend](https://resend.com) through Swoosh. In
+dev/test, mail is captured locally and never actually sent -- no Resend
+account needed (view it at `/dev/mailbox` in dev).
 
 **In production, Resend is required.** `RESEND_API_KEY` and
 `MAILER_FROM_EMAIL` must be set or the app fails to boot; `MAILER_FROM_NAME`
-is optional. See `.env.example` and `config/runtime.exs` for details.
+is optional. See `.env.example` and `config/runtime.exs` for details. The
+site name, from name/email, and whether the welcome email sends at all can
+all be overridden from `/admin` without redeploying, which also has a log of
+every email sent with a resend action.

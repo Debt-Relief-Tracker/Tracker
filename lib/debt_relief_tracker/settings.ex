@@ -1,9 +1,12 @@
 defmodule DebtReliefTracker.Settings do
-  @moduledoc "Per-workspace settings (monthly budget target, currency)."
+  @moduledoc """
+  Per-workspace settings (monthly budget target, currency), plus the global
+  site/mailer identity settings edited from `/admin`.
+  """
 
   alias DebtReliefTracker.Repo
   alias DebtReliefTracker.Accounts.Workspace
-  alias DebtReliefTracker.Settings.Setting
+  alias DebtReliefTracker.Settings.{Setting, SiteSetting}
 
   @doc "Fetches a workspace's settings, creating a default row if none exists yet."
   def get_settings!(%Workspace{id: workspace_id} = workspace) do
@@ -37,5 +40,28 @@ defmodule DebtReliefTracker.Settings do
   @doc "Whether a workspace has completed the retirement onboarding profile."
   def retirement_profile_set?(%Setting{current_age: current_age, retirement_age: retirement_age}) do
     not is_nil(current_age) and not is_nil(retirement_age)
+  end
+
+  @doc "Fetches the single global site-settings row, creating a default one if none exists yet."
+  def get_site_settings do
+    case Repo.one(SiteSetting) do
+      nil -> create_default_site_settings!()
+      %SiteSetting{} = site_settings -> site_settings
+    end
+  end
+
+  defp create_default_site_settings! do
+    {:ok, site_settings} =
+      %SiteSetting{}
+      |> SiteSetting.changeset(%{site_name: "Debt Relief Tracker"})
+      |> Repo.insert()
+
+    site_settings
+  end
+
+  def update_site_settings(%SiteSetting{} = site_settings, attrs) do
+    site_settings
+    |> SiteSetting.changeset(attrs)
+    |> Repo.update()
   end
 end

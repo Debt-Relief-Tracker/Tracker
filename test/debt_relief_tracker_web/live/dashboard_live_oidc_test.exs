@@ -224,6 +224,10 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
         "name" => "Owner"
       })
 
+    # That login sent a welcome email first -- drain it before asserting on
+    # the invitation email that follows.
+    assert_email_sent(subject: "Welcome to Debt Relief Tracker!")
+
     conn = Plug.Test.init_test_session(conn, user_id: owner.id)
     {:ok, view, _html} = live(conn, ~p"/")
 

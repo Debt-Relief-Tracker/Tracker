@@ -57,7 +57,11 @@ if oidc_issuer && oidc_client_id && oidc_client_secret do
   config :debt_relief_tracker, :oidc,
     issuer: oidc_issuer,
     client_id: oidc_client_id,
-    client_secret: oidc_client_secret
+    client_secret: oidc_client_secret,
+    # The claim admin access is read from (README's "Admin access" section) --
+    # default OIDC scopes never carry roles, so the IdP must be configured to
+    # add this custom claim to the ID token.
+    roles_claim: System.get_env("OIDC_ROLES_CLAIM") || "https://debt-relief-tracker.app/roles"
 else
   config :debt_relief_tracker, :oidc, nil
 end

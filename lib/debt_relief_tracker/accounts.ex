@@ -11,12 +11,15 @@ defmodule DebtReliefTracker.Accounts do
   import Ecto.Query, warn: false
 
   alias DebtReliefTracker.Repo
+  alias DebtReliefTracker.Settings
 
   alias DebtReliefTracker.Accounts.{
     User,
     Workspace,
     WorkspaceMember,
     WorkspaceInvitation,
+    SentEmail,
+    Scope,
     UserNotifier
   }
 
@@ -67,10 +70,20 @@ defmodule DebtReliefTracker.Accounts do
   Finds or creates the `User` for an OIDC identity (matched on the
   provider's `sub` claim), creating their own workspace on first login
   (docs/architecture/0002-auth-and-sharing-model.md). Returns the user.
+
+  `is_admin` is re-synced from the provider's role claim (see README's
+  "Admin access" section) on every login, new or returning, so revoking the
+  role in the IdP takes effect the next time that person logs in.
   """
   def get_or_create_user_from_oidc!(%{"sub" => subject} = claims) do
+    admin? = admin_claim?(claims)
+
     case Repo.get_by(User, external_subject: subject) do
+      %User{is_admin: ^admin?} = user ->
+        user
+
       %User{} = user ->
+        {:ok, user} = Repo.update(User.admin_changeset(user, %{is_admin: admin?}))
         user
 
       nil ->
@@ -83,10 +96,25 @@ defmodule DebtReliefTracker.Accounts do
         }
 
         {user, _workspace} =
-          create_user_with_own_workspace!(user_attrs, "#{display_name}'s Debts")
+          create_user_with_own_workspace!(user_attrs, "#{display_name}'s Debts", admin?)
 
         fulfill_pending_invitations(user)
+        maybe_deliver_welcome_email(user)
         user
+    end
+  end
+
+  # `OIDC_ROLES_CLAIM` (config/runtime.exs) -- default claims never carry
+  # roles, so the IdP must be configured to add this custom claim to the ID
+  # token (README's "Admin access" section has provider-specific steps).
+  defp admin_claim?(claims) do
+    claim = Application.get_env(:debt_relief_tracker, :oidc)[:roles_claim]
+    "admin" in (claims[claim] || [])
+  end
+
+  defp maybe_deliver_welcome_email(user) do
+    if Settings.get_site_settings().welcome_emails_enabled do
+      UserNotifier.deliver_welcome_email(user)
     end
   end
 
@@ -120,9 +148,13 @@ defmodule DebtReliefTracker.Accounts do
 
   # Returns `{user, workspace}` -- both are needed by the two callers above,
   # which each only want one half.
-  defp create_user_with_own_workspace!(user_attrs, workspace_name) do
+  defp create_user_with_own_workspace!(user_attrs, workspace_name, is_admin \\ false) do
     Repo.transaction(fn ->
-      {:ok, user} = %User{} |> User.changeset(user_attrs) |> Repo.insert()
+      {:ok, user} =
+        %User{}
+        |> User.changeset(user_attrs)
+        |> User.admin_changeset(%{is_admin: is_admin})
+        |> Repo.insert()
 
       {:ok, workspace} =
         %Workspace{}
@@ -273,6 +305,64 @@ defmodule DebtReliefTracker.Accounts do
       nil -> {:error, :not_found}
       %WorkspaceMember{role: :owner} -> {:error, :cannot_remove_owner}
       member -> Repo.delete(member)
+    end
+  end
+
+  @doc "Whether the current scope is an admin -- see UserAuth's :require_admin_scope on_mount."
+  def admin?(%Scope{user: %User{is_admin: true}}), do: true
+  def admin?(_scope), do: false
+
+  @doc "Records that UserNotifier attempted to send an email, for the admin sent-email log."
+  def record_sent_email!(attrs) do
+    {:ok, sent_email} =
+      %SentEmail{}
+      |> SentEmail.changeset(attrs)
+      |> Repo.insert()
+
+    sent_email
+  end
+
+  @doc "Every sent email, newest first, for the admin sent-email log."
+  def list_sent_emails(limit \\ 100) do
+    from(e in SentEmail, order_by: [desc: e.inserted_at], limit: ^limit, preload: :user)
+    |> Repo.all()
+  end
+
+  @doc "Fetches a sent-email log entry by id."
+  def get_sent_email!(id), do: Repo.get!(SentEmail, id)
+
+  @doc """
+  Re-triggers a previously sent email from its stored `metadata`.
+  `{:error, :gone}` when the record(s) needed to rebuild the email no longer
+  exist (e.g. an invitation that's since been accepted or canceled).
+  """
+  def resend_email(%SentEmail{template: :welcome, user_id: user_id}) do
+    case user_id && Repo.get(User, user_id) do
+      nil -> {:error, :gone}
+      user -> {:ok, UserNotifier.deliver_welcome_email(user)}
+    end
+  end
+
+  def resend_email(%SentEmail{template: :workspace_shared, metadata: metadata}) do
+    with %{"workspace_id" => workspace_id, "inviter_id" => inviter_id, "user_id" => user_id} <-
+           metadata,
+         %User{} = user <- Repo.get(User, user_id),
+         %Workspace{} = workspace <- Repo.get(Workspace, workspace_id),
+         %User{} = inviter <- Repo.get(User, inviter_id) do
+      {:ok, UserNotifier.deliver_workspace_shared(user, workspace, inviter)}
+    else
+      _ -> {:error, :gone}
+    end
+  end
+
+  def resend_email(%SentEmail{template: :workspace_invitation, metadata: metadata}) do
+    with %{"invitation_id" => invitation_id} <- metadata,
+         %WorkspaceInvitation{} = invitation <- Repo.get(WorkspaceInvitation, invitation_id),
+         %Workspace{} = workspace <- Repo.get(Workspace, invitation.workspace_id),
+         %User{} = inviter <- Repo.get(User, invitation.invited_by_user_id) do
+      {:ok, UserNotifier.deliver_workspace_invitation(invitation, workspace, inviter)}
+    else
+      _ -> {:error, :gone}
     end
   end
 end

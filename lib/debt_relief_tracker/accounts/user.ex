@@ -9,6 +9,7 @@ defmodule DebtReliefTracker.Accounts.User do
     field :email, :string
     field :display_name, :string
     field :tutorial_seen, :boolean, default: false
+    field :is_admin, :boolean, default: false
 
     timestamps()
   end
@@ -22,5 +23,10 @@ defmodule DebtReliefTracker.Accounts.User do
 
   def tutorial_changeset(user, attrs) do
     cast(user, attrs, [:tutorial_seen])
+  end
+
+  @doc "Synced from an OIDC role claim on every login -- see Accounts.get_or_create_user_from_oidc!/1."
+  def admin_changeset(user, attrs) do
+    cast(user, attrs, [:is_admin])
   end
 end

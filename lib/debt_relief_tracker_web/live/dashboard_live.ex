@@ -89,56 +89,46 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   ]
 
   @impl true
-  def mount(_params, session, socket) do
-    if OIDC.enabled?() and is_nil(session["user_id"]) do
-      {:ok, redirect(socket, to: ~p"/auth/login")}
-    else
-      current_user = current_user(session)
-      tutorial_user = current_user || Accounts.get_default_user!()
-      workspace = current_workspace(current_user)
-      settings = Settings.get_settings!(workspace)
-      debts = Debts.list_debts(workspace)
+  def mount(_params, _session, socket) do
+    current_user = socket.assigns.current_scope.user
+    tutorial_user = current_user || Accounts.get_default_user!()
+    workspace = current_workspace(current_user)
+    settings = Settings.get_settings!(workspace)
+    debts = Debts.list_debts(workspace)
 
-      if connected?(socket) do
-        Phoenix.PubSub.subscribe(DebtReliefTracker.PubSub, "workspace:#{workspace.id}")
-      end
-
-      {:ok,
-       socket
-       |> assign(:current_user, current_user)
-       |> assign(:oidc_enabled, OIDC.enabled?())
-       |> assign(:workspace, workspace)
-       |> assign(:workspaces, current_user && Accounts.list_workspaces_for_user(current_user))
-       |> assign(
-         :pending_invitations,
-         pending_invitations_for(workspace, OIDC.enabled?(), current_user)
-       )
-       |> assign(:share_form, to_form(%{"email" => ""}, as: :share))
-       |> assign(:strategy, :cash_flow)
-       |> assign(:chart_type, :comparison)
-       |> assign(:chart_types, @chart_types)
-       |> assign(:strategy_options, @strategies)
-       |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
-       |> assign(:budget_mode, settings.budget_mode || :total)
-       |> assign(:currency, settings.currency || "USD")
-       |> assign(:settings, settings)
-       |> assign(:modal, nil)
-       |> assign(:form, nil)
-       |> assign(:name_form, nil)
-       |> assign(:tutorial_user, tutorial_user)
-       |> assign(:tutorial, initial_tutorial(tutorial_user, connected?(socket)))
-       |> maybe_push_tutorial_step()
-       |> assign(:debts, debts)
-       |> assign(:due_prompts, due_prompts(debts))
-       |> reload_lifetime_payments()
-       |> assign_plan()}
+    if connected?(socket) do
+      Phoenix.PubSub.subscribe(DebtReliefTracker.PubSub, "workspace:#{workspace.id}")
     end
-  end
 
-  # In no-auth mode there's no session-backed user at all -- everything
-  # resolves to the single implicit default workspace instead (ADR 0002).
-  defp current_user(session) do
-    if OIDC.enabled?(), do: Accounts.get_user!(session["user_id"])
+    {:ok,
+     socket
+     |> assign(:current_user, current_user)
+     |> assign(:oidc_enabled, OIDC.enabled?())
+     |> assign(:workspace, workspace)
+     |> assign(:workspaces, current_user && Accounts.list_workspaces_for_user(current_user))
+     |> assign(
+       :pending_invitations,
+       pending_invitations_for(workspace, OIDC.enabled?(), current_user)
+     )
+     |> assign(:share_form, to_form(%{"email" => ""}, as: :share))
+     |> assign(:strategy, :cash_flow)
+     |> assign(:chart_type, :comparison)
+     |> assign(:chart_types, @chart_types)
+     |> assign(:strategy_options, @strategies)
+     |> assign(:monthly_budget, settings.monthly_budget || default_budget(debts))
+     |> assign(:budget_mode, settings.budget_mode || :total)
+     |> assign(:currency, settings.currency || "USD")
+     |> assign(:settings, settings)
+     |> assign(:modal, nil)
+     |> assign(:form, nil)
+     |> assign(:name_form, nil)
+     |> assign(:tutorial_user, tutorial_user)
+     |> assign(:tutorial, initial_tutorial(tutorial_user, connected?(socket)))
+     |> maybe_push_tutorial_step()
+     |> assign(:debts, debts)
+     |> assign(:due_prompts, due_prompts(debts))
+     |> reload_lifetime_payments()
+     |> assign_plan()}
   end
 
   defp current_workspace(nil), do: Accounts.ensure_default_workspace!()
@@ -773,7 +763,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} full_width>
+    <Layouts.app flash={@flash} current_scope={@current_scope} full_width>
       <header class="navbar px-4 border-b border-base-300 gap-3">
         <div class="flex-1 flex items-center gap-3">
           <span class="font-semibold">{@workspace.name}</span>

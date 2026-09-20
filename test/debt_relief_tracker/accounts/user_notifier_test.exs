@@ -40,4 +40,29 @@ defmodule DebtReliefTracker.Accounts.UserNotifierTest do
       assert_email_sent(to: "new@example.com", subject: "You've been invited to Household Debts")
     end
   end
+
+  describe "deliver_welcome_email/1" do
+    test "welcomes the new user with the Romans 13:8 (CSB) verse" do
+      user = %User{display_name: "Bea", email: "bea@example.com"}
+
+      assert :ok = UserNotifier.deliver_welcome_email(user)
+
+      assert_email_sent(fn email ->
+        assert email.to == [{"Bea", "bea@example.com"}]
+        assert email.subject == "Welcome to Debt Relief Tracker!"
+
+        assert email.text_body =~
+                 "Do not owe anyone anything, except to love one another"
+
+        assert email.text_body =~ "Romans 13:8 (CSB)"
+      end)
+    end
+
+    test "no-ops for a user with no email" do
+      user = %User{display_name: "Bea", email: nil}
+
+      assert :ok = UserNotifier.deliver_welcome_email(user)
+      assert_no_email_sent()
+    end
+  end
 end

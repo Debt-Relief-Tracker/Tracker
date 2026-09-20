@@ -4,6 +4,8 @@ defmodule DebtReliefTracker.AccountsTest do
   import Swoosh.TestAssertions
 
   alias DebtReliefTracker.Accounts
+  alias DebtReliefTracker.Accounts.Scope
+  alias DebtReliefTracker.Settings
 
   describe "ensure_default_workspace!/0" do
     test "creates the implicit user, workspace, and owner membership on first call" do
@@ -55,6 +57,11 @@ defmodule DebtReliefTracker.AccountsTest do
       member = Accounts.get_or_create_user_from_oidc!(%{"sub" => "b", "email" => "b@example.com"})
       workspace = Accounts.current_workspace_for_user(owner)
 
+      # Both logins above sent a welcome email first -- drain those before
+      # asserting on the share notification that follows.
+      assert_email_sent(subject: "Welcome to Debt Relief Tracker!")
+      assert_email_sent(subject: "Welcome to Debt Relief Tracker!")
+
       assert {:ok, _member} =
                Accounts.share_workspace_with_email(workspace, "b@example.com", owner)
 
@@ -66,6 +73,10 @@ defmodule DebtReliefTracker.AccountsTest do
     test "creates a pending invitation and emails the address when no user with that email has ever logged in" do
       owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
       workspace = Accounts.current_workspace_for_user(owner)
+
+      # That login sent a welcome email first -- drain it before asserting on
+      # the invitation email that follows.
+      assert_email_sent(subject: "Welcome to Debt Relief Tracker!")
 
       assert {:ok, invitation} =
                Accounts.share_workspace_with_email(workspace, "nobody@example.com", owner)
@@ -192,6 +203,116 @@ defmodule DebtReliefTracker.AccountsTest do
 
       assert Accounts.remove_member(workspace, owner_membership.id) ==
                {:error, :cannot_remove_owner}
+    end
+  end
+
+  describe "get_or_create_user_from_oidc!/1 admin role sync" do
+    setup do
+      Application.put_env(:debt_relief_tracker, :oidc, roles_claim: "https://example.com/roles")
+      on_exit(fn -> Application.put_env(:debt_relief_tracker, :oidc, nil) end)
+      :ok
+    end
+
+    test "grants admin access when the configured role claim includes \"admin\"" do
+      user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "admin-user",
+          "email" => "admin@example.com",
+          "https://example.com/roles" => ["admin"]
+        })
+
+      assert user.is_admin
+    end
+
+    test "does not grant admin access without the role" do
+      user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "regular",
+          "email" => "regular@example.com"
+        })
+
+      refute user.is_admin
+    end
+
+    test "re-syncs is_admin on a returning login, e.g. after a role is revoked" do
+      claims = %{
+        "sub" => "revoked",
+        "email" => "revoked@example.com",
+        "https://example.com/roles" => ["admin"]
+      }
+
+      user = Accounts.get_or_create_user_from_oidc!(claims)
+      assert user.is_admin
+
+      user =
+        Accounts.get_or_create_user_from_oidc!(Map.delete(claims, "https://example.com/roles"))
+
+      refute user.is_admin
+    end
+  end
+
+  describe "admin?/1" do
+    test "true only for a scope wrapping an admin user" do
+      admin = %Accounts.User{is_admin: true}
+      regular = %Accounts.User{is_admin: false}
+
+      assert Accounts.admin?(Scope.for_user(admin))
+      refute Accounts.admin?(Scope.for_user(regular))
+      refute Accounts.admin?(Scope.for_user(nil))
+    end
+  end
+
+  describe "get_or_create_user_from_oidc!/1 welcome email" do
+    test "sends a welcome email to a brand-new user only" do
+      claims = %{"sub" => "new", "email" => "new@example.com", "name" => "Newcomer"}
+
+      Accounts.get_or_create_user_from_oidc!(claims)
+      assert_email_sent(subject: "Welcome to Debt Relief Tracker!")
+
+      Accounts.get_or_create_user_from_oidc!(claims)
+      assert_no_email_sent()
+    end
+
+    test "sends no welcome email when disabled in site settings" do
+      site_settings = Settings.get_site_settings()
+      {:ok, _} = Settings.update_site_settings(site_settings, %{welcome_emails_enabled: false})
+
+      Accounts.get_or_create_user_from_oidc!(%{"sub" => "x", "email" => "x@example.com"})
+
+      assert_no_email_sent()
+    end
+  end
+
+  describe "list_sent_emails/1 and resend_email/1" do
+    test "records a sent welcome email, and resend/1 redelivers it" do
+      user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "resend-me",
+          "email" => "resend@example.com",
+          "name" => "Resend"
+        })
+
+      assert [sent_email] = Accounts.list_sent_emails()
+      assert sent_email.template == :welcome
+      assert sent_email.to == "resend@example.com"
+      assert sent_email.status == :sent
+
+      assert {:ok, :ok} = Accounts.resend_email(sent_email)
+      assert_email_sent(to: {user.display_name, "resend@example.com"})
+    end
+
+    test "returns {:error, :gone} resending an invitation that's since been canceled" do
+      owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      workspace = Accounts.current_workspace_for_user(owner)
+
+      {:ok, invitation} =
+        Accounts.share_workspace_with_email(workspace, "gone@example.com", owner)
+
+      {:ok, _} = Accounts.cancel_invitation(workspace, invitation.id)
+
+      sent_email = Enum.find(Accounts.list_sent_emails(), &(&1.template == :workspace_invitation))
+
+      assert {:error, :gone} = Accounts.resend_email(sent_email)
     end
   end
 
