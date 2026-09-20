@@ -36,7 +36,22 @@ defmodule DebtReliefTracker.CSVExportTest do
                "Credit Limit"
              ]
 
-      assert row == ["Visa", "revolving", "1000", "20", "active", "25", "0.02", "", "2000"]
+      # Encrypted decimal columns preserve the exact precision entered
+      # (opaque ciphertext, no SQLite NUMERIC-affinity coercion), unlike the
+      # pre-encryption behavior where SQLite silently normalized a
+      # whole-number-valued TEXT like "1000.00" to an INTEGER storage class
+      # and lost the trailing zeros on read.
+      assert row == [
+               "Visa",
+               "revolving",
+               "1000.00",
+               "20.00",
+               "active",
+               "25.00",
+               "0.02",
+               "",
+               "2000.00"
+             ]
     end
   end
 
@@ -78,7 +93,16 @@ defmodule DebtReliefTracker.CSVExportTest do
                "Note"
              ]
 
-      assert row == ["Visa", "50", "50", "", "2026-07-11", "paid early, see \"budget\" note"]
+      # See the comment in the debts_csv/1 test above re: precision
+      # preservation with encrypted decimal columns.
+      assert row == [
+               "Visa",
+               "50.00",
+               "50.00",
+               "",
+               "2026-07-11",
+               "paid early, see \"budget\" note"
+             ]
     end
   end
 end

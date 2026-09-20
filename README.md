@@ -135,7 +135,7 @@ Now you can visit [`localhost:4123`](http://localhost:4123) from your browser.
 The app is distributed as a single Docker image, self-hosted-first:
 
 ```sh
-cp .env.example .env   # fill in SECRET_KEY_BASE (mix phx.gen.secret)
+cp .env.example .env   # fill in SECRET_KEY_BASE (mix phx.gen.secret) and ENCRYPTION_KEY (see below)
 docker compose up -d --build
 ```
 
@@ -166,3 +166,22 @@ is optional. See `.env.example` and `config/runtime.exs` for details. The
 site name, from name/email, and whether the welcome email sends at all can
 all be overridden from `/admin` without redeploying, which also has a log of
 every email sent with a resend action.
+
+## Field encryption
+
+Sensitive financial fields (balances, APRs, payment amounts, debt/lender
+names, retirement figures) are encrypted at rest -- see
+[`docs/architecture/0005-field-level-encryption.md`](docs/architecture/0005-field-level-encryption.md).
+
+**In production, `ENCRYPTION_KEY` is required** or the app fails to boot.
+Generate one with:
+
+```sh
+elixir -e ':crypto.strong_rand_bytes(32) |> Base.encode64() |> IO.puts()'
+```
+
+**Back this up somewhere durable (e.g. a password manager) before
+deploying.** If it is ever lost, every encrypted column becomes
+permanently unreadable -- database backups will not help, since they
+contain the same ciphertext. Dev/test use a fixed dummy key checked into
+`config/dev.exs`/`config/test.exs`; no setup needed locally.

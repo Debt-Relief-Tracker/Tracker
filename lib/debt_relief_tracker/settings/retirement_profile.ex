@@ -17,20 +17,40 @@ defmodule DebtReliefTracker.Settings.RetirementProfile do
   import Ecto.Changeset
 
   alias DebtReliefTracker.Accounts.{User, Workspace}
+  alias DebtReliefTracker.Encrypted
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
   schema "retirement_profiles" do
-    field :name, :string
+    field :name, Encrypted.Binary, source: :name_enc
+    # claim_email stays plaintext -- see docs/architecture/0005-field-level-encryption.md:
+    # it carries a partial unique DB index and a plaintext WHERE-equality
+    # lookup (Settings.claim_retirement_profiles/1), both of which a
+    # random-IV cipher would silently break, and the same email is already
+    # plaintext in users.email/workspace_invitations.email, so encrypting
+    # only this copy wouldn't meaningfully protect anything.
     field :claim_email, :string
-    field :current_age, :integer
-    field :retirement_age, :integer
-    field :current_retirement_savings, :decimal, default: 0
-    field :monthly_retirement_contribution, :decimal, default: 0
-    field :monthly_gross_income, :decimal, default: 0
-    field :post_debt_investment_pct, :decimal, default: 15.0
-    field :expected_annual_return_pct, :decimal, default: 7.0
+    field :current_age, Encrypted.Integer, source: :current_age_enc
+    field :retirement_age, Encrypted.Integer, source: :retirement_age_enc
+    # No schema-level `default:` on the numeric fields below: Ecto validates
+    # a field's default at compile time by calling the type's `dump/1`,
+    # which for an encrypted type needs the Vault running -- unavailable
+    # during a plain `mix compile`. Not a behavior change: every changeset
+    # that creates a RetirementProfile (`member_changeset/4`,
+    # `manual_changeset/3`) already requires all of `@numeric_fields` via
+    # `validate_required/2`, so a struct-level default was never the value
+    # actually persisted.
+    field :current_retirement_savings, Encrypted.Decimal, source: :current_retirement_savings_enc
+
+    field :monthly_retirement_contribution, Encrypted.Decimal,
+      source: :monthly_retirement_contribution_enc
+
+    field :monthly_gross_income, Encrypted.Decimal, source: :monthly_gross_income_enc
+
+    field :post_debt_investment_pct, Encrypted.Decimal, source: :post_debt_investment_pct_enc
+
+    field :expected_annual_return_pct, Encrypted.Decimal, source: :expected_annual_return_pct_enc
 
     belongs_to :workspace, Workspace
     belongs_to :user, User

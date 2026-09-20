@@ -155,4 +155,23 @@ if config_env() == :prod do
 
   config :debt_relief_tracker, :mailer,
     from: {System.get_env("MAILER_FROM_NAME") || "Debt Relief Tracker", mailer_from_email}
+
+  # Encrypts the financial fields in the database (see
+  # docs/architecture/0005-field-level-encryption.md) -- 32 random bytes,
+  # base64-encoded. Losing this key permanently destroys the encrypted data;
+  # database backups will not help.
+  encryption_key =
+    System.get_env("ENCRYPTION_KEY") ||
+      raise """
+      environment variable ENCRYPTION_KEY is missing.
+      Generate one with:
+
+          elixir -e ':crypto.strong_rand_bytes(32) |> Base.encode64() |> IO.puts()'
+
+      Store it somewhere durable (e.g. a password manager) before deploying --
+      if it is ever lost, every encrypted column becomes permanently
+      unreadable.
+      """
+
+  config :debt_relief_tracker, DebtReliefTracker.Vault, key: encryption_key
 end

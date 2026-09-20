@@ -3,12 +3,13 @@ defmodule DebtReliefTracker.Settings.Setting do
   import Ecto.Changeset
 
   alias DebtReliefTracker.Accounts.Workspace
+  alias DebtReliefTracker.Encrypted
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
   schema "settings" do
-    field :monthly_budget, :decimal
+    field :monthly_budget, Encrypted.Decimal, source: :monthly_budget_enc
     field :currency, :string, default: "USD"
     field :budget_mode, Ecto.Enum, values: [:total, :margin], default: :total
     field :retirement_onboarding_dismissed, :boolean, default: false

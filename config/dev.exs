@@ -8,6 +8,11 @@ config :debt_relief_tracker, DebtReliefTracker.Repo.Sqlite,
   stacktrace: true,
   show_sensitive_data_on_connection_error: true
 
+# Dev-only encryption key -- fixed and checked in on purpose, same as
+# secret_key_base below. Production reads ENCRYPTION_KEY (config/runtime.exs).
+config :debt_relief_tracker, DebtReliefTracker.Vault,
+  key: "u349X+gixG6ope/W3cXgde3JEXiZEa62SufPNGTi8ZY="
+
 # For development, we disable any cache and enable
 # debugging and code reloading.
 #

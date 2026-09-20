@@ -12,6 +12,10 @@ defmodule DebtReliefTracker.Application do
 
     children = [
       DebtReliefTrackerWeb.Telemetry,
+      # Must start before active_repo/the Migrator: the encryption backfill
+      # migration and every DebtReliefTracker.Encrypted.* field need the
+      # vault running to encrypt/decrypt.
+      DebtReliefTracker.Vault,
       active_repo,
       {Ecto.Migrator, repos: [active_repo], skip: skip_migrations?()},
       {DNSCluster,

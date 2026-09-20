@@ -3,29 +3,30 @@ defmodule DebtReliefTracker.Debts.Debt do
   import Ecto.Changeset
 
   alias DebtReliefTracker.Accounts.Workspace
+  alias DebtReliefTracker.Encrypted
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
   schema "debts" do
-    field :name, :string
+    field :name, Encrypted.Binary, source: :name_enc
     field :type, Ecto.Enum, values: [:revolving, :installment]
-    field :balance, :decimal
-    field :original_balance, :decimal
-    field :apr, :decimal
+    field :balance, Encrypted.Decimal, source: :balance_enc
+    field :original_balance, Encrypted.Decimal, source: :original_balance_enc
+    field :apr, Encrypted.Decimal, source: :apr_enc
 
     # Revolving: minimum = max(floor, rate * balance). Installment: fixed_payment.
-    field :minimum_payment_floor, :decimal
-    field :minimum_payment_rate, :decimal
-    field :fixed_payment, :decimal
+    field :minimum_payment_floor, Encrypted.Decimal, source: :minimum_payment_floor_enc
+    field :minimum_payment_rate, Encrypted.Decimal, source: :minimum_payment_rate_enc
+    field :fixed_payment, Encrypted.Decimal, source: :fixed_payment_enc
 
-    field :credit_limit, :decimal
+    field :credit_limit, Encrypted.Decimal, source: :credit_limit_enc
     field :exclude_from_plan, :boolean, default: false
 
     # Interest-estimate reconciliation (docs/plan.md Phase 4): the last
     # confirmed statement balance/date the revolving-interest estimate
     # accrues from.
-    field :statement_balance, :decimal
+    field :statement_balance, Encrypted.Decimal, source: :statement_balance_enc
     field :statement_date, :date
 
     field :status, Ecto.Enum, values: [:active, :paid_off], default: :active
@@ -44,7 +45,13 @@ defmodule DebtReliefTracker.Debts.Debt do
 
     belongs_to :workspace, Workspace
 
-    timestamps()
+    # :utc_datetime_usec so `debts.ex`'s `order_by: [asc: d.position, asc:
+    # d.inserted_at, asc: d.id]` tiebreak is actually meaningful -- ids are
+    # now random UUIDs (see the UUID primary-key migration), so a
+    # same-second `inserted_at` collision would otherwise fall through to
+    # an arbitrary `id` order. No migration needed -- see the comment on
+    # this same change in ActivityLog.Entry.
+    timestamps(type: :utc_datetime_usec)
   end
 
   @required [:workspace_id, :name, :type, :balance, :apr]

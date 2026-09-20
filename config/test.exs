@@ -10,6 +10,11 @@ config :debt_relief_tracker, DebtReliefTracker.Repo.Sqlite,
   pool_size: 5,
   pool: Ecto.Adapters.SQL.Sandbox
 
+# Test-only encryption key -- fixed and checked in on purpose, same as
+# secret_key_base below. Production reads ENCRYPTION_KEY (config/runtime.exs).
+config :debt_relief_tracker, DebtReliefTracker.Vault,
+  key: "sHJ+juI57HmKhndlYsctL10faW2FtR8MPvRgu5jtmbE="
+
 # DebtReliefTracker.Boot writes to the database at application start, which
 # would fail under the Sandbox's :manual mode before any test has checked out
 # a connection -- tests seed their own fixtures instead.
