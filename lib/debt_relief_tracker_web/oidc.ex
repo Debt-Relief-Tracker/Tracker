@@ -35,6 +35,25 @@ defmodule DebtReliefTrackerWeb.OIDC do
     end
   end
 
+  @doc """
+  Builds Auth0's proprietary logout URL (`/v2/logout`) for the given
+  `return_to` address. Auth0 does not expose a standard OIDC
+  `end_session_endpoint` in its discovery document, so this is Auth0-specific
+  and not derived from the generic Assent OIDC strategy used elsewhere in
+  this module -- if this app is ever pointed at a different IdP, this
+  function (and its call site in AuthController) would need a
+  provider-specific alternative.
+
+  `return_to` must be present in that Auth0 Application's "Allowed Logout
+  URLs" or Auth0 will refuse the redirect.
+  """
+  def auth0_logout_url(return_to) do
+    cfg = config()
+    issuer = String.trim_trailing(cfg[:issuer], "/")
+    query = URI.encode_query(client_id: cfg[:client_id], returnTo: return_to)
+    "#{issuer}/v2/logout?#{query}"
+  end
+
   defp strategy_config(redirect_uri) do
     cfg = config()
 

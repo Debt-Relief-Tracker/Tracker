@@ -105,6 +105,12 @@ the next time that person logs in.
    Action into the flow → **Apply**.
 5. Log out and back in to the app; the claim now rides in the ID token and
    admin access is granted on that login.
+6. **Dashboard → Applications → your app → Settings → Allowed Logout
+   URLs** → add your deployment's root URL (e.g.
+   `https://yourapp.example.com/`). Logging out of the app also ends your
+   Auth0 session via Auth0's `/v2/logout` endpoint; without this URL
+   allow-listed, Auth0 refuses that redirect and shows an error instead of
+   sending you back to the app.
 
 **Other OIDC providers** need the same three ingredients, configured in
 whatever that provider calls its claims/token customization:

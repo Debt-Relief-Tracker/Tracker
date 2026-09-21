@@ -55,8 +55,12 @@ defmodule DebtReliefTrackerWeb.AuthController do
   end
 
   def logout(conn, _params) do
-    conn
-    |> configure_session(drop: true)
-    |> redirect(to: ~p"/")
+    conn = configure_session(conn, drop: true)
+
+    if OIDC.enabled?() do
+      redirect(conn, external: OIDC.auth0_logout_url(url(~p"/")))
+    else
+      redirect(conn, to: ~p"/")
+    end
   end
 end

@@ -28,4 +28,24 @@ defmodule DebtReliefTrackerWeb.AuthControllerTest do
     conn = conn |> recycle() |> get(~p"/")
     assert get_session(conn, :user_id) == nil
   end
+
+  test "POST /auth/logout redirects to Auth0's logout endpoint and still clears the session when OIDC is configured",
+       %{conn: conn} do
+    Application.put_env(:debt_relief_tracker, :oidc,
+      issuer: "https://idp.example.com",
+      client_id: "test-client",
+      client_secret: "test-secret"
+    )
+
+    on_exit(fn -> Application.put_env(:debt_relief_tracker, :oidc, nil) end)
+
+    conn = conn |> Plug.Test.init_test_session(user_id: 123) |> post(~p"/auth/logout")
+
+    location = conn |> Plug.Conn.get_resp_header("location") |> List.first()
+    assert location =~ "https://idp.example.com/v2/logout?"
+    assert location =~ "client_id=test-client"
+
+    conn = conn |> recycle() |> get(~p"/")
+    assert get_session(conn, :user_id) == nil
+  end
 end
