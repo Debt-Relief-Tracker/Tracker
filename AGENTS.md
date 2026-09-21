@@ -16,9 +16,13 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   by hand) without explicit, in-the-moment user confirmation.
 - **Never** start or stop the dev server (`mix phx.server`) -- the user runs
   it themselves and uses it concurrently with real data while you work.
-- If a migration has been written but not yet run, say so explicitly and
-  confirm with the user before running it -- don't assume it's safe just
-  because it compiles.
+- Running a newly written migration (`mix ecto.migrate`) against the dev
+  database to verify it is fine to do on your own, without pausing to ask
+  first -- go ahead once you've done the verification above, then report
+  what you ran and the resulting status. This is distinct from the
+  destructive/irreversible commands two bullets up (`ecto.reset`, `ecto.drop`,
+  manual `DROP`/`TRUNCATE`, hand-editing rows), which still always need
+  explicit, in-the-moment confirmation.
 - When in doubt about any schema change, pause and ask rather than guessing.
 
 ## Project-specific notes
