@@ -12,6 +12,11 @@ defmodule DebtReliefTrackerWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug OpenApiSpex.Plug.PutApiSpec, module: DebtReliefTrackerWeb.Api.Spec
+  end
+
+  pipeline :api_support_emails do
+    plug DebtReliefTrackerWeb.Plugs.ApiAuth, scope: "support_emails:write"
   end
 
   scope "/", DebtReliefTrackerWeb do
@@ -36,10 +41,26 @@ defmodule DebtReliefTrackerWeb.Router do
     get "/export/payments.csv", ExportController, :payments
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", DebtReliefTrackerWeb do
-  #   pipe_through :api
-  # end
+  # Admin API (docs/architecture/0006-support-api-and-tokens.md). Tokens are
+  # created/revoked from /admin?tab=tokens. No module alias on these scopes
+  # -- OpenApiSpex.Plug.* are library plugs, not DebtReliefTrackerWeb modules.
+  scope "/" do
+    pipe_through :browser
+
+    get "/api/swaggerui", OpenApiSpex.Plug.SwaggerUI, path: "/api/openapi"
+  end
+
+  scope "/api" do
+    pipe_through :api
+
+    get "/openapi", OpenApiSpex.Plug.RenderSpec, []
+  end
+
+  scope "/api", DebtReliefTrackerWeb.Api do
+    pipe_through [:api, :api_support_emails]
+
+    post "/support_emails", SupportEmailController, :create
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:debt_relief_tracker, :dev_routes) do

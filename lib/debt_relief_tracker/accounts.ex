@@ -19,6 +19,7 @@ defmodule DebtReliefTracker.Accounts do
     WorkspaceMember,
     WorkspaceInvitation,
     SentEmail,
+    ApiToken,
     Scope,
     UserNotifier
   }
@@ -399,6 +400,88 @@ defmodule DebtReliefTracker.Accounts do
     else
       _ -> {:error, :gone}
     end
+  end
+
+  @doc "Every API token, newest first, for the admin API-tokens tab."
+  def list_api_tokens do
+    from(t in ApiToken, order_by: [desc: t.inserted_at])
+    |> Repo.all()
+  end
+
+  @doc "Fetches an API token by id."
+  def get_api_token!(id), do: Repo.get!(ApiToken, id)
+
+  @doc """
+  Creates an API token (docs/architecture/0006-support-api-and-tokens.md).
+  `attrs` is admin-supplied (`name`, `scopes`); the raw token itself is
+  generated here. `created_by` is the admin `User`, or `nil` in no-auth mode
+  (ADR 0002). Returns `{:ok, raw_token, api_token}` on success -- the
+  caller must show `raw_token` to the admin immediately, since it's never
+  retrievable again -- or `{:error, changeset}`.
+  """
+  def create_api_token(attrs, created_by) do
+    changeset = ApiToken.changeset(%ApiToken{}, attrs)
+
+    if changeset.valid? do
+      raw_token = generate_api_token()
+
+      generated = %{
+        token_hash: hash_api_token(raw_token),
+        last_four: String.slice(raw_token, -4, 4),
+        created_by_user_id: created_by && created_by.id
+      }
+
+      changeset
+      |> ApiToken.put_generated(generated)
+      |> Repo.insert()
+      |> case do
+        {:ok, api_token} -> {:ok, raw_token, api_token}
+        {:error, changeset} -> {:error, changeset}
+      end
+    else
+      {:error, %{changeset | action: :insert}}
+    end
+  end
+
+  @doc "Revokes an API token. Soft delete -- see `ApiToken.revoke_changeset/1`."
+  def revoke_api_token(%ApiToken{} = api_token) do
+    api_token
+    |> ApiToken.revoke_changeset()
+    |> Repo.update()
+  end
+
+  @doc """
+  Authenticates a raw bearer token presented to the admin API, requiring it
+  to carry `required_scope`. Returns `{:ok, api_token}`,
+  `{:error, :invalid}` (unknown token), `{:error, :revoked}`, or
+  `{:error, :insufficient_scope}`.
+  """
+  def authenticate_token(raw_token, required_scope) do
+    case Repo.get_by(ApiToken, token_hash: hash_api_token(raw_token)) do
+      nil ->
+        {:error, :invalid}
+
+      %ApiToken{} = api_token ->
+        cond do
+          ApiToken.revoked?(api_token) ->
+            {:error, :revoked}
+
+          not ApiToken.has_scope?(api_token, required_scope) ->
+            {:error, :insufficient_scope}
+
+          true ->
+            {:ok, api_token} = Repo.update(ApiToken.touch_changeset(api_token))
+            {:ok, api_token}
+        end
+    end
+  end
+
+  defp generate_api_token do
+    "drt_" <> (32 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
+  end
+
+  defp hash_api_token(raw_token) do
+    :sha256 |> :crypto.hash(raw_token) |> Base.encode16(case: :lower)
   end
 
   # `Repo.get/2` raises `Ecto.Query.CastError` (rather than returning `nil`)

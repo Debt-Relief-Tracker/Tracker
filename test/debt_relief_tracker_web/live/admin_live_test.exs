@@ -4,7 +4,7 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
   import Phoenix.LiveViewTest
   import Swoosh.TestAssertions
 
-  alias DebtReliefTracker.Accounts
+  alias DebtReliefTracker.{Accounts, Support}
 
   describe "no-auth mode (OIDC disabled)" do
     test "/admin is reachable and shows the settings tab by default", %{conn: conn} do
@@ -16,7 +16,7 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
     test "clicking the Emails tab switches content without a page reload", %{conn: conn} do
       {:ok, view, _html} = live(conn, ~p"/admin")
 
-      html = view |> element("a", "Emails") |> render_click()
+      html = view |> element(~s(a[href="/admin?tab=emails"])) |> render_click()
 
       assert html =~ "sent-emails"
       refute has_element?(view, "#admin-settings-form")
@@ -147,6 +147,85 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
       |> render_click()
 
       assert_email_sent(subject: "Welcome to Debt Relief Tracker!")
+    end
+  end
+
+  describe "support emails tab" do
+    test "lists logged support emails and shows detail in a modal", %{conn: conn} do
+      {:ok, _support_email} =
+        Support.log_support_email(%{
+          "from" => "user@example.com",
+          "to" => "support@debtreliefapp.com",
+          "subject" => "Need help",
+          "body" => "The full body text",
+          "received_at" => ~U[2026-09-01 12:00:00.000000Z]
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=support_emails")
+
+      assert has_element?(view, "#support-emails", "Need help")
+
+      html =
+        view
+        |> element(~s(button[phx-click="view_support_email"]))
+        |> render_click()
+
+      assert html =~ "The full body text"
+    end
+  end
+
+  describe "API tokens tab" do
+    test "creating a token shows the raw value once, then lists it as active", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=tokens")
+
+      view |> element(~s(button[phx-click="new_token"])) |> render_click()
+
+      html =
+        view
+        |> form("#new-token-form", %{
+          "api_token" => %{"name" => "Postmark webhook", "scopes" => ["support_emails:write"]}
+        })
+        |> render_submit()
+
+      assert html =~ "won&#39;t be shown again."
+      assert [%{name: "Postmark webhook"}] = Accounts.list_api_tokens()
+
+      view |> element(~s(button[phx-click="dismiss_new_token"])) |> render_click()
+
+      assert has_element?(view, "#api-tokens", "Postmark webhook")
+      assert has_element?(view, "#api-tokens", "Active")
+    end
+
+    test "rejects a token with no scopes selected", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=tokens")
+
+      view |> element(~s(button[phx-click="new_token"])) |> render_click()
+
+      html =
+        view
+        |> form("#new-token-form", %{"api_token" => %{"name" => "Bad", "scopes" => [""]}})
+        |> render_submit()
+
+      assert html =~ "can&#39;t be blank"
+      assert Accounts.list_api_tokens() == []
+    end
+
+    test "revoking a token marks it inactive", %{conn: conn} do
+      {:ok, _raw_token, api_token} =
+        Accounts.create_api_token(%{"name" => "T", "scopes" => ["support_emails:write"]}, nil)
+
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=tokens")
+
+      view
+      |> element(~s(button[phx-click="revoke_token"][phx-value-id="#{api_token.id}"]))
+      |> render_click()
+
+      assert has_element?(view, "#api-tokens", "Revoked")
+
+      refute has_element?(
+               view,
+               ~s(button[phx-click="revoke_token"][phx-value-id="#{api_token.id}"])
+             )
     end
   end
 end

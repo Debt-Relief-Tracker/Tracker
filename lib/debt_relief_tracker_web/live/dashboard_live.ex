@@ -8,6 +8,10 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
 
   use DebtReliefTrackerWeb, :live_view
 
+  # Shadows CoreComponents.modal/1 (added for AdminLive) -- this module keeps
+  # its own private modal/1 below rather than adopting the shared one.
+  import DebtReliefTrackerWeb.CoreComponents, except: [modal: 1]
+
   alias DebtReliefTracker.{
     Accounts,
     ActivityLog,

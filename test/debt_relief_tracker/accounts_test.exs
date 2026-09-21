@@ -4,7 +4,7 @@ defmodule DebtReliefTracker.AccountsTest do
   import Swoosh.TestAssertions
 
   alias DebtReliefTracker.Accounts
-  alias DebtReliefTracker.Accounts.Scope
+  alias DebtReliefTracker.Accounts.{ApiToken, Scope}
   alias DebtReliefTracker.Settings
 
   describe "ensure_default_workspace!/0" do
@@ -382,6 +382,82 @@ defmodule DebtReliefTracker.AccountsTest do
                owner_workspace.id
 
       assert Accounts.current_workspace_for_user(member, -1).id == member_own_workspace.id
+    end
+  end
+
+  describe "API tokens" do
+    test "create_api_token/2 generates a raw token shown once, and hashes it for storage" do
+      admin =
+        Accounts.get_or_create_user_from_oidc!(%{"sub" => "admin", "email" => "a@example.com"})
+
+      assert {:ok, raw_token, api_token} =
+               Accounts.create_api_token(
+                 %{"name" => "Webhook", "scopes" => ["support_emails:write"]},
+                 admin
+               )
+
+      assert String.starts_with?(raw_token, "drt_")
+      assert api_token.last_four == String.slice(raw_token, -4, 4)
+      assert api_token.token_hash != raw_token
+      assert api_token.created_by_user_id == admin.id
+      refute ApiToken.revoked?(api_token)
+
+      assert [listed] = Accounts.list_api_tokens()
+      assert listed.id == api_token.id
+    end
+
+    test "create_api_token/2 with nil created_by (no-auth mode) leaves created_by_user_id nil" do
+      assert {:ok, _raw_token, api_token} =
+               Accounts.create_api_token(
+                 %{"name" => "Local", "scopes" => ["support_emails:write"]},
+                 nil
+               )
+
+      assert api_token.created_by_user_id == nil
+    end
+
+    test "create_api_token/2 rejects a blank name or unknown scope without generating a token" do
+      assert {:error, changeset} =
+               Accounts.create_api_token(
+                 %{"name" => "", "scopes" => ["support_emails:write"]},
+                 nil
+               )
+
+      assert "can't be blank" in errors_on(changeset).name
+
+      assert {:error, changeset} =
+               Accounts.create_api_token(
+                 %{"name" => "Bad", "scopes" => ["not_a_real_scope"]},
+                 nil
+               )
+
+      assert [_] = errors_on(changeset).scopes
+    end
+
+    test "authenticate_token/2 validates presence, scope, and revocation" do
+      {:ok, raw_token, api_token} =
+        Accounts.create_api_token(%{"name" => "T", "scopes" => ["support_emails:write"]}, nil)
+
+      assert {:ok, authenticated} = Accounts.authenticate_token(raw_token, "support_emails:write")
+      assert authenticated.id == api_token.id
+
+      assert {:error, :invalid} =
+               Accounts.authenticate_token("drt_not_a_real_token", "support_emails:write")
+
+      assert {:error, :insufficient_scope} = Accounts.authenticate_token(raw_token, "other:scope")
+
+      {:ok, _} = Accounts.revoke_api_token(api_token)
+      assert {:error, :revoked} = Accounts.authenticate_token(raw_token, "support_emails:write")
+    end
+
+    test "authenticate_token/2 updates last_used_at on success" do
+      {:ok, raw_token, api_token} =
+        Accounts.create_api_token(%{"name" => "T", "scopes" => ["support_emails:write"]}, nil)
+
+      assert api_token.last_used_at == nil
+
+      {:ok, authenticated} = Accounts.authenticate_token(raw_token, "support_emails:write")
+      assert authenticated.last_used_at != nil
     end
   end
 end

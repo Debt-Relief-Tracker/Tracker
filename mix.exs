@@ -72,6 +72,8 @@ defmodule DebtReliefTracker.MixProject do
       # Application-level field encryption (docs/architecture/0005-field-level-encryption.md).
       {:cloak, "~> 1.1"},
       {:cloak_ecto, "~> 1.3"},
+      # Admin API + OpenAPI/Swagger docs (docs/architecture/0006-support-api-and-tokens.md).
+      {:open_api_spex, "~> 3.21"},
       # Optional OIDC login (docs/architecture/0002-auth-and-sharing-model.md).
       # Uses Erlang's built-in :httpc as its HTTP adapter (Assent's default),
       # so no extra HTTP client dependency is needed.

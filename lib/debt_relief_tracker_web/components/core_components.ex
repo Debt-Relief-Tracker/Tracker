@@ -393,6 +393,37 @@ defmodule DebtReliefTrackerWeb.CoreComponents do
   end
 
   @doc """
+  Renders a centered modal dialog, dismissed by pressing escape, clicking
+  outside it, or triggering `@on_cancel` some other way (e.g. a button
+  inside the slot).
+
+  ## Examples
+
+      <.modal on_cancel="close_modal">
+        <p>Contents</p>
+      </.modal>
+  """
+  attr :on_cancel, :string, required: true
+  slot :inner_block, required: true
+
+  def modal(assigns) do
+    ~H"""
+    <div
+      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      phx-window-keydown={@on_cancel}
+      phx-key="escape"
+    >
+      <div
+        class="bg-base-100 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        phx-click-away={@on_cancel}
+      >
+        {render_slot(@inner_block)}
+      </div>
+    </div>
+    """
+  end
+
+  @doc """
   Renders a [Heroicon](https://heroicons.com).
 
   Heroicons come in three styles – outline, solid, and mini.
