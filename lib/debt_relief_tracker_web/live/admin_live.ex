@@ -165,7 +165,7 @@ defmodule DebtReliefTrackerWeb.AdminLive do
         </:actions>
       </.header>
 
-      <div class="tabs tabs-border mb-4">
+      <div class="tabs tabs-border mb-4 flex-nowrap overflow-x-auto">
         <.link patch={~p"/admin?tab=settings"} class={["tab", @tab == :settings && "tab-active"]}>
           Settings
         </.link>

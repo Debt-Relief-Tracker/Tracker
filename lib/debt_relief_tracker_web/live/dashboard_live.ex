@@ -972,7 +972,20 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             Activity log
           </.button>
 
-          <ul id="debt-list" class="flex flex-col gap-2 mt-2 sm:flex-1 sm:min-h-0 sm:overflow-y-auto">
+          <label
+            for="debt-list-toggle"
+            class="group peer sm:hidden flex items-center justify-between w-full text-sm font-medium mt-2 cursor-pointer"
+          >
+            <input type="checkbox" id="debt-list-toggle" class="sr-only" />
+            <span>Debts ({length(@debts)})</span>
+            <.icon name="hero-chevron-down" class="size-4 group-has-checked:hidden" />
+            <.icon name="hero-chevron-up" class="size-4 hidden group-has-checked:block" />
+          </label>
+
+          <ul
+            id="debt-list"
+            class="hidden flex-col gap-2 mt-2 peer-has-checked:flex sm:flex sm:flex-1 sm:min-h-0 sm:overflow-y-auto"
+          >
             <li
               :for={debt <- @debts}
               class={[
@@ -1470,14 +1483,12 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     ~H"""
     <.modal on_cancel="close_modal">
       <h2 class="font-semibold text-lg mb-4">Activity log</h2>
-      <div class="overflow-x-auto">
-        <.table id="activity-log-entries" rows={@entries} row_item={fn {_id, entry} -> entry end}>
-          <:col :let={entry} label="When">
-            {Calendar.strftime(entry.inserted_at, "%b %d, %Y %I:%M %p")}
-          </:col>
-          <:col :let={entry} label="Activity">{activity_description(entry, @currency)}</:col>
-        </.table>
-      </div>
+      <.table id="activity-log-entries" rows={@entries} row_item={fn {_id, entry} -> entry end}>
+        <:col :let={entry} label="When">
+          {Calendar.strftime(entry.inserted_at, "%b %d, %Y %I:%M %p")}
+        </:col>
+        <:col :let={entry} label="Activity">{activity_description(entry, @currency)}</:col>
+      </.table>
       <div class="flex justify-end mt-4">
         <.button type="button" phx-click="close_modal">Close</.button>
       </div>

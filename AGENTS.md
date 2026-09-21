@@ -40,6 +40,15 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   auth routes (`/auth/*`). Don't assume a growing set of pages/CRUD routes is
   coming -- new debt/payment features go into `DashboardLive` as modals per
   docs/architecture, not new LiveViews.
+- **All UI must be mobile-responsive**, including admin/internal-only pages
+  like `AdminLive` -- don't scope responsive work to just the main dashboard.
+  Follow the pattern already established in `DashboardLive`/`Layouts`/
+  `CoreComponents`: unprefixed Tailwind classes are the mobile-default value,
+  and the *current* desktop look gets moved behind an `sm:` prefix, so
+  desktop is provably unchanged. Watch for `.join` button rows and `<.table>`
+  usages specifically -- they don't reflow or wrap on their own and need
+  either a mobile-only `<select>`/stacked alternative or an `overflow-x-auto`
+  wrapper.
 
 ## Claude guidelines
 
