@@ -44,7 +44,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
   def app(assigns) do
     ~H"""
     <%= if @full_width do %>
-      <div class="h-screen flex flex-col overflow-hidden" data-theme-scope>
+      <div class="min-h-screen flex flex-col sm:h-screen sm:overflow-hidden" data-theme-scope>
         {render_slot(@inner_block)}
         <.flash_group flash={@flash} />
         <.app_footer current_scope={@current_scope} />

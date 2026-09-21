@@ -921,7 +921,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   def render(assigns) do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} full_width>
-      <header class="navbar px-4 border-b border-base-300 gap-3">
+      <header class="navbar px-4 border-b border-base-300 gap-3 flex-wrap gap-y-2">
         <div class="flex-1 flex items-center gap-3">
           <span class="font-semibold">{@workspace.name}</span>
 
@@ -956,8 +956,8 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         <div class="flex-none"><Layouts.theme_toggle /></div>
       </header>
 
-      <div class="flex flex-1 min-h-0">
-        <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
+      <div class="flex flex-col sm:flex-row flex-1 min-h-0">
+        <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-b sm:border-b-0 sm:border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
           <.button
             id="add-debt-button"
             phx-click="open_add_debt"
@@ -972,7 +972,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
             Activity log
           </.button>
 
-          <ul id="debt-list" class="flex flex-col gap-2 mt-2 flex-1 min-h-0 overflow-y-auto">
+          <ul id="debt-list" class="flex flex-col gap-2 mt-2 sm:flex-1 sm:min-h-0 sm:overflow-y-auto">
             <li
               :for={debt <- @debts}
               class={[
@@ -1022,13 +1022,13 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
           </ul>
         </aside>
 
-        <main class="flex-1 p-4 flex flex-col gap-4 overflow-y-auto">
+        <main class="flex flex-col gap-4 p-4 sm:flex-1 sm:overflow-y-auto">
           <div
             :if={
               show_retirement_prompt?(@retirement_profiles, @settings.retirement_onboarding_dismissed)
             }
             id="retirement-onboarding-banner"
-            class="alert alert-info flex items-center justify-between"
+            class="alert alert-info flex items-center justify-between flex-wrap gap-2"
           >
             <span>See how paying off debt sooner could grow your retirement savings.</span>
             <div class="flex items-center gap-2">
@@ -1102,30 +1102,51 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
               </button>
             </div>
 
-            <div id="chart-type-switcher" class="join">
-              <button
-                :for={type <- @chart_types}
-                class={["btn btn-sm join-item", @chart_type == type && "btn-primary"]}
-                phx-click="select_chart"
-                phx-value-type={type}
-              >
-                {chart_label(type)}
-              </button>
+            <div id="chart-type-switcher">
+              <div class="join hidden sm:flex">
+                <button
+                  :for={type <- @chart_types}
+                  class={["btn btn-sm join-item", @chart_type == type && "btn-primary"]}
+                  phx-click="select_chart"
+                  phx-value-type={type}
+                >
+                  {chart_label(type)}
+                </button>
+              </div>
+              <form phx-change="select_chart" class="sm:hidden">
+                <select name="type" class="select select-sm w-full">
+                  <option :for={type <- @chart_types} value={type} selected={type == @chart_type}>
+                    {chart_label(type)}
+                  </option>
+                </select>
+              </form>
             </div>
 
             <div
               :if={@chart_type not in [:comparison, :interest_breakdown, :retirement_roadmap]}
               id="strategy-switcher"
-              class="join"
             >
-              <button
-                :for={strategy <- @strategy_options}
-                class={["btn btn-sm join-item", @strategy == strategy && "btn-primary"]}
-                phx-click="select_strategy"
-                phx-value-strategy={strategy}
-              >
-                {strategy_label(strategy)}
-              </button>
+              <div class="join hidden sm:flex">
+                <button
+                  :for={strategy <- @strategy_options}
+                  class={["btn btn-sm join-item", @strategy == strategy && "btn-primary"]}
+                  phx-click="select_strategy"
+                  phx-value-strategy={strategy}
+                >
+                  {strategy_label(strategy)}
+                </button>
+              </div>
+              <form phx-change="select_strategy" class="sm:hidden">
+                <select name="strategy" class="select select-sm w-full">
+                  <option
+                    :for={strategy <- @strategy_options}
+                    value={strategy}
+                    selected={strategy == @strategy}
+                  >
+                    {strategy_label(strategy)}
+                  </option>
+                </select>
+              </form>
             </div>
           </div>
 
@@ -1423,14 +1444,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     <.modal on_cancel="close_modal">
       <h2 class="font-semibold text-lg mb-4">Log all balances</h2>
       <form phx-submit="save_log_all_balances" class="flex flex-col gap-2">
-        <div :for={debt <- @active_debts} class="flex items-center gap-2">
-          <label class="w-40 text-sm truncate">{debt.name}</label>
+        <div :for={debt <- @active_debts} class="flex flex-col sm:flex-row gap-1 sm:gap-2 sm:items-center">
+          <label class="sm:w-40 text-sm truncate">{debt.name}</label>
           <input
             type="number"
             step="0.01"
             name={"balances[#{debt.id}]"}
             value={Decimal.to_string(Calculations.estimated_balance(debt))}
-            class="input input-sm flex-1"
+            class="input input-sm w-full sm:flex-1"
           />
         </div>
         <div class="flex justify-end gap-2 mt-2">
@@ -1449,12 +1470,14 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     ~H"""
     <.modal on_cancel="close_modal">
       <h2 class="font-semibold text-lg mb-4">Activity log</h2>
-      <.table id="activity-log-entries" rows={@entries} row_item={fn {_id, entry} -> entry end}>
-        <:col :let={entry} label="When">
-          {Calendar.strftime(entry.inserted_at, "%b %d, %Y %I:%M %p")}
-        </:col>
-        <:col :let={entry} label="Activity">{activity_description(entry, @currency)}</:col>
-      </.table>
+      <div class="overflow-x-auto">
+        <.table id="activity-log-entries" rows={@entries} row_item={fn {_id, entry} -> entry end}>
+          <:col :let={entry} label="When">
+            {Calendar.strftime(entry.inserted_at, "%b %d, %Y %I:%M %p")}
+          </:col>
+          <:col :let={entry} label="Activity">{activity_description(entry, @currency)}</:col>
+        </.table>
+      </div>
       <div class="flex justify-end mt-4">
         <.button type="button" phx-click="close_modal">Close</.button>
       </div>
@@ -1755,12 +1778,12 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   defp modal(assigns) do
     ~H"""
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 sm:p-0 z-50"
       phx-window-keydown={@on_cancel}
       phx-key="escape"
     >
       <div
-        class="bg-base-100 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        class="bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         phx-click-away={@on_cancel}
       >
         {render_slot(@inner_block)}

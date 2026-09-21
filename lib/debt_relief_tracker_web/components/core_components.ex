@@ -409,12 +409,12 @@ defmodule DebtReliefTrackerWeb.CoreComponents do
   def modal(assigns) do
     ~H"""
     <div
-      class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 sm:p-0 z-50"
       phx-window-keydown={@on_cancel}
       phx-key="escape"
     >
       <div
-        class="bg-base-100 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
+        class="bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         phx-click-away={@on_cancel}
       >
         {render_slot(@inner_block)}
