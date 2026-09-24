@@ -198,17 +198,18 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
 
     view |> element("button[phx-click=open_settings]") |> render_click()
 
-    refute has_element?(view, "#workspace-name-form")
+    refute has_element?(view, "input[name='workspace[name]']")
     refute has_element?(view, "select[name=currency]")
     refute has_element?(view, "input[name='share[email]']")
 
     # Defense-in-depth: crafted rename/currency submissions are server-side no-ops.
     view
-    |> render_hook("update_workspace_name", %{"workspace" => %{"name" => "Hijacked"}})
+    |> render_hook("save_settings", %{
+      "workspace" => %{"name" => "Hijacked"},
+      "currency" => "JPY"
+    })
 
     assert Accounts.get_workspace!(owner_workspace.id).name == owner_workspace.name
-
-    view |> render_hook("select_currency", %{"currency" => "JPY"})
 
     assert DebtReliefTracker.Settings.get_settings!(owner_workspace).currency !=
              "JPY"
@@ -234,8 +235,11 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
     view |> element("button[phx-click=open_settings]") |> render_click()
 
     view
-    |> form("#workspace-name-form", %{"workspace" => %{"name" => "Our Debts"}})
+    |> form("#settings-form", %{"workspace" => %{"name" => "Our Debts"}})
     |> render_submit()
+
+    # Saving closes the modal; reopen it to reach the invite form.
+    view |> element("#settings-button") |> render_click()
 
     view
     |> form("#settings-share-form", %{"share" => %{"email" => "new@example.com"}})
@@ -280,5 +284,67 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
 
     refute has_element?(view, "span", "Member")
     refute owner_workspace in Accounts.list_workspaces_for_user(member)
+  end
+
+  describe "display name" do
+    setup do
+      on_exit(fn -> Application.put_env(:debt_relief_tracker, :auth0_management, nil) end)
+    end
+
+    test "an Auth0 database user renames themselves via Auth0", %{conn: conn} do
+      Application.put_env(:debt_relief_tracker, :auth0_management,
+        client_id: "m2m-id",
+        client_secret: "m2m-secret",
+        domain: "https://tenant.example.auth0.com"
+      )
+
+      # The PATCH is made from the LiveView process, not this one.
+      Req.Test.set_req_test_to_shared()
+
+      Req.Test.stub(DebtReliefTrackerWeb.Auth0Management, fn
+        %{request_path: "/oauth/token"} = conn -> Req.Test.json(conn, %{"access_token" => "t"})
+        conn -> Req.Test.json(conn, %{})
+      end)
+
+      user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "auth0|a",
+          "email" => "a@example.com",
+          "name" => "a@example.com"
+        })
+
+      {:ok, view, _html} = live(Plug.Test.init_test_session(conn, user_id: user.id), ~p"/")
+
+      view |> element("#settings-button") |> render_click()
+
+      view
+      |> form("#settings-form", user: %{display_name: "Alex Smith"})
+      |> render_submit()
+
+      assert has_element?(view, "header span", "Alex Smith")
+      assert Accounts.get_user!(user.id).display_name == "Alex Smith"
+    end
+
+    test "an Auth0 social user sees their name read-only", %{conn: conn} do
+      Application.put_env(:debt_relief_tracker, :auth0_management,
+        client_id: "m2m-id",
+        client_secret: "m2m-secret",
+        domain: "https://tenant.example.auth0.com"
+      )
+
+      user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "google-oauth2|1",
+          "email" => "g@example.com",
+          "name" => "Gabe"
+        })
+
+      {:ok, view, _html} = live(Plug.Test.init_test_session(conn, user_id: user.id), ~p"/")
+
+      view |> element("#settings-button") |> render_click()
+
+      refute has_element?(view, "input[name='user[display_name]']")
+      assert has_element?(view, "#display-name-read-only", "Gabe")
+    end
   end
 end

@@ -13,6 +13,10 @@ defmodule DebtReliefTracker.Accounts.User do
     field :display_name, :string
     field :tutorial_seen, :boolean, default: false
     field :is_admin, :boolean, default: false
+    # true once the user has set a local-only name (no IdP write-back
+    # available) -- login sync then leaves display_name alone. See
+    # Accounts.display_name_editability/1.
+    field :display_name_overridden, :boolean, default: false
 
     timestamps()
   end
@@ -31,5 +35,25 @@ defmodule DebtReliefTracker.Accounts.User do
   @doc "Synced from an OIDC role claim on every login -- see Accounts.get_or_create_user_from_oidc!/1."
   def admin_changeset(user, attrs) do
     cast(user, attrs, [:is_admin])
+  end
+
+  @doc """
+  Re-syncs IdP-sourced fields (`is_admin`, and `display_name` unless the user
+  has overridden it) on every returning login -- see
+  Accounts.get_or_create_user_from_oidc!/1.
+  """
+  def oidc_sync_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:is_admin, :display_name])
+    |> validate_required([:display_name])
+  end
+
+  @doc "The user-editable name form -- see Accounts.update_display_name/2."
+  def display_name_changeset(user, attrs) do
+    user
+    |> cast(attrs, [:display_name])
+    |> update_change(:display_name, &(&1 && String.trim(&1)))
+    |> validate_required([:display_name])
+    |> validate_length(:display_name, max: 100)
   end
 end

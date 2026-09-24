@@ -113,6 +113,22 @@ than to a single mutable global table everyone writes into.
   are both owner-only edits from the settings modal; non-owner members see
   them as read-only text. This is a deliberate tightening for currency,
   which previously had no owner-check at all.
+- **Display names** follow the IdP. Every login re-syncs `display_name` from
+  the `name` claim, in the same single update that re-syncs `is_admin`.
+  Generic OIDC has no standard way to write a profile back, so write-back is
+  Auth0-specific (`DebtReliefTrackerWeb.Auth0Management`, the Management API
+  via a separate, optional M2M app), just like logout. The rules are in
+  `Accounts.display_name_editability/1`:
+  - Auth0 database users: the edit is written to Auth0 first, then saved
+    locally.
+  - Auth0 social users: read-only, because Auth0 re-syncs their `name` from
+    the social provider.
+  - No write-back path: a local override. `users.display_name_overridden`
+    stops the login sync from overwriting it.
+  - No-auth mode: a plain local edit.
+
+  The workspace's default "X's Debts" name is deliberately not renamed along
+  with the user.
 - **Verification gap**: the actual browser → provider → callback → token
   exchange has not been run against a real OIDC provider (none available in
   the environment this was built in). Everything downstream of a session

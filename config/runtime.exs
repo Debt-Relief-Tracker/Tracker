@@ -62,8 +62,25 @@ if oidc_issuer && oidc_client_id && oidc_client_secret do
     # default OIDC scopes never carry roles, so the IdP must be configured to
     # add this custom claim to the ID token.
     roles_claim: System.get_env("OIDC_ROLES_CLAIM") || "https://debt-relief-tracker.app/roles"
+
+  # Optional Auth0 Management API write-back for display names
+  # (DebtReliefTrackerWeb.Auth0Management). A separate M2M app, not the login
+  # client above. AUTH0_MGMT_DOMAIN is only needed when OIDC_ISSUER is a
+  # custom domain -- the Management API lives on the canonical tenant domain.
+  auth0_mgmt_client_id = System.get_env("AUTH0_MGMT_CLIENT_ID")
+  auth0_mgmt_client_secret = System.get_env("AUTH0_MGMT_CLIENT_SECRET")
+
+  if auth0_mgmt_client_id && auth0_mgmt_client_secret do
+    config :debt_relief_tracker, :auth0_management,
+      client_id: auth0_mgmt_client_id,
+      client_secret: auth0_mgmt_client_secret,
+      domain: System.get_env("AUTH0_MGMT_DOMAIN") || oidc_issuer
+  else
+    config :debt_relief_tracker, :auth0_management, nil
+  end
 else
   config :debt_relief_tracker, :oidc, nil
+  config :debt_relief_tracker, :auth0_management, nil
 end
 
 if config_env() == :prod do

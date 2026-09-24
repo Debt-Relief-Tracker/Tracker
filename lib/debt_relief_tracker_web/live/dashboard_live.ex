@@ -128,6 +128,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:modal, nil)
      |> assign(:form, nil)
      |> assign(:name_form, nil)
+     |> assign(:display_name_form, nil)
      |> assign(:tutorial_user, tutorial_user)
      |> assign(:tutorial, initial_tutorial(tutorial_user, connected?(socket)))
      |> maybe_push_tutorial_step()
@@ -178,6 +179,98 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
       total: length(@tutorial_steps),
       is_last: step == length(@tutorial_steps) - 1
     })
+  end
+
+  # The user whose name the settings modal edits: the logged-in user, or
+  # no-auth mode's implicit user (`current_user` is nil there, ADR 0002).
+  defp profile_user(%{current_user: nil, tutorial_user: user}), do: user
+  defp profile_user(%{current_user: user}), do: user
+
+  defp put_profile_user(%{assigns: %{current_user: nil}} = socket, user) do
+    assign(socket, :tutorial_user, user)
+  end
+
+  defp put_profile_user(socket, user) do
+    socket
+    |> assign(:current_user, user)
+    |> assign(:current_scope, Accounts.Scope.for_user(user))
+    |> assign(:tutorial_user, user)
+  end
+
+  defp display_name_form(user), do: to_form(Accounts.User.display_name_changeset(user, %{}))
+
+  defp maybe_validate_display_name(socket, nil), do: socket
+
+  defp maybe_validate_display_name(socket, params) do
+    changeset =
+      socket.assigns
+      |> profile_user()
+      |> Accounts.User.display_name_changeset(params)
+      |> Map.put(:action, :validate)
+
+    assign(socket, :display_name_form, to_form(changeset))
+  end
+
+  defp maybe_validate_workspace_name(socket, nil), do: socket
+
+  defp maybe_validate_workspace_name(socket, params) do
+    changeset =
+      socket.assigns.workspace
+      |> Accounts.Workspace.rename_changeset(params)
+      |> Map.put(:action, :validate)
+
+    assign(socket, :name_form, to_form(changeset))
+  end
+
+  defp form_valid?(%{source: %Ecto.Changeset{valid?: valid?}}), do: valid?
+  defp form_valid?(_form), do: true
+
+  defp save_display_name(socket, nil), do: {:ok, socket}
+
+  defp save_display_name(socket, params) do
+    case Accounts.update_display_name(profile_user(socket.assigns), params) do
+      {:ok, user} ->
+        {:ok, put_profile_user(socket, user)}
+
+      {:error, %Ecto.Changeset{} = changeset} ->
+        {:error, assign(socket, :display_name_form, to_form(changeset))}
+
+      {:error, :idp_update_failed} ->
+        {:error,
+         put_flash(
+           socket,
+           :error,
+           "Couldn't update your sign-in profile, so nothing was saved. Try again shortly."
+         )}
+
+      {:error, :read_only} ->
+        {:ok, socket}
+    end
+  end
+
+  defp save_workspace_name(socket, nil), do: {:ok, socket}
+
+  defp save_workspace_name(socket, params) do
+    case Accounts.update_workspace(socket.assigns.workspace, params) do
+      {:ok, workspace} ->
+        workspaces =
+          socket.assigns.current_user &&
+            Accounts.list_workspaces_for_user(socket.assigns.current_user)
+
+        {:ok, socket |> assign(:workspace, workspace) |> assign(:workspaces, workspaces)}
+
+      {:error, changeset} ->
+        {:error, assign(socket, :name_form, to_form(changeset))}
+    end
+  end
+
+  defp save_currency(socket, nil), do: socket
+  defp save_currency(%{assigns: %{currency: currency}} = socket, currency), do: socket
+
+  defp save_currency(socket, currency) do
+    settings = Settings.get_settings!(socket.assigns.workspace)
+    {:ok, _} = Settings.update_settings(settings, %{"currency" => currency})
+    socket |> assign(:currency, currency) |> push_chart_data()
   end
 
   defp pending_invitations_for(workspace, oidc_enabled, current_user) do
@@ -420,13 +513,21 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
      |> assign(:modal, %{
        type: :settings,
        is_owner: is_owner,
+       display_name_editability: Accounts.display_name_editability(profile_user(socket.assigns)),
+       currency: socket.assigns.currency,
        accepted_members: if(is_owner, do: Accounts.list_workspace_members(workspace), else: [])
      })
-     |> assign(:name_form, to_form(Accounts.Workspace.rename_changeset(workspace, %{})))}
+     |> assign(:name_form, to_form(Accounts.Workspace.rename_changeset(workspace, %{})))
+     |> assign(:display_name_form, display_name_form(profile_user(socket.assigns)))}
   end
 
   def handle_event("close_modal", _params, socket) do
-    {:noreply, socket |> assign(:modal, nil) |> assign(:form, nil) |> assign(:name_form, nil)}
+    {:noreply,
+     socket
+     |> assign(:modal, nil)
+     |> assign(:form, nil)
+     |> assign(:name_form, nil)
+     |> assign(:display_name_form, nil)}
   end
 
   # --- events: retirement onboarding -----------------------------------------
@@ -775,45 +876,55 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     {:noreply, assign(socket, :budget_mode, mode)}
   end
 
-  def handle_event("select_currency", %{"currency" => currency}, socket) do
-    if workspace_owner?(socket.assigns) do
-      settings = Settings.get_settings!(socket.assigns.workspace)
-      {:ok, _} = Settings.update_settings(settings, %{"currency" => currency})
-      {:noreply, socket |> assign(:currency, currency) |> push_chart_data()}
-    else
-      {:noreply, socket}
-    end
+  # The settings modal is one form (#settings-form) with a single Save.
+  # Only the parts this user may edit are rendered, and save_settings
+  # re-checks each one server-side, so a crafted submission can't reach the
+  # others.
+  def handle_event("validate_settings", params, socket) do
+    socket =
+      socket
+      |> maybe_validate_display_name(params["user"])
+      |> maybe_validate_workspace_name(params["workspace"])
+
+    socket =
+      case params["currency"] do
+        nil -> socket
+        currency -> assign(socket, :modal, %{socket.assigns.modal | currency: currency})
+      end
+
+    {:noreply, socket}
   end
 
-  def handle_event("validate_workspace_name", %{"workspace" => params}, socket) do
-    changeset =
-      socket.assigns.workspace
-      |> Accounts.Workspace.rename_changeset(params)
-      |> Map.put(:action, :validate)
+  def handle_event("save_settings", params, socket) do
+    owner? = workspace_owner?(socket.assigns)
+    name_editable? = socket.assigns.modal.display_name_editability != :read_only
+    user_params = if name_editable?, do: params["user"]
+    workspace_params = if owner?, do: params["workspace"]
+    currency = if owner? and params["currency"] in currency_codes(), do: params["currency"]
 
-    {:noreply, assign(socket, :name_form, to_form(changeset))}
-  end
+    # Validate every section before writing any of them, so an invalid
+    # tracker name can't leave a display name already pushed to the IdP.
+    validated =
+      socket
+      |> maybe_validate_display_name(user_params)
+      |> maybe_validate_workspace_name(workspace_params)
 
-  def handle_event("update_workspace_name", %{"workspace" => params}, socket) do
-    if workspace_owner?(socket.assigns) do
-      case Accounts.update_workspace(socket.assigns.workspace, params) do
-        {:ok, workspace} ->
-          workspaces =
-            socket.assigns.current_user &&
-              Accounts.list_workspaces_for_user(socket.assigns.current_user)
-
-          {:noreply,
-           socket
-           |> assign(:workspace, workspace)
-           |> assign(:workspaces, workspaces)
-           |> assign(:name_form, to_form(Accounts.Workspace.rename_changeset(workspace, %{})))
-           |> put_flash(:info, "Renamed to #{workspace.name}.")}
-
-        {:error, changeset} ->
-          {:noreply, assign(socket, :name_form, to_form(changeset))}
+    if form_valid?(validated.assigns.display_name_form) and
+         form_valid?(validated.assigns.name_form) do
+      with {:ok, socket} <- save_display_name(socket, user_params),
+           {:ok, socket} <- save_workspace_name(socket, workspace_params) do
+        {:noreply,
+         socket
+         |> save_currency(currency)
+         |> assign(:modal, nil)
+         |> assign(:name_form, nil)
+         |> assign(:display_name_form, nil)
+         |> put_flash(:info, "Settings saved.")}
+      else
+        {:error, socket} -> {:noreply, socket}
       end
     else
-      {:noreply, socket}
+      {:noreply, validated}
     end
   end
 
@@ -1189,6 +1300,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         modal={@modal}
         workspace={@workspace}
         name_form={@name_form}
+        display_name_form={@display_name_form}
         currency={@currency}
         oidc_enabled={@oidc_enabled}
         share_form={@share_form}
@@ -1457,7 +1569,10 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     <.modal on_cancel="close_modal">
       <h2 class="font-semibold text-lg mb-4">Log all balances</h2>
       <form phx-submit="save_log_all_balances" class="flex flex-col gap-2">
-        <div :for={debt <- @active_debts} class="flex flex-col sm:flex-row gap-1 sm:gap-2 sm:items-center">
+        <div
+          :for={debt <- @active_debts}
+          class="flex flex-col sm:flex-row gap-1 sm:gap-2 sm:items-center"
+        >
           <label class="sm:w-40 text-sm truncate">{debt.name}</label>
           <input
             type="number"
@@ -1499,6 +1614,7 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
   attr :modal, :map, required: true
   attr :workspace, :map, required: true
   attr :name_form, :any, required: true
+  attr :display_name_form, :any, required: true
   attr :currency, :string, required: true
   attr :oidc_enabled, :boolean, required: true
   attr :share_form, :any, required: true
@@ -1511,33 +1627,59 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     <.modal on_cancel="close_modal">
       <h2 class="font-semibold text-lg mb-4">Settings</h2>
 
-      <section class="mb-6">
-        <h3 class="font-medium mb-2">Tracker name</h3>
-        <.form
-          :if={@modal.is_owner}
-          for={@name_form}
-          id="workspace-name-form"
-          phx-change="validate_workspace_name"
-          phx-submit="update_workspace_name"
-          class="flex items-center gap-2"
-        >
-          <.input field={@name_form[:name]} />
-          <.button type="submit" variant="primary" class="btn-sm">Save</.button>
-        </.form>
-        <p :if={!@modal.is_owner} class="text-sm opacity-70">{@workspace.name}</p>
-      </section>
+      <%!-- The single Save in the footer submits this form via its `form`
+           attribute -- the People invite form below can't be nested in it. --%>
+      <.form
+        for={%{}}
+        id="settings-form"
+        phx-change="validate_settings"
+        phx-submit="save_settings"
+      >
+        <section class="mb-6">
+          <h3 class="font-medium mb-2">Your name</h3>
+          <%= if @modal.display_name_editability == :read_only do %>
+            <p id="display-name-read-only" class="text-sm">
+              {@display_name_form[:display_name].value}
+            </p>
+            <p class="text-xs opacity-70 mt-1">
+              Managed by your sign-in provider (e.g. Google). Change it there.
+            </p>
+          <% else %>
+            <.input field={@display_name_form[:display_name]} />
+            <p :if={@modal.display_name_editability == :idp} class="text-xs opacity-70">
+              Also updates your sign-in profile.
+            </p>
+            <p :if={@modal.display_name_editability == :local_override} class="text-xs opacity-70">
+              Saved in this app only. Your sign-in provider's name won't replace it.
+            </p>
+          <% end %>
+        </section>
 
-      <section class="mb-6">
-        <h3 class="font-medium mb-2">Currency</h3>
-        <form :if={@modal.is_owner} phx-change="select_currency">
-          <select name="currency" class="select select-sm">
-            <option :for={code <- currency_codes()} value={code} selected={code == @currency}>
+        <section class="mb-6">
+          <h3 class="font-medium mb-2">Tracker name</h3>
+          <.input :if={@modal.is_owner} field={@name_form[:name]} />
+          <p :if={!@modal.is_owner} class="text-sm opacity-70">{@workspace.name}</p>
+        </section>
+
+        <section class="mb-6">
+          <h3 class="font-medium mb-2">Currency</h3>
+          <select
+            :if={@modal.is_owner}
+            id="settings-currency"
+            name="currency"
+            class="select select-sm"
+          >
+            <option
+              :for={code <- currency_codes()}
+              value={code}
+              selected={code == @modal.currency}
+            >
               {code}
             </option>
           </select>
-        </form>
-        <p :if={!@modal.is_owner} class="text-sm opacity-70">{@currency}</p>
-      </section>
+          <p :if={!@modal.is_owner} class="text-sm opacity-70">{@currency}</p>
+        </section>
+      </.form>
 
       <section class="mb-6">
         <h3 class="font-medium mb-2">Export</h3>
@@ -1622,8 +1764,17 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
         </ul>
       </section>
 
-      <div class="flex justify-end mt-4">
-        <.button type="button" phx-click="close_modal">Close</.button>
+      <div class="flex justify-end gap-2 mt-4">
+        <.button type="button" phx-click="close_modal">Cancel</.button>
+        <.button
+          :if={@modal.is_owner or @modal.display_name_editability != :read_only}
+          id="settings-save"
+          type="submit"
+          form="settings-form"
+          variant="primary"
+        >
+          Save
+        </.button>
       </div>
     </.modal>
     """

@@ -49,6 +49,177 @@ defmodule DebtReliefTracker.AccountsTest do
       assert user1.id == user2.id
       assert Accounts.list_workspaces_for_user(user1) |> length() == 1
     end
+
+    test "re-syncs display_name from the name claim on a returning login" do
+      claims = %{
+        "sub" => "auth0|abc",
+        "email" => "alex@example.com",
+        "name" => "alex@example.com"
+      }
+
+      Accounts.get_or_create_user_from_oidc!(claims)
+
+      user = Accounts.get_or_create_user_from_oidc!(%{claims | "name" => "Alex Smith"})
+
+      assert user.display_name == "Alex Smith"
+      # Only a default -- the workspace name isn't renamed alongside.
+      assert Accounts.current_workspace_for_user(user).name == "alex@example.com's Debts"
+    end
+
+    test "keeps the current display_name when the name claim is missing" do
+      claims = %{"sub" => "auth0|abc", "email" => "alex@example.com", "name" => "Alex"}
+      Accounts.get_or_create_user_from_oidc!(claims)
+
+      user = Accounts.get_or_create_user_from_oidc!(Map.delete(claims, "name"))
+
+      assert user.display_name == "Alex"
+    end
+
+    test "doesn't overwrite a locally overridden display_name" do
+      claims = %{"sub" => "oidc|abc", "email" => "alex@example.com", "name" => "Alex"}
+      user = Accounts.get_or_create_user_from_oidc!(claims)
+      {:ok, _} = Accounts.update_display_name(user, %{"display_name" => "Lexi"})
+
+      user = Accounts.get_or_create_user_from_oidc!(%{claims | "name" => "Alexander"})
+
+      assert user.display_name == "Lexi"
+    end
+
+    test "an unchanged returning login doesn't write the row" do
+      claims = %{"sub" => "oidc|abc", "email" => "alex@example.com", "name" => "Alex"}
+      user1 = Accounts.get_or_create_user_from_oidc!(claims)
+      user2 = Accounts.get_or_create_user_from_oidc!(claims)
+
+      assert user1.updated_at == user2.updated_at
+    end
+  end
+
+  describe "display names" do
+    setup do
+      on_exit(fn -> Application.put_env(:debt_relief_tracker, :auth0_management, nil) end)
+    end
+
+    defp enable_auth0_management do
+      Application.put_env(:debt_relief_tracker, :auth0_management,
+        client_id: "m2m-id",
+        client_secret: "m2m-secret",
+        domain: "https://tenant.example.auth0.com/"
+      )
+    end
+
+    defp oidc_user(sub) do
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => sub,
+        "email" => "#{sub}@example.com",
+        "name" => "Original"
+      })
+    end
+
+    test "display_name_editability/1 covers every mode" do
+      assert Accounts.display_name_editability(Accounts.get_default_user!()) == :local
+      assert Accounts.display_name_editability(oidc_user("auth0|db")) == :local_override
+      assert Accounts.display_name_editability(oidc_user("google-oauth2|1")) == :local_override
+
+      enable_auth0_management()
+      assert Accounts.display_name_editability(oidc_user("auth0|db")) == :idp
+      assert Accounts.display_name_editability(oidc_user("google-oauth2|1")) == :read_only
+    end
+
+    test "no-auth mode updates locally without flagging an override" do
+      {:ok, user} =
+        Accounts.update_display_name(Accounts.get_default_user!(), %{"display_name" => " Sam "})
+
+      assert user.display_name == "Sam"
+      refute user.display_name_overridden
+    end
+
+    test "an unchanged name is a no-op -- no override flag, no IdP call" do
+      enable_auth0_management()
+      # No Req.Test stub: any Auth0 request would raise.
+      db_user = oidc_user("auth0|db")
+
+      assert {:ok, ^db_user} =
+               Accounts.update_display_name(db_user, %{"display_name" => "Original"})
+
+      Application.put_env(:debt_relief_tracker, :auth0_management, nil)
+      user = oidc_user("oidc|x")
+      {:ok, user} = Accounts.update_display_name(user, %{"display_name" => "Original"})
+      refute user.display_name_overridden
+    end
+
+    test "rejects a blank name" do
+      assert {:error, %Ecto.Changeset{}} =
+               Accounts.update_display_name(oidc_user("oidc|x"), %{"display_name" => "  "})
+    end
+
+    test "without write-back, saves locally and flags the override" do
+      {:ok, user} = Accounts.update_display_name(oidc_user("oidc|x"), %{"display_name" => "Sam"})
+
+      assert user.display_name == "Sam"
+      assert user.display_name_overridden
+    end
+
+    test "an Auth0 database user is written to Auth0 first, then locally" do
+      enable_auth0_management()
+      test_pid = self()
+
+      Req.Test.stub(DebtReliefTrackerWeb.Auth0Management, fn conn ->
+        case {conn.method, conn.request_path} do
+          {"POST", "/oauth/token"} ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            send(test_pid, {:token_request, Jason.decode!(body)})
+            Req.Test.json(conn, %{"access_token" => "mgmt-token"})
+
+          {"PATCH", "/api/v2/users/auth0%7Cdb"} ->
+            {:ok, body, conn} = Plug.Conn.read_body(conn)
+            send(test_pid, {:patch, Plug.Conn.get_req_header(conn, "authorization"), body})
+            Req.Test.json(conn, %{"user_id" => "auth0|db"})
+        end
+      end)
+
+      {:ok, user} =
+        Accounts.update_display_name(oidc_user("auth0|db"), %{"display_name" => "Sam"})
+
+      assert user.display_name == "Sam"
+      refute user.display_name_overridden
+
+      assert_received {:token_request,
+                       %{
+                         "grant_type" => "client_credentials",
+                         "audience" => "https://tenant.example.auth0.com/api/v2/"
+                       }}
+
+      assert_received {:patch, ["Bearer mgmt-token"], body}
+      assert Jason.decode!(body) == %{"name" => "Sam"}
+    end
+
+    @tag :capture_log
+    test "leaves the local name untouched when Auth0 rejects the update" do
+      enable_auth0_management()
+
+      Req.Test.stub(DebtReliefTrackerWeb.Auth0Management, fn
+        %{request_path: "/oauth/token"} = conn ->
+          Req.Test.json(conn, %{"access_token" => "mgmt-token"})
+
+        conn ->
+          conn |> Plug.Conn.put_status(500) |> Req.Test.json(%{"error" => "boom"})
+      end)
+
+      user = oidc_user("auth0|db")
+
+      assert {:error, :idp_update_failed} =
+               Accounts.update_display_name(user, %{"display_name" => "Sam"})
+
+      assert Accounts.get_user!(user.id).display_name == "Original"
+    end
+
+    test "an Auth0 social user can't edit their name" do
+      enable_auth0_management()
+      user = oidc_user("google-oauth2|1")
+
+      assert {:error, :read_only} = Accounts.update_display_name(user, %{"display_name" => "Sam"})
+      assert Accounts.get_user!(user.id).display_name == "Original"
+    end
   end
 
   describe "share_workspace_with_email/3" do

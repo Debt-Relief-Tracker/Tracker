@@ -234,6 +234,12 @@ environment to confirm.
       enabled and the session has no `user_id`; no-auth mode is completely
       unaffected (verified: dev server still boots straight to the
       dashboard with no login wall when OIDC env vars are unset)
+- [x] Editable display name (Settings → Your name). The IdP `name` claim is
+      re-synced on every login. Edits are written back to Auth0 through the
+      optional Management API M2M app (`DebtReliefTrackerWeb.Auth0Management`)
+      for database users, are read-only for Auth0 social users, and are a
+      local override (`users.display_name_overridden`) when there's no
+      write-back path. The rules live in `Accounts.display_name_editability/1`.
 
 Verification limits: the actual OIDC redirect → provider → callback →
 token/userinfo exchange can't be tested end-to-end without a real IdP, which

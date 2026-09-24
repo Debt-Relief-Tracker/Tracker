@@ -703,10 +703,12 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
 
     view |> element("button[phx-click=open_settings]") |> render_click()
 
-    html =
-      view
-      |> form("form[phx-change=select_currency]", %{"currency" => "EUR"})
-      |> render_change()
+    # Picking a currency doesn't apply it until Save.
+    html = view |> form("#settings-form", %{"currency" => "EUR"}) |> render_change()
+    assert html =~ "$4,500.00"
+    assert DebtReliefTracker.Settings.get_settings!(workspace).currency == "USD"
+
+    html = view |> form("#settings-form", %{"currency" => "EUR"}) |> render_submit()
 
     assert html =~ "€4,500.00"
     refute html =~ "$4,500.00"
@@ -725,7 +727,7 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
 
     html =
       view
-      |> form("#workspace-name-form", %{"workspace" => %{"name" => "Our Debts"}})
+      |> form("#settings-form", %{"workspace" => %{"name" => "Our Debts"}})
       |> render_submit()
 
     assert html =~ "Our Debts"
@@ -987,5 +989,57 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
       refute html =~ "Settings</h2>"
       refute Accounts.get_default_user!().tutorial_seen
     end
+  end
+
+  test "the settings modal edits the no-auth user's display name", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("#settings-button") |> render_click()
+
+    view
+    |> form("#settings-form", user: %{display_name: "Sam"})
+    |> render_submit()
+
+    assert Accounts.get_default_user!().display_name == "Sam"
+  end
+
+  test "one Save writes name, tracker name, and currency together", %{
+    conn: conn,
+    workspace: workspace
+  } do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("#settings-button") |> render_click()
+
+    view
+    |> form("#settings-form", %{
+      "user" => %{"display_name" => "Sam"},
+      "workspace" => %{"name" => "Sam's Plan"},
+      "currency" => "GBP"
+    })
+    |> render_submit()
+
+    refute has_element?(view, "#settings-form")
+    assert Accounts.get_default_user!().display_name == "Sam"
+    assert Accounts.get_workspace!(workspace.id).name == "Sam's Plan"
+    assert DebtReliefTracker.Settings.get_settings!(workspace).currency == "GBP"
+  end
+
+  test "an invalid field blocks the whole save", %{conn: conn, workspace: workspace} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    view |> element("#settings-button") |> render_click()
+
+    view
+    |> form("#settings-form", %{
+      "user" => %{"display_name" => "Sam"},
+      "workspace" => %{"name" => ""},
+      "currency" => "GBP"
+    })
+    |> render_submit()
+
+    assert has_element?(view, "#settings-form")
+    assert Accounts.get_default_user!().display_name == "You"
+    assert DebtReliefTracker.Settings.get_settings!(workspace).currency == "USD"
   end
 end

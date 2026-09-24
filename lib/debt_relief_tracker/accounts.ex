@@ -10,6 +10,8 @@ defmodule DebtReliefTracker.Accounts do
 
   import Ecto.Query, warn: false
 
+  require Logger
+
   alias DebtReliefTracker.Repo
   alias DebtReliefTracker.Settings
 
@@ -75,18 +77,22 @@ defmodule DebtReliefTracker.Accounts do
   `is_admin` is re-synced from the provider's role claim (see README's
   "Admin access" section) on every login, new or returning, so revoking the
   role in the IdP takes effect the next time that person logs in.
+  `display_name` is re-synced from the `name` claim the same way, unless the
+  user has set a local-only override (`display_name_editability/1`).
   """
   def get_or_create_user_from_oidc!(%{"sub" => subject} = claims) do
     admin? = admin_claim?(claims)
 
     user =
       case Repo.get_by(User, external_subject: subject) do
-        %User{is_admin: ^admin?} = user ->
-          user
-
         %User{} = user ->
-          {:ok, user} = Repo.update(User.admin_changeset(user, %{is_admin: admin?}))
-          user
+          changeset = User.oidc_sync_changeset(user, oidc_sync_attrs(user, claims, admin?))
+
+          if changeset.changes == %{} do
+            user
+          else
+            Repo.update!(changeset)
+          end
 
         nil ->
           display_name = claims["name"] || claims["email"] || "New user"
@@ -110,6 +116,83 @@ defmodule DebtReliefTracker.Accounts do
     # added *after* this person already has an account.
     Settings.claim_retirement_profiles(user)
     user
+  end
+
+  defp oidc_sync_attrs(user, claims, admin?) do
+    case claims["name"] do
+      name when is_binary(name) and name != "" and not user.display_name_overridden ->
+        %{is_admin: admin?, display_name: name}
+
+      _ ->
+        %{is_admin: admin?}
+    end
+  end
+
+  @doc """
+  How `user`'s display name can be edited from the app:
+
+    * `:local` -- no-auth mode's implicit user; there's no IdP to sync with.
+    * `:idp` -- an Auth0 database-connection user (`auth0|...` subject) with
+      Management API write-back configured: saved to Auth0 first, then
+      locally, and login sync keeps reading it back from the `name` claim.
+    * `:read_only` -- an Auth0 social-connection user with write-back
+      configured. Auth0 re-syncs `name` from Google etc. on every login, so an
+      edit would silently revert; change it at that provider instead.
+    * `:local_override` -- OIDC with no write-back path (a non-Auth0 IdP, or
+      Auth0 without Management API credentials): saved locally and flagged
+      so login sync stops overwriting it.
+  """
+  def display_name_editability(%User{external_subject: nil}), do: :local
+
+  def display_name_editability(%User{external_subject: subject}) do
+    cond do
+      Application.get_env(:debt_relief_tracker, :auth0_management) == nil -> :local_override
+      String.starts_with?(subject, "auth0|") -> :idp
+      true -> :read_only
+    end
+  end
+
+  @doc """
+  Updates `user`'s display name per `display_name_editability/1`. For `:idp`
+  users the IdP is written first and the local row only if that succeeds,
+  so the two can't drift -- returns `{:error, :idp_update_failed}` otherwise.
+  """
+  def update_display_name(%User{} = user, attrs) do
+    changeset = User.display_name_changeset(user, attrs)
+
+    case {display_name_editability(user), changeset.valid?} do
+      {:read_only, _} ->
+        {:error, :read_only}
+
+      {_, false} ->
+        {:error, %{changeset | action: :update}}
+
+      # The settings modal saves every section together, so this runs even
+      # when only e.g. the currency changed -- don't call the IdP or flag
+      # an override for a name that didn't change.
+      {_, true} when changeset.changes == %{} ->
+        {:ok, user}
+
+      {:local, true} ->
+        Repo.update(changeset)
+
+      {:local_override, true} ->
+        changeset
+        |> Ecto.Changeset.put_change(:display_name_overridden, true)
+        |> Repo.update()
+
+      {:idp, true} ->
+        name = Ecto.Changeset.get_field(changeset, :display_name)
+
+        case DebtReliefTrackerWeb.Auth0Management.update_name(user.external_subject, name) do
+          :ok ->
+            Repo.update(changeset)
+
+          {:error, reason} ->
+            Logger.warning("Auth0 display name update failed: #{inspect(reason)}")
+            {:error, :idp_update_failed}
+        end
+    end
   end
 
   # `OIDC_ROLES_CLAIM` (config/runtime.exs) -- default claims never carry

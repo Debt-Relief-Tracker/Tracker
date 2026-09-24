@@ -128,6 +128,31 @@ whatever that provider calls its claims/token customization:
 In local no-auth dev mode (no `OIDC_ISSUER`/`OIDC_CLIENT_ID`/
 `OIDC_CLIENT_SECRET` set), `/admin` is reachable without any of this.
 
+### Display names
+
+Your IdP is the source of truth for display names: each login copies the ID
+token's `name` claim onto your account. You can also edit your name under
+**Settings → Your name**. What saving does depends on your setup:
+
+- **Auth0 with Management API credentials** (below): email/password
+  (database-connection) users' edits are written to Auth0 first and only then
+  saved locally. Social-login users (Google, etc.) see their name read-only,
+  because Auth0 re-syncs it from that provider on every login.
+- **Any other OIDC provider, or Auth0 without those credentials**: the edit
+  is saved in this app only, and from then on login no longer overwrites it.
+- **No-auth mode**: saved locally.
+
+**Auth0 Management API setup (optional):**
+
+1. **Dashboard → Applications → Create Application** → **Machine to Machine**.
+   Use a separate app, not your login app.
+2. Authorize it for the **Auth0 Management API** with only the
+   `update:users` permission.
+3. Set `AUTH0_MGMT_CLIENT_ID` and `AUTH0_MGMT_CLIENT_SECRET` from that app.
+   If `OIDC_ISSUER` is a custom domain, also set `AUTH0_MGMT_DOMAIN` to your
+   canonical tenant URL (e.g. `https://your-tenant.us.auth0.com`), because
+   the Management API isn't served on custom domains.
+
 ## Local development
 
 * Run `mix setup` to install everything: Elixir deps, the SQLite database,

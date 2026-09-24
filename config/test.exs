@@ -26,6 +26,10 @@ config :debt_relief_tracker, :run_boot_tasks, false
 # instead of relying on the timer.
 config :debt_relief_tracker, :run_scheduler, false
 
+# Auth0Management's HTTP calls are stubbed per-test with Req.Test.
+config :debt_relief_tracker, :auth0_req_options,
+  plug: {Req.Test, DebtReliefTrackerWeb.Auth0Management}
+
 # We don't run a server during test. If one is required,
 # you can enable the server option below.
 config :debt_relief_tracker, DebtReliefTrackerWeb.Endpoint,
