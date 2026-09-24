@@ -228,4 +228,82 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
              )
     end
   end
+
+  describe "users tab" do
+    test "lists users and opens the detail modal", %{conn: conn} do
+      user =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "google-oauth2|1",
+          "email" => "sam@example.com",
+          "name" => "Sam"
+        })
+
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=users")
+
+      assert has_element?(view, "#users", "sam@example.com")
+      assert has_element?(view, "#users", "Google")
+      refute has_element?(view, "#user-detail-modal")
+
+      view |> element("#view-user-#{user.id}") |> render_click()
+
+      assert has_element?(view, "#user-detail-modal", "Sam")
+      assert has_element?(view, "#user-detail-workspaces", "Sam's Debts")
+    end
+
+    test "per-page select and next link paginate via the URL", %{conn: conn} do
+      # 11 + the implicit default user (touched on every no-auth mount) = 12.
+      Accounts.get_default_user!()
+      for i <- 1..11, do: Accounts.get_or_create_user_from_oidc!(%{"sub" => "u#{i}"})
+
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=users")
+      assert has_element?(view, "#users-pager", "Page 1 of 1")
+
+      view |> form("#users-per-page-form", %{"per_page" => "10"}) |> render_change()
+      assert_patch(view, ~p"/admin?tab=users&page=1&per_page=10")
+      assert has_element?(view, "#users-pager", "Page 1 of 2")
+
+      view |> element("#users-next") |> render_click()
+      assert_patch(view, ~p"/admin?tab=users&page=2&per_page=10")
+      assert has_element?(view, "#users-pager", "Showing 11–12 of 12")
+    end
+
+    test "no-auth mode tracks last seen on the implicit default user", %{conn: conn} do
+      assert Accounts.get_default_user!().last_seen_at == nil
+
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=users")
+
+      default_user = Accounts.get_default_user!()
+      assert %DateTime{} = default_user.last_seen_at
+      assert has_element?(view, "#users", "N/A (no-auth)")
+    end
+
+    test "an unsupported per_page falls back to the default", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/admin?tab=users&per_page=999")
+
+      assert has_element?(view, "#users-per-page option[selected][value='25']")
+    end
+  end
+
+  describe "last seen tracking (OIDC enabled)" do
+    setup do
+      Application.put_env(:debt_relief_tracker, :oidc,
+        issuer: "https://idp.example.com",
+        client_id: "test-client",
+        client_secret: "test-secret"
+      )
+
+      on_exit(fn -> Application.put_env(:debt_relief_tracker, :oidc, nil) end)
+      :ok
+    end
+
+    test "a connected mount bumps the user's last_seen_at", %{conn: conn} do
+      user = Accounts.get_or_create_user_from_oidc!(%{"sub" => "seen", "name" => "Seen"})
+      assert user.last_seen_at == nil
+
+      conn = Plug.Test.init_test_session(conn, user_id: user.id)
+      {:ok, _view, _html} = live(conn, ~p"/")
+
+      assert %DateTime{} = Accounts.get_user!(user.id).last_seen_at
+    end
+  end
 end

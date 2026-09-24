@@ -405,12 +405,14 @@ defmodule DebtReliefTrackerWeb.CoreComponents do
         <p>Contents</p>
       </.modal>
   """
+  attr :id, :string, default: nil
   attr :on_cancel, :string, required: true
   slot :inner_block, required: true
 
   def modal(assigns) do
     ~H"""
     <div
+      id={@id}
       class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 sm:p-0 z-50"
       phx-window-keydown={@on_cancel}
       phx-key="escape"

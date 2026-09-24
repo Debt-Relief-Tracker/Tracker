@@ -22,7 +22,7 @@ defmodule DebtReliefTrackerWeb.UserAuth do
   """
   def on_mount(:mount_current_scope, _params, session, socket) do
     case resolve_scope(session) do
-      {:ok, scope} -> {:cont, assign(socket, :current_scope, scope)}
+      {:ok, scope} -> {:cont, assign_scope(socket, scope)}
       :redirect -> {:halt, redirect(socket, to: ~p"/auth/login")}
     end
   end
@@ -35,7 +35,7 @@ defmodule DebtReliefTrackerWeb.UserAuth do
     case resolve_scope(session) do
       {:ok, scope} ->
         if not OIDC.enabled?() or Accounts.admin?(scope) do
-          {:cont, assign(socket, :current_scope, scope)}
+          {:cont, assign_scope(socket, scope)}
         else
           {:halt,
            socket
@@ -46,6 +46,28 @@ defmodule DebtReliefTrackerWeb.UserAuth do
       :redirect ->
         {:halt, redirect(socket, to: ~p"/auth/login")}
     end
+  end
+
+  # Also bumps `last_seen_at` for the admin Users tab -- only on the
+  # connected mount (not the static render), and throttled further in
+  # Accounts.touch_last_seen/1. In no-auth mode the scope stays userless
+  # (ADR 0002), but the implicit default user is the one actually using the
+  # app, so it's touched instead.
+  defp assign_scope(socket, scope) do
+    scope =
+      cond do
+        not connected?(socket) ->
+          scope
+
+        scope.user ->
+          %{scope | user: Accounts.touch_last_seen(scope.user)}
+
+        true ->
+          Accounts.touch_last_seen(Accounts.get_default_user!())
+          scope
+      end
+
+    assign(socket, :current_scope, scope)
   end
 
   defp resolve_scope(session) do

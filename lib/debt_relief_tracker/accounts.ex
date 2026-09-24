@@ -427,6 +427,78 @@ defmodule DebtReliefTracker.Accounts do
     end
   end
 
+  # `touch_last_seen/1` skips the write if the stored value is newer than
+  # this, so a LiveView mount doesn't cost a DB write every time.
+  @last_seen_throttle_seconds 5 * 60
+
+  @doc """
+  Stamps `last_login_at` (and `last_seen_at`) on a successful OIDC login --
+  see AuthController's callback. Returns the updated user.
+  """
+  def record_login!(%User{} = user) do
+    now = DateTime.utc_now()
+
+    user
+    |> Ecto.Changeset.change(last_login_at: now, last_seen_at: now)
+    |> Repo.update!()
+  end
+
+  @doc """
+  Bumps `last_seen_at` for the admin Users tab, called from UserAuth's
+  on_mount on connected mounts. No-op (returns `user` unchanged) when the
+  stored value is under 5 minutes old, and for `nil` (no-auth mode's
+  userless scope). Uses `update_all` so `updated_at` isn't bumped by mere
+  activity.
+  """
+  def touch_last_seen(nil), do: nil
+
+  def touch_last_seen(%User{last_seen_at: last_seen_at} = user) do
+    now = DateTime.utc_now()
+
+    if last_seen_at && DateTime.diff(now, last_seen_at) < @last_seen_throttle_seconds do
+      user
+    else
+      from(u in User, where: u.id == ^user.id) |> Repo.update_all(set: [last_seen_at: now])
+      %{user | last_seen_at: now}
+    end
+  end
+
+  @doc """
+  One page of users for the admin Users tab, most recently seen first
+  (never-seen last), preloaded with their workspace memberships. `:page` is
+  clamped to `1..total_pages` so a stale `?page=` in the URL still lands on
+  real rows. Returns `%{entries:, page:, per_page:, total:, total_pages:}`.
+  """
+  def list_users_for_admin(opts \\ []) do
+    per_page = Keyword.get(opts, :per_page, 25)
+    total = Repo.aggregate(User, :count)
+    total_pages = max(ceil(total / per_page), 1)
+    page = opts |> Keyword.get(:page, 1) |> max(1) |> min(total_pages)
+
+    # `? IS NULL` rather than :desc_nulls_last -- portable across both
+    # adapters (docs/architecture/0001-dual-database-adapter.md).
+    entries =
+      from(u in User,
+        order_by: [
+          asc: fragment("? IS NULL", u.last_seen_at),
+          desc: u.last_seen_at,
+          desc: u.inserted_at,
+          asc: u.id
+        ],
+        limit: ^per_page,
+        offset: ^((page - 1) * per_page),
+        preload: [workspace_members: :workspace]
+      )
+      |> Repo.all()
+
+    %{entries: entries, page: page, per_page: per_page, total: total, total_pages: total_pages}
+  end
+
+  @doc "A single user for the admin Users tab's detail modal, preloaded like `list_users_for_admin/1`."
+  def get_user_for_admin!(id) do
+    User |> Repo.get!(id) |> Repo.preload(workspace_members: :workspace)
+  end
+
   @doc "Whether the current scope is an admin -- see UserAuth's :require_admin_scope on_mount."
   def admin?(%Scope{user: %User{is_admin: true}}), do: true
   def admin?(_scope), do: false

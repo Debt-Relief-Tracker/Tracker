@@ -39,6 +39,10 @@ defmodule DebtReliefTrackerWeb.Layouts do
     doc:
       "renders a full-viewport-height layout with no nav chrome/max-width, for dashboard-style pages"
 
+  attr :max_width, :string,
+    default: "max-w-2xl",
+    doc: "Tailwind max-width class for the centered content column (non-full-width only)"
+
   slot :inner_block, required: true
 
   def app(assigns) do
@@ -60,7 +64,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
       </header>
 
       <main class="px-4 py-10 sm:px-6 lg:px-8">
-        <div class="mx-auto max-w-2xl space-y-4">
+        <div class={["mx-auto space-y-4", @max_width]}>
           {render_slot(@inner_block)}
         </div>
       </main>

@@ -35,7 +35,7 @@ defmodule DebtReliefTrackerWeb.AuthController do
 
       case OIDC.callback(url(~p"/auth/callback"), params, session_params) do
         {:ok, claims} ->
-          user = Accounts.get_or_create_user_from_oidc!(claims)
+          user = claims |> Accounts.get_or_create_user_from_oidc!() |> Accounts.record_login!()
 
           conn
           |> delete_session(:oidc_session_params)

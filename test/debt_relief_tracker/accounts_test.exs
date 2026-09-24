@@ -631,4 +631,68 @@ defmodule DebtReliefTracker.AccountsTest do
       assert authenticated.last_used_at != nil
     end
   end
+
+  describe "user activity and list_users_for_admin/1" do
+    defp oidc_user!(sub) do
+      Accounts.get_or_create_user_from_oidc!(%{"sub" => sub, "name" => sub})
+    end
+
+    test "record_login!/1 stamps both last_login_at and last_seen_at" do
+      user = oidc_user!("login")
+      assert user.last_login_at == nil
+
+      user = Accounts.record_login!(user)
+
+      assert %DateTime{} = user.last_login_at
+      assert user.last_seen_at == user.last_login_at
+      assert Accounts.get_user!(user.id).last_login_at == user.last_login_at
+    end
+
+    test "touch_last_seen/1 writes when unset or stale, skips when fresh, ignores nil" do
+      assert Accounts.touch_last_seen(nil) == nil
+
+      user = oidc_user!("seen")
+      touched = Accounts.touch_last_seen(user)
+      assert %DateTime{} = touched.last_seen_at
+      assert Accounts.get_user!(user.id).last_seen_at == touched.last_seen_at
+
+      assert Accounts.touch_last_seen(touched) == touched
+
+      stale = %{touched | last_seen_at: DateTime.add(DateTime.utc_now(), -10, :minute)}
+
+      assert DateTime.compare(Accounts.touch_last_seen(stale).last_seen_at, stale.last_seen_at) ==
+               :gt
+    end
+
+    test "orders most recently seen first, never-seen last, preloading memberships" do
+      never = oidc_user!("never")
+      older = oidc_user!("older") |> Accounts.touch_last_seen()
+
+      newer = oidc_user!("newer") |> Accounts.record_login!()
+
+      # Same-microsecond touches are possible in fast tests -- force a gap.
+      older_at = DateTime.add(newer.last_seen_at, -1, :minute)
+
+      from(u in DebtReliefTracker.Accounts.User, where: u.id == ^older.id)
+      |> DebtReliefTracker.Repo.update_all(set: [last_seen_at: older_at])
+
+      %{entries: entries} = Accounts.list_users_for_admin()
+
+      assert Enum.map(entries, & &1.id) == [newer.id, older.id, never.id]
+
+      assert [%{role: :owner, workspace: %{name: "newer's Debts"}}] =
+               hd(entries).workspace_members
+    end
+
+    test "paginates and clamps out-of-range pages" do
+      for i <- 1..12, do: oidc_user!("user#{i}")
+
+      page2 = Accounts.list_users_for_admin(page: 2, per_page: 10)
+      assert length(page2.entries) == 2
+      assert %{page: 2, total: 12, total_pages: 2} = page2
+
+      assert %{page: 2} = Accounts.list_users_for_admin(page: 99, per_page: 10)
+      assert %{page: 1} = Accounts.list_users_for_admin(page: 0, per_page: 10)
+    end
+  end
 end

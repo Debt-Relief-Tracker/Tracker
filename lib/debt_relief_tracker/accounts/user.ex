@@ -2,6 +2,8 @@ defmodule DebtReliefTracker.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
+  alias DebtReliefTracker.Accounts.WorkspaceMember
+
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
 
@@ -17,6 +19,12 @@ defmodule DebtReliefTracker.Accounts.User do
     # available) -- login sync then leaves display_name alone. See
     # Accounts.display_name_editability/1.
     field :display_name_overridden, :boolean, default: false
+    # Set programmatically only (never cast) -- see Accounts.record_login!/1
+    # and Accounts.touch_last_seen/1; shown on the admin Users tab.
+    field :last_login_at, :utc_datetime_usec
+    field :last_seen_at, :utc_datetime_usec
+
+    has_many :workspace_members, WorkspaceMember
 
     timestamps()
   end
