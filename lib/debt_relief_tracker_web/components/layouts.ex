@@ -84,10 +84,10 @@ defmodule DebtReliefTrackerWeb.Layouts do
     ~H"""
     <footer
       id="app-footer"
-      class="shrink-0 min-h-10 py-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-base-300 text-sm text-base-content/70 sm:h-10 sm:py-0 sm:gap-2"
+      class="shrink-0 min-h-10 py-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-base-300 text-sm text-base-content/70 px-4 sm:h-10 sm:py-0 sm:px-0 sm:gap-2"
     >
-      <span>Debt Relief Tracker</span>
-      <span aria-hidden="true">·</span>
+      <span class="basis-full text-center sm:basis-auto">Debt Relief Tracker</span>
+      <span aria-hidden="true" class="hidden sm:inline">·</span>
       <.link
         href="https://github.com/Debt-Relief-Tracker/Tracker"
         target="_blank"
