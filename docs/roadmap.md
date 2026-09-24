@@ -104,6 +104,13 @@ comparison.
       generator already wires up daisyUI light/dark themes + a
       `Layouts.theme_toggle/1` component + the `data-theme`/localStorage JS in
       `root.html.heex`. We just reuse it rather than building our own.
+- [x] Theme choice saved per account: clicking the toggle also pushes
+      `set_theme`, which is handled once for every LiveView by a
+      `:theme_preference` hook in `UserAuth`. The value is saved to
+      `users.preferences` (see ADR 0002, "Per-user preferences").
+      `root.html.heex` renders it as `data-saved-theme`, and it wins over
+      localStorage on page load, so the theme follows the user across
+      devices. In no-auth mode it's saved on the implicit default user.
 
 ### Charting upgrade (Chart.js, post-initial-build)
 

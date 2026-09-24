@@ -129,6 +129,21 @@ than to a single mutable global table everyone writes into.
 
   The workspace's default "X's Debts" name is deliberately not renamed along
   with the user.
+- **Per-user preferences** (currently just the theme) live in a single
+  `users.preferences` map column, typed by the embedded schema
+  `Accounts.UserPreferences`. They're read and written through
+  `Accounts.update_preferences/2`. `Accounts.preferences_user/1` resolves
+  the target user: the scope's user, or the implicit default user in no-auth
+  mode. This beats a key/value `user_settings(user_id, name, value)` table:
+  - Every value keeps a real Ecto type, default, and validation.
+  - Preferences load with the user already in `current_scope`, so there's no
+    extra query or per-key "missing row" fallback.
+  - There's no upsert that has to behave the same on SQLite and Postgres
+    (ADR 0001).
+
+  A new preference is a new field on `UserPreferences`, not a migration.
+  Keys missing from stored rows fall back to the schema defaults. Revisit
+  this only if preferences ever need to be queried across users.
 - **Verification gap**: the actual browser → provider → callback → token
   exchange has not been run against a real OIDC provider (none available in
   the environment this was built in). Everything downstream of a session

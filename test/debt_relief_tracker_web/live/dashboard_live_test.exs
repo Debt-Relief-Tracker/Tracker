@@ -1066,4 +1066,11 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     assert Accounts.get_default_user!().display_name == "You"
     assert DebtReliefTracker.Settings.get_settings!(workspace).currency == "USD"
   end
+
+  test "in no-auth mode the theme toggle saves to the implicit default user", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("button[data-phx-theme=light]") |> render_click()
+
+    assert Accounts.get_default_user!().preferences.theme == :light
+  end
 end

@@ -67,8 +67,31 @@ defmodule DebtReliefTrackerWeb.UserAuth do
           scope
       end
 
-    assign(socket, :current_scope, scope)
+    socket
+    |> assign(:current_scope, scope)
+    |> attach_hook(:theme_preference, :handle_event, &save_theme_preference/3)
   end
+
+  # Handles the theme toggle's "set_theme" push (Layouts.theme_toggle/1) for
+  # every LiveView in these live_sessions, so none of them need their own
+  # handle_event. An invalid theme is just not saved -- the client has
+  # already applied it locally either way.
+  defp save_theme_preference("set_theme", %{"theme" => theme}, socket) do
+    scope = socket.assigns.current_scope
+
+    socket =
+      case Accounts.update_preferences(Accounts.preferences_user(scope), %{theme: theme}) do
+        {:ok, user} when scope.user != nil ->
+          assign(socket, :current_scope, %{scope | user: user})
+
+        _ ->
+          socket
+      end
+
+    {:halt, socket}
+  end
+
+  defp save_theme_preference(_event, _params, socket), do: {:cont, socket}
 
   defp resolve_scope(session) do
     cond do

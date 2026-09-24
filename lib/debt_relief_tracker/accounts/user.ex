@@ -2,7 +2,7 @@ defmodule DebtReliefTracker.Accounts.User do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias DebtReliefTracker.Accounts.WorkspaceMember
+  alias DebtReliefTracker.Accounts.{UserPreferences, WorkspaceMember}
 
   @primary_key {:id, :binary_id, autogenerate: true}
   @foreign_key_type :binary_id
@@ -24,6 +24,8 @@ defmodule DebtReliefTracker.Accounts.User do
     field :last_login_at, :utc_datetime_usec
     field :last_seen_at, :utc_datetime_usec
 
+    embeds_one :preferences, UserPreferences, on_replace: :update, defaults_to_struct: true
+
     has_many :workspace_members, WorkspaceMember
 
     timestamps()
@@ -38,6 +40,13 @@ defmodule DebtReliefTracker.Accounts.User do
 
   def tutorial_changeset(user, attrs) do
     cast(user, attrs, [:tutorial_seen])
+  end
+
+  @doc "See Accounts.update_preferences/2."
+  def preferences_changeset(user, attrs) do
+    user
+    |> cast(attrs, [])
+    |> cast_embed(:preferences, required: true)
   end
 
   @doc "Synced from an OIDC role claim on every login -- see Accounts.get_or_create_user_from_oidc!/1."

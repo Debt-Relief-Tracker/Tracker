@@ -695,4 +695,25 @@ defmodule DebtReliefTracker.AccountsTest do
       assert %{page: 1} = Accounts.list_users_for_admin(page: 0, per_page: 10)
     end
   end
+
+  describe "update_preferences/2" do
+    test "defaults to the system theme, and saves an explicit choice without touching other fields" do
+      user = Accounts.get_default_user!()
+      assert user.preferences.theme == :system
+
+      assert {:ok, user} = Accounts.update_preferences(user, %{"theme" => "dark"})
+      assert user.preferences.theme == :dark
+      assert Accounts.get_user!(user.id).preferences.theme == :dark
+
+      assert {:ok, user} = Accounts.update_preferences(user, %{theme: "system"})
+      assert Accounts.get_user!(user.id).preferences.theme == :system
+    end
+
+    test "rejects an unknown theme" do
+      user = Accounts.get_default_user!()
+
+      assert {:error, _changeset} = Accounts.update_preferences(user, %{"theme" => "sepia"})
+      assert Accounts.get_user!(user.id).preferences.theme == :system
+    end
+  end
 end

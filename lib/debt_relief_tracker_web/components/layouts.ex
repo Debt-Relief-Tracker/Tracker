@@ -228,6 +228,8 @@ defmodule DebtReliefTrackerWeb.Layouts do
   Provides dark vs light theme toggle based on themes defined in app.css.
 
   See <head> in root.html.heex which applies the theme before page load.
+  Each click also saves the choice to the account -- see UserAuth's
+  `:theme_preference` hook.
   """
   def theme_toggle(assigns) do
     ~H"""
@@ -236,7 +238,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
 
       <button
         class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
+        phx-click={set_theme("system")}
         data-phx-theme="system"
       >
         <.icon name="hero-computer-desktop-micro" class="size-4 opacity-75 hover:opacity-100" />
@@ -244,7 +246,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
 
       <button
         class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
+        phx-click={set_theme("light")}
         data-phx-theme="light"
       >
         <.icon name="hero-sun-micro" class="size-4 opacity-75 hover:opacity-100" />
@@ -252,7 +254,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
 
       <button
         class="flex p-2 cursor-pointer w-1/3"
-        phx-click={JS.dispatch("phx:set-theme")}
+        phx-click={set_theme("dark")}
         data-phx-theme="dark"
       >
         <.icon name="hero-moon-micro" class="size-4 opacity-75 hover:opacity-100" />
@@ -260,4 +262,19 @@ defmodule DebtReliefTrackerWeb.Layouts do
     </div>
     """
   end
+
+  defp set_theme(theme) do
+    JS.dispatch("phx:set-theme") |> JS.push("set_theme", value: %{theme: theme})
+  end
+
+  @doc """
+  The account-saved theme for root.html.heex's `data-saved-theme`, which
+  takes precedence over this device's localStorage. `nil` outside a
+  LiveView (no `current_scope`), so the page keeps the localStorage theme.
+  """
+  def saved_theme(%{current_scope: %Accounts.Scope{} = scope}) do
+    Accounts.preferences_user(scope).preferences.theme
+  end
+
+  def saved_theme(_assigns), do: nil
 end

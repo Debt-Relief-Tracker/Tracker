@@ -347,4 +347,24 @@ defmodule DebtReliefTrackerWeb.DashboardLiveOidcTest do
       assert has_element?(view, "#display-name-read-only", "Gabe")
     end
   end
+
+  test "clicking the theme toggle saves the theme to the account, and page loads apply it",
+       %{conn: conn} do
+    user =
+      Accounts.get_or_create_user_from_oidc!(%{
+        "sub" => "themer",
+        "email" => "themer@example.com",
+        "name" => "Themer"
+      })
+
+    conn = Plug.Test.init_test_session(conn, user_id: user.id)
+
+    {:ok, view, _html} = live(conn, ~p"/")
+    view |> element("button[data-phx-theme=dark]") |> render_click()
+
+    assert Accounts.get_user!(user.id).preferences.theme == :dark
+
+    document = conn |> get(~p"/") |> html_response(200) |> LazyHTML.from_document()
+    assert LazyHTML.attribute(LazyHTML.query(document, "html"), "data-saved-theme") == ["dark"]
+  end
 end

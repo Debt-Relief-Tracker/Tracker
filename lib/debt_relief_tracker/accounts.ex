@@ -70,6 +70,23 @@ defmodule DebtReliefTracker.Accounts do
   end
 
   @doc """
+  Merges `attrs` (e.g. `%{"theme" => "dark"}`) into `user`'s
+  `UserPreferences`, leaving other preferences as they are.
+  """
+  def update_preferences(%User{} = user, attrs) do
+    user
+    |> User.preferences_changeset(%{preferences: attrs})
+    |> Repo.update()
+  end
+
+  @doc """
+  The user whose preferences apply to `scope` -- its user, or in no-auth
+  mode (ADR 0002) the implicit default user, same as the tutorial flag.
+  """
+  def preferences_user(%Scope{user: %User{} = user}), do: user
+  def preferences_user(%Scope{user: nil}), do: get_default_user!()
+
+  @doc """
   Finds or creates the `User` for an OIDC identity (matched on the
   provider's `sub` claim), creating their own workspace on first login
   (docs/architecture/0002-auth-and-sharing-model.md). Returns the user.
