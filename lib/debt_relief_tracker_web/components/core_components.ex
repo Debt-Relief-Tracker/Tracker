@@ -406,14 +406,25 @@ defmodule DebtReliefTrackerWeb.CoreComponents do
       </.modal>
   """
   attr :id, :string, default: nil
-  attr :on_cancel, :string, required: true
+
+  attr :on_cancel, :any,
+    required: true,
+    doc: "an event name, or a `JS` command for a client-side-only modal"
+
+  attr :hidden, :boolean,
+    default: false,
+    doc: "render initially hidden, for a modal opened with `JS.show/1`"
+
   slot :inner_block, required: true
 
   def modal(assigns) do
     ~H"""
     <div
       id={@id}
-      class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 sm:p-0 z-50"
+      class={[
+        "fixed inset-0 bg-black/50 flex items-center justify-center p-4 sm:p-0 z-50",
+        @hidden && "hidden"
+      ]}
       phx-window-keydown={@on_cancel}
       phx-key="escape"
     >

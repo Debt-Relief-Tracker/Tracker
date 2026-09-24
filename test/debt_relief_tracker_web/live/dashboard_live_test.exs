@@ -317,6 +317,30 @@ defmodule DebtReliefTrackerWeb.DashboardLiveTest do
     end
   end
 
+  describe "donate modal" do
+    test "the footer has a Donate link and a hidden donate modal with the donation links", %{
+      conn: conn
+    } do
+      {:ok, view, _html} = live(conn, ~p"/")
+
+      assert has_element?(view, "#app-footer #donate-link")
+      assert has_element?(view, "#donate-modal.hidden")
+
+      assert has_element?(
+               view,
+               ~s(#donate-modal a#donate-liberapay[href="https://liberapay.com/DebtReliefTracker/"])
+             )
+
+      assert has_element?(
+               view,
+               ~s(#donate-modal a#donate-ko-fi[href="https://ko-fi.com/calonmerc"])
+             )
+
+      assert has_element?(view, "#donate-modal div#donate-github-sponsors")
+      refute has_element?(view, "a#donate-github-sponsors")
+    end
+  end
+
   describe "retirement roadmap" do
     test "the retirement roadmap chart shows a setup message until someone has a profile", %{
       conn: conn

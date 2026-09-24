@@ -8,6 +8,9 @@ defmodule DebtReliefTrackerWeb.Layouts do
   alias DebtReliefTracker.Accounts
   alias DebtReliefTrackerWeb.OIDC
 
+  @liberapay_url "https://liberapay.com/DebtReliefTracker/"
+  @ko_fi_url "https://ko-fi.com/calonmerc"
+
   # Embed all files in layouts/* within this module.
   # The default root.html.heex file contains the HTML
   # skeleton of your application, namely HTML headers
@@ -81,7 +84,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
     ~H"""
     <footer
       id="app-footer"
-      class="shrink-0 h-10 flex items-center justify-center gap-2 border-t border-base-300 text-sm text-base-content/70"
+      class="shrink-0 min-h-10 py-2 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 border-t border-base-300 text-sm text-base-content/70 sm:h-10 sm:py-0 sm:gap-2"
     >
       <span>Debt Relief Tracker</span>
       <span aria-hidden="true">·</span>
@@ -102,13 +105,81 @@ defmodule DebtReliefTrackerWeb.Layouts do
       >
         MIT License
       </.link>
+      <span aria-hidden="true">·</span>
+      <button
+        type="button"
+        id="donate-link"
+        class="link link-hover"
+        phx-click={show_donate()}
+      >
+        Donate
+      </button>
       <%= if not OIDC.enabled?() or Accounts.admin?(@current_scope) do %>
         <span aria-hidden="true">·</span>
         <.link navigate={~p"/admin"} class="link link-hover">Admin</.link>
       <% end %>
+      <.donate_modal />
     </footer>
     """
   end
+
+  # Opened/closed purely client-side (JS.show/JS.hide) since the footer is
+  # shared by every LiveView and there's no server state to track.
+  defp donate_modal(assigns) do
+    assigns = assign(assigns, liberapay_url: @liberapay_url, ko_fi_url: @ko_fi_url)
+
+    ~H"""
+    <.modal id="donate-modal" hidden on_cancel={hide_donate()}>
+      <div class="space-y-4 text-base-content">
+        <div class="flex items-center justify-between gap-2">
+          <h2 class="text-lg font-semibold">Ways to donate</h2>
+          <button
+            type="button"
+            id="donate-modal-close"
+            class="btn btn-ghost btn-sm btn-square"
+            aria-label="Close"
+            phx-click={hide_donate()}
+          >
+            <.icon name="hero-x-mark" class="size-5" />
+          </button>
+        </div>
+        <p class="text-base-content/70">
+          GitHub Sponsors is pending approval. In the meantime, you can donate via Liberapay or Ko-fi.
+        </p>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div
+            id="donate-github-sponsors"
+            aria-disabled="true"
+            class="rounded-lg border border-dashed border-base-300 p-4 flex items-center justify-center text-center text-sm text-base-content/40"
+          >
+            GitHub Sponsors — coming soon
+          </div>
+          <a
+            id="donate-liberapay"
+            href={@liberapay_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="rounded-lg border border-primary/30 p-4 flex items-center justify-center text-center font-semibold text-primary hover:bg-primary/5 transition-colors"
+          >
+            Liberapay
+          </a>
+          <a
+            id="donate-ko-fi"
+            href={@ko_fi_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="rounded-lg border border-primary/30 p-4 flex items-center justify-center text-center font-semibold text-primary hover:bg-primary/5 transition-colors"
+          >
+            Ko-fi
+          </a>
+        </div>
+      </div>
+    </.modal>
+    """
+  end
+
+  defp show_donate(js \\ %JS{}), do: JS.show(js, to: "#donate-modal", display: "flex")
+  defp hide_donate(js \\ %JS{}), do: JS.hide(js, to: "#donate-modal")
 
   @doc """
   Shows the flash group with standard titles and content.

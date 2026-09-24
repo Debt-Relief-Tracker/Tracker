@@ -28,6 +28,13 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
 
       assert html =~ ~s(href="/admin")
     end
+
+    test "the admin page footer also has the Donate link", %{conn: conn} do
+      {:ok, view, _html} = live(conn, ~p"/admin")
+
+      assert has_element?(view, "#app-footer #donate-link")
+      assert has_element?(view, "#donate-modal")
+    end
   end
 
   describe "email provider warning" do
