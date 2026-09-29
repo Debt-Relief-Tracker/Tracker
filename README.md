@@ -153,6 +153,13 @@ token's `name` claim onto your account. You can also edit your name under
    canonical tenant URL (e.g. `https://your-tenant.us.auth0.com`), because
    the Management API isn't served on custom domains.
 
+### Analytics (optional)
+
+Set `PUBLIC_UMAMI_URL` (your Umami base URL, e.g. `https://umami.example.com`)
+and `PUBLIC_UMAMI_ID` (the website ID) to add the
+[Umami](https://umami.is) tracking script to every page. If either is unset,
+no script is added.
+
 ## Local development
 
 * Run `mix setup` to install everything: Elixir deps, the SQLite database,
