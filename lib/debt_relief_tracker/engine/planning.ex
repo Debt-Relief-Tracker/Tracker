@@ -34,7 +34,9 @@ defmodule DebtReliefTracker.Engine.Planning do
 
   # Minimum payment per dollar owed, scaled to an integer for a stable sort.
   defp cash_flow_ratio(%{balance: 0}), do: 0
-  defp cash_flow_ratio(debt), do: div(Calculations.minimum_payment(debt) * 1_000_000_000, debt.balance)
+
+  defp cash_flow_ratio(debt),
+    do: div(Calculations.minimum_payment(debt) * 1_000_000_000, debt.balance)
 
   @doc """
   Returns `{:ok, %{months: [...], total_months: n, total_interest: cents}}`

@@ -55,7 +55,9 @@ defmodule DebtReliefTracker.Engine.Calculations do
     do: debt.balance + accrued_interest_estimate(debt, as_of_days)
 
   def lifetime_interest_paid(payments) do
-    Enum.reduce(payments, 0, fn payment, acc -> acc + (Map.get(payment, :interest_portion) || 0) end)
+    Enum.reduce(payments, 0, fn payment, acc ->
+      acc + (Map.get(payment, :interest_portion) || 0)
+    end)
   end
 
   def total_remaining_balance(debts, as_of_days) do

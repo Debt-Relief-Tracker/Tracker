@@ -20,6 +20,20 @@ defmodule DebtReliefTracker.Engine.Convert do
   def fraction_to_bp(nil), do: nil
   def fraction_to_bp(value), do: value |> to_decimal() |> Decimal.mult(10_000) |> round_int()
 
+  @doc "Integer cents -> exact Decimal dollars (the inverse of `to_cents/1`)."
+  def from_cents(nil), do: nil
+  def from_cents(cents) when is_integer(cents), do: decimal_scaled(cents, -2)
+
+  @doc "Basis points of a percent (2499) -> Decimal percent (24.99)."
+  def bp_to_percent(nil), do: nil
+  def bp_to_percent(bp) when is_integer(bp), do: decimal_scaled(bp, -2)
+
+  @doc "Basis points (200) -> Decimal fraction (0.02)."
+  def bp_to_fraction(nil), do: nil
+  def bp_to_fraction(bp) when is_integer(bp), do: decimal_scaled(bp, -4)
+
+  defp decimal_scaled(n, exp), do: Decimal.new(if(n < 0, do: -1, else: 1), abs(n), exp)
+
   @doc "Any debt-like struct/map with Decimal fields -> the engine's integer debt map."
   def debt(debt) do
     %{
