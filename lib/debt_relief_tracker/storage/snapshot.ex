@@ -9,6 +9,7 @@ defmodule DebtReliefTracker.Storage.Snapshot do
   alias DebtReliefTracker.Engine.Convert
   alias DebtReliefTracker.Payments
   alias DebtReliefTracker.Settings
+  alias DebtReliefTracker.Settings.RetirementProfile
 
   @schema_version 1
   # ActivityLog.list_recent/2 requires a limit; this is "all of it".
@@ -22,7 +23,9 @@ defmodule DebtReliefTracker.Storage.Snapshot do
       settings: settings(Settings.get_settings!(workspace)),
       debts: workspace |> Debts.list_debts() |> Enum.map(&debt/1),
       payments: workspace |> Payments.list_payments_for_workspace() |> Enum.map(&payment/1),
-      activity: workspace |> ActivityLog.list_recent(@activity_limit) |> Enum.map(&activity/1)
+      activity: workspace |> ActivityLog.list_recent(@activity_limit) |> Enum.map(&activity/1),
+      retirement_profiles:
+        workspace |> Settings.list_retirement_profiles() |> Enum.map(&retirement_profile/1)
     }
   end
 
@@ -82,6 +85,29 @@ defmodule DebtReliefTracker.Storage.Snapshot do
       user_id: entry.user_id,
       metadata: entry.metadata,
       inserted_at: iso(entry.inserted_at)
+    }
+  end
+
+  defp retirement_profile(profile) do
+    %{
+      id: profile.id,
+      # Set for a profile linked to a confirmed workspace member; nil for a
+      # manual (no-account) profile.
+      user_id: profile.user_id,
+      # The resolved name to show: the linked user's display name, or the
+      # typed-in name of a manual profile.
+      display_name: RetirementProfile.display_name(profile),
+      # Only manual profiles carry their own name / claim email.
+      name: profile.name,
+      claim_email: profile.claim_email,
+      current_age: profile.current_age,
+      retirement_age: profile.retirement_age,
+      current_retirement_savings: Convert.to_cents(profile.current_retirement_savings),
+      monthly_retirement_contribution: Convert.to_cents(profile.monthly_retirement_contribution),
+      monthly_gross_income: Convert.to_cents(profile.monthly_gross_income),
+      post_debt_investment_bp: Convert.percent_to_bp(profile.post_debt_investment_pct),
+      expected_annual_return_bp: Convert.percent_to_bp(profile.expected_annual_return_pct),
+      inserted_at: iso(profile.inserted_at)
     }
   end
 
