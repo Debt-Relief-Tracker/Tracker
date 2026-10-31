@@ -60,7 +60,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementBanner do
   def action(:dismiss, _params, component), do: put_command(component, :dismiss)
 
   def command(:dismiss, _params, server) do
-    case Context.apply_change(server, {:update_settings, %{retirement_onboarding_dismissed: true}}) do
+    case Context.apply_change(
+           server,
+           {:update_settings, %{retirement_onboarding_dismissed: true}}
+         ) do
       {:ok, snapshot} ->
         put_action(server, name: :snapshot_updated, target: "page", params: %{snapshot: snapshot})
 

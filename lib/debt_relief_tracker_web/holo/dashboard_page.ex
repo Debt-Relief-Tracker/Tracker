@@ -24,6 +24,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   alias DebtReliefTrackerWeb.Holo.Components.LogAllBalancesModal
   alias DebtReliefTrackerWeb.Holo.Components.PaymentModal
   alias DebtReliefTrackerWeb.Holo.Components.PlanPanel
+  alias DebtReliefTrackerWeb.Holo.Components.RetirementBanner
   alias DebtReliefTrackerWeb.Holo.Components.RetirementModal
   alias DebtReliefTrackerWeb.Holo.Components.SettingsModal
   alias DebtReliefTrackerWeb.Holo.Components.TutorialOverlay
@@ -58,6 +59,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
         </aside>
 
         <main class="flex-1 p-4 min-w-0 flex flex-col gap-4">
+          <RetirementBanner cid="retirement_banner" snapshot={@snapshot} />
           <PlanPanel cid="plan_panel" snapshot={@snapshot} account={@account} strategy={@strategy} />
         </main>
       </div>
@@ -92,10 +94,14 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   # --- shared actions (children target these with `target: "page"`) -------
 
   # A child (or a command's reply) delivers a fresh snapshot.
-  def action(:snapshot_updated, %{snapshot: snapshot}, component) do
+  # Pass `close_modal: true` to also close the open modal -- a handler can
+  # queue only ONE follow-up action (a second `put_action` overwrites the
+  # first), so "update the snapshot and close" has to be a single action.
+  def action(:snapshot_updated, %{snapshot: snapshot} = params, component) do
     component
     |> put_state(:snapshot, snapshot)
     |> put_state(:error, nil)
+    |> put_state(:modal, if(Map.get(params, :close_modal), do: nil, else: component.state.modal))
   end
 
   def action(:change_failed, %{error: error}, component), do: put_state(component, :error, error)

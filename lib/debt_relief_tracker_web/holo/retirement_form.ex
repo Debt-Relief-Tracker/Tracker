@@ -212,8 +212,9 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementForm do
 
   # Bounds are stored in cents / basis points; messages quote them in the
   # units the user typed (cents -> dollars never arises: money minimum is 0).
-  defp display_bound(field, bound) when field in [:post_debt_investment_bp, :expected_annual_return_bp],
-    do: Integer.to_string(div(bound, 100))
+  defp display_bound(field, bound)
+       when field in [:post_debt_investment_bp, :expected_annual_return_bp],
+       do: Integer.to_string(div(bound, 100))
 
   defp display_bound(_field, bound), do: Integer.to_string(bound)
 
