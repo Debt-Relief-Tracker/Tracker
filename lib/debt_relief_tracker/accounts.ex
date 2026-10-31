@@ -59,6 +59,9 @@ defmodule DebtReliefTracker.Accounts do
   @doc "Fetches a user by id."
   def get_user!(id), do: Repo.get!(User, id)
 
+  @doc "Like `get_user!/1`, but `nil` when there is no such user."
+  def get_user(id), do: Repo.get(User, id)
+
   @doc """
   Marks whether `user` has seen the dashboard's onboarding tutorial. Used
   both to record completion/skip and to reset it via "View tutorial again."

@@ -362,6 +362,27 @@ strategy affects long-run retirement savings, not just debt payoff itself.
       open/validate/save `handle_event` + changeset-backed `<.form>` pattern
       used by add/edit-debt.
 
+## Phase 10 — End-to-end encrypted mode (see ADR 0007)
+
+Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
+
+- [~] 0. Feasibility spike: Hologram 0.12.4 compiles; Decimal/Date not
+      portable (integer engine instead); CSP needs nonce plug. Still to
+      verify: crypto facade, passkey PRF, bundle size, locked first render.
+- [x] 1. ADR + JSON fixtures from the Decimal engine.
+- [x] 2. Client-safe integer engine (`Engine.*`) with parity tests. The
+      Decimal engine is untouched and remains the app's live engine until
+      Phase 4. Retirement projection and `Charts` are not yet ported.
+- [x] 3. `Storage` behaviour + `Storage.Plain` (snapshot in cents/bp + change
+      vocabulary; plaintext adapter runs changes through the existing contexts).
+- [ ] 4. Port UI to Hologram (plaintext mode).
+- [ ] 5. Crypto facade.
+- [ ] 6. Server vault (`E2EE` config, migration, commands, hardening).
+- [ ] 7. Client vault flows (setup wizard, unlock, remember device).
+- [ ] 8. Sync (CAS merge, catch-up of auto-logged installments).
+- [ ] 9. Plaintext -> vault migration with verification and confirmed delete.
+- [ ] 10. Security review.
+
 ## Verification
 
 - [x] `mix precommit` passing (130 tests; compile --warning-as-errors,

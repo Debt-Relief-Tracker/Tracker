@@ -24,7 +24,7 @@ defmodule DebtReliefTrackerWeb.Endpoint do
     at: "/",
     from: :debt_relief_tracker,
     gzip: not code_reloading?,
-    only: DebtReliefTrackerWeb.static_paths()
+    only: ["hologram" | DebtReliefTrackerWeb.static_paths()]
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
@@ -50,5 +50,6 @@ defmodule DebtReliefTrackerWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  plug Hologram.Router
   plug DebtReliefTrackerWeb.Router
 end
