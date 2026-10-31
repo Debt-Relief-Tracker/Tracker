@@ -10,7 +10,7 @@ defmodule DebtReliefTracker.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:hologram],
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -107,6 +107,10 @@ defmodule DebtReliefTracker.MixProject do
       ],
       "ecto.reset": ["ecto.drop -r DebtReliefTracker.Repo.Sqlite", "ecto.setup"],
       test: [
+        # Hologram stays off in :test unless asked (it slows compiles); the
+        # /app page tests need it, and it is read at compile time, so this
+        # must run before anything compiles.
+        fn _ -> System.put_env("HOLOGRAM_START", "1") end,
         "ecto.create --quiet -r DebtReliefTracker.Repo.Sqlite",
         "ecto.migrate --quiet -r DebtReliefTracker.Repo.Sqlite",
         "test"

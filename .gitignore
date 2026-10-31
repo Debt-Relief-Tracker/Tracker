@@ -46,3 +46,6 @@ npm-debug.log
 # and docker-compose.yml's bind-mounted volume both live here.
 /data/
 
+
+# Hologram generated JavaScript bundles.
+/priv/static/hologram/
