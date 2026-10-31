@@ -91,11 +91,14 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
   # --- shared actions (children target these with `target: "page"`) -------
 
-  # A child (or a command's reply) delivers a fresh snapshot.
+  # A child (or a command's reply) delivers a fresh snapshot. The plan
+  # panel keeps derived numbers and a JS-drawn chart, so it is told to
+  # recompute (after this render, so it reads the new props).
   def action(:snapshot_updated, %{snapshot: snapshot}, component) do
     component
     |> put_state(:snapshot, snapshot)
     |> put_state(:error, nil)
+    |> put_action(name: :plan_inputs_changed, target: "plan_panel")
   end
 
   def action(:change_failed, %{error: error}, component), do: put_state(component, :error, error)
@@ -106,6 +109,9 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def action(:open_modal, %{modal: modal}, component), do: put_state(component, :modal, modal)
   def action(:close_modal, _params, component), do: put_state(component, :modal, nil)
 
-  def action(:select_strategy, %{strategy: strategy}, component),
-    do: put_state(component, :strategy, strategy)
+  def action(:select_strategy, %{strategy: strategy}, component) do
+    component
+    |> put_state(:strategy, strategy)
+    |> put_action(name: :plan_inputs_changed, target: "plan_panel")
+  end
 end
