@@ -77,7 +77,8 @@ defmodule DebtReliefTracker.MixProject do
       # Optional OIDC login (docs/architecture/0002-auth-and-sharing-model.md).
       # Uses Erlang's built-in :httpc as its HTTP adapter (Assent's default),
       # so no extra HTTP client dependency is needed.
-      {:assent, "~> 0.3"}
+      {:assent, "~> 0.3"},
+      {:hologram, "== 0.12.4"}
     ]
   end
 

@@ -1,0 +1,610 @@
+{
+  "scenarios": [
+    {
+      "name": "mixed_four_debts",
+      "expected": {
+        "total_minimum_payments": "455.0100",
+        "strategies": {
+          "avalanche": {
+            "order": [
+              "card-c",
+              "card-a",
+              "card-b",
+              "loan-d"
+            ],
+            "windfall": {
+              "interest_saved": "282.5639652457822669574529849980241",
+              "months_saved": 2
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 14,
+              "total_interest": "1107.610565012335137639593757185149",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "974.5108270833333333333333333333333",
+                    "debt_id": "card-c"
+                  },
+                  {
+                    "payment": "178.8943104999999999999999999999997",
+                    "debt_id": "card-a"
+                  },
+                  {
+                    "payment": "36.59486241666666666666666666666666",
+                    "debt_id": "card-b"
+                  },
+                  {
+                    "payment": "310.0000000000000000000000000000000",
+                    "debt_id": "loan-d"
+                  }
+                ],
+                "target_debt_id": "card-c"
+              }
+            }
+          },
+          "cash_flow": {
+            "order": [
+              "card-c",
+              "loan-d",
+              "card-a",
+              "card-b"
+            ],
+            "windfall": {
+              "interest_saved": "266.999963864842863219015237128530",
+              "months_saved": 1
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 14,
+              "total_interest": "1814.282492176217293226457163644844",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "974.5108270833333333333333333333333",
+                    "debt_id": "card-c"
+                  },
+                  {
+                    "payment": "403.1450104999999999999999999999997",
+                    "debt_id": "loan-d"
+                  },
+                  {
+                    "payment": "85.7493000000000000000000000000000",
+                    "debt_id": "card-a"
+                  },
+                  {
+                    "payment": "36.59486241666666666666666666666666",
+                    "debt_id": "card-b"
+                  }
+                ],
+                "target_debt_id": "card-c"
+              }
+            }
+          },
+          "snowball": {
+            "order": [
+              "card-c",
+              "card-b",
+              "card-a",
+              "loan-d"
+            ],
+            "windfall": {
+              "interest_saved": "287.1712400611966840859793692207123",
+              "months_saved": 2
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 14,
+              "total_interest": "1140.437715966612161365346751460653",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "974.5108270833333333333333333333333",
+                    "debt_id": "card-c"
+                  },
+                  {
+                    "payment": "129.7398729166666666666666666666664",
+                    "debt_id": "card-b"
+                  },
+                  {
+                    "payment": "85.7493000000000000000000000000000",
+                    "debt_id": "card-a"
+                  },
+                  {
+                    "payment": "310.0000000000000000000000000000000",
+                    "debt_id": "loan-d"
+                  }
+                ],
+                "target_debt_id": "card-c"
+              }
+            }
+          }
+        },
+        "minimum_payments": {
+          "card-a": "84.0000",
+          "card-b": "36.0100",
+          "card-c": "25",
+          "loan-d": "310"
+        },
+        "overall_utilization": "0.7317105263157894736842105263157895"
+      },
+      "debts": [
+        {
+          "apr": "24.99",
+          "balance": "4200.00",
+          "credit_limit": "5000",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "card-a",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        },
+        {
+          "apr": "19.49",
+          "balance": "1800.50",
+          "credit_limit": "3000",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "card-b",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        },
+        {
+          "apr": "29.99",
+          "balance": "950.75",
+          "credit_limit": "1500",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "card-c",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        },
+        {
+          "apr": "6.5",
+          "balance": "12000.00",
+          "credit_limit": null,
+          "exclude_from_plan": false,
+          "fixed_payment": "310",
+          "id": "loan-d",
+          "minimum_payment_floor": null,
+          "minimum_payment_rate": null,
+          "status": "active",
+          "type": "installment"
+        }
+      ],
+      "budget": "1500",
+      "lump_sum": "2000"
+    },
+    {
+      "name": "single_card",
+      "expected": {
+        "total_minimum_payments": "60.0000",
+        "strategies": {
+          "avalanche": {
+            "order": [
+              "only"
+            ],
+            "windfall": {
+              "interest_saved": "66.7926301513222404318947037859174",
+              "months_saved": 2
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 9,
+              "total_interest": "257.1571746346716849463931221161848",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "400.0000000000",
+                    "debt_id": "only"
+                  }
+                ],
+                "target_debt_id": "only"
+              }
+            }
+          },
+          "cash_flow": {
+            "order": [
+              "only"
+            ],
+            "windfall": {
+              "interest_saved": "66.7926301513222404318947037859174",
+              "months_saved": 2
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 9,
+              "total_interest": "257.1571746346716849463931221161848",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "400.0000000000",
+                    "debt_id": "only"
+                  }
+                ],
+                "target_debt_id": "only"
+              }
+            }
+          },
+          "snowball": {
+            "order": [
+              "only"
+            ],
+            "windfall": {
+              "interest_saved": "66.7926301513222404318947037859174",
+              "months_saved": 2
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 9,
+              "total_interest": "257.1571746346716849463931221161848",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "400.0000000000",
+                    "debt_id": "only"
+                  }
+                ],
+                "target_debt_id": "only"
+              }
+            }
+          }
+        },
+        "minimum_payments": {
+          "only": "60.0000"
+        },
+        "overall_utilization": "0.50"
+      },
+      "debts": [
+        {
+          "apr": "21.99",
+          "balance": "3000.00",
+          "credit_limit": "6000",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "only",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        }
+      ],
+      "budget": "400",
+      "lump_sum": "500"
+    },
+    {
+      "name": "tight_budget",
+      "expected": {
+        "total_minimum_payments": "220.0000",
+        "strategies": {
+          "avalanche": {
+            "order": [
+              "t-1",
+              "t-2"
+            ],
+            "windfall": {
+              "interest_saved": "453.288991797061871466177294210847",
+              "months_saved": 3
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 44,
+              "total_interest": "3772.000774434651728215715868179498",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "140.0000000000000000000000000000000",
+                    "debt_id": "t-1"
+                  },
+                  {
+                    "payment": "120.0000000000000000000000000000000",
+                    "debt_id": "t-2"
+                  }
+                ],
+                "target_debt_id": "t-1"
+              }
+            }
+          },
+          "cash_flow": {
+            "order": [
+              "t-2",
+              "t-1"
+            ],
+            "windfall": {
+              "interest_saved": "326.216034166603412234010042394596",
+              "months_saved": 3
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 45,
+              "total_interest": "3974.099826727918770974781282409565",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "157.7508333333333333333333333333333",
+                    "debt_id": "t-2"
+                  },
+                  {
+                    "payment": "102.2491666666666666666666666666667",
+                    "debt_id": "t-1"
+                  }
+                ],
+                "target_debt_id": "t-2"
+              }
+            }
+          },
+          "snowball": {
+            "order": [
+              "t-2",
+              "t-1"
+            ],
+            "windfall": {
+              "interest_saved": "326.216034166603412234010042394596",
+              "months_saved": 3
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 45,
+              "total_interest": "3974.099826727918770974781282409565",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "157.7508333333333333333333333333333",
+                    "debt_id": "t-2"
+                  },
+                  {
+                    "payment": "102.2491666666666666666666666666667",
+                    "debt_id": "t-1"
+                  }
+                ],
+                "target_debt_id": "t-2"
+              }
+            }
+          }
+        },
+        "minimum_payments": {
+          "t-1": "100.0000",
+          "t-2": "120"
+        },
+        "overall_utilization": "0.9090909090909090909090909090909091"
+      },
+      "debts": [
+        {
+          "apr": "26.99",
+          "balance": "5000.00",
+          "credit_limit": "5500",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "t-1",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        },
+        {
+          "apr": "11.0",
+          "balance": "2500.00",
+          "credit_limit": null,
+          "exclude_from_plan": false,
+          "fixed_payment": "120",
+          "id": "t-2",
+          "minimum_payment_floor": null,
+          "minimum_payment_rate": null,
+          "status": "active",
+          "type": "installment"
+        }
+      ],
+      "budget": "260",
+      "lump_sum": "300"
+    },
+    {
+      "name": "excluded_and_paid_off",
+      "expected": {
+        "total_minimum_payments": "44.0000",
+        "strategies": {
+          "avalanche": {
+            "order": [
+              "e-1"
+            ],
+            "windfall": {
+              "interest_saved": "26.85661203703703703703703703703703",
+              "months_saved": 1
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 3,
+              "total_interest": "73.42938981481481481481481481481480",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "900.0000000000000000000000000000000",
+                    "debt_id": "e-1"
+                  }
+                ],
+                "target_debt_id": "e-1"
+              }
+            }
+          },
+          "cash_flow": {
+            "order": [
+              "e-1"
+            ],
+            "windfall": {
+              "interest_saved": "26.85661203703703703703703703703703",
+              "months_saved": 1
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 3,
+              "total_interest": "73.42938981481481481481481481481480",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "900.0000000000000000000000000000000",
+                    "debt_id": "e-1"
+                  }
+                ],
+                "target_debt_id": "e-1"
+              }
+            }
+          },
+          "snowball": {
+            "order": [
+              "e-1"
+            ],
+            "windfall": {
+              "interest_saved": "26.85661203703703703703703703703703",
+              "months_saved": 1
+            },
+            "simulation": {
+              "status": "ok",
+              "total_months": 3,
+              "total_interest": "73.42938981481481481481481481481480",
+              "first_month": {
+                "payments": [
+                  {
+                    "payment": "900.0000000000000000000000000000000",
+                    "debt_id": "e-1"
+                  }
+                ],
+                "target_debt_id": "e-1"
+              }
+            }
+          }
+        },
+        "minimum_payments": {
+          "e-1": "44.0000",
+          "e-2": "450",
+          "e-3": "0"
+        },
+        "overall_utilization": "0.55"
+      },
+      "debts": [
+        {
+          "apr": "22.0",
+          "balance": "2200.00",
+          "credit_limit": "4000",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "e-1",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        },
+        {
+          "apr": "3.0",
+          "balance": "30000",
+          "credit_limit": null,
+          "exclude_from_plan": true,
+          "fixed_payment": "450",
+          "id": "e-2",
+          "minimum_payment_floor": null,
+          "minimum_payment_rate": null,
+          "status": "active",
+          "type": "installment"
+        },
+        {
+          "apr": "5",
+          "balance": "0",
+          "credit_limit": null,
+          "exclude_from_plan": false,
+          "fixed_payment": "100",
+          "id": "e-3",
+          "minimum_payment_floor": null,
+          "minimum_payment_rate": null,
+          "status": "paid_off",
+          "type": "installment"
+        }
+      ],
+      "budget": "900",
+      "lump_sum": "1000"
+    },
+    {
+      "name": "insufficient_budget",
+      "expected": {
+        "total_minimum_payments": "360.0000",
+        "strategies": {
+          "avalanche": {
+            "order": [
+              "i-1",
+              "i-2"
+            ],
+            "windfall": {
+              "error": "insufficient_budget"
+            },
+            "simulation": {
+              "reason": "insufficient_budget",
+              "status": "error"
+            }
+          },
+          "cash_flow": {
+            "order": [
+              "i-2",
+              "i-1"
+            ],
+            "windfall": {
+              "error": "insufficient_budget"
+            },
+            "simulation": {
+              "reason": "insufficient_budget",
+              "status": "error"
+            }
+          },
+          "snowball": {
+            "order": [
+              "i-2",
+              "i-1"
+            ],
+            "windfall": {
+              "error": "insufficient_budget"
+            },
+            "simulation": {
+              "reason": "insufficient_budget",
+              "status": "error"
+            }
+          }
+        },
+        "minimum_payments": {
+          "i-1": "160.0000",
+          "i-2": "200"
+        },
+        "overall_utilization": "1.00"
+      },
+      "debts": [
+        {
+          "apr": "27.99",
+          "balance": "8000.00",
+          "credit_limit": "8000",
+          "exclude_from_plan": false,
+          "fixed_payment": null,
+          "id": "i-1",
+          "minimum_payment_floor": "25",
+          "minimum_payment_rate": "0.02",
+          "status": "active",
+          "type": "revolving"
+        },
+        {
+          "apr": "9.0",
+          "balance": "4000",
+          "credit_limit": null,
+          "exclude_from_plan": false,
+          "fixed_payment": "200",
+          "id": "i-2",
+          "minimum_payment_floor": null,
+          "minimum_payment_rate": null,
+          "status": "active",
+          "type": "installment"
+        }
+      ],
+      "budget": "50",
+      "lump_sum": "0"
+    }
+  ]
+}
