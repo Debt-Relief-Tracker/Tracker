@@ -50,22 +50,31 @@ defmodule DebtReliefTracker.PrecisionAuditTest do
   end
 
   # A checksum of every row of every table plus the schema, via plain SELECTs.
+  # Works on both adapters (SQLite and Postgres) so the read-only guarantee is
+  # checked where production runs, too.
   defp db_fingerprint do
-    {:ok, %{rows: tables}} =
-      Repo.active_repo().query(
-        "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name"
-      )
+    repo = Repo.active_repo()
+
+    {tables_sql, rows_sql, schema_sql} =
+      if repo == DebtReliefTracker.Repo.Postgres do
+        {"SELECT table_name FROM information_schema.tables " <>
+           "WHERE table_schema = 'public' AND table_type = 'BASE TABLE' ORDER BY table_name",
+         fn table -> "SELECT * FROM \"#{table}\" ORDER BY ctid" end,
+         "SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns " <>
+           "WHERE table_schema = 'public' ORDER BY table_name, ordinal_position"}
+      else
+        {"SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
+         fn table -> "SELECT * FROM \"#{table}\" ORDER BY rowid" end,
+         "SELECT type, name, sql FROM sqlite_master ORDER BY name"}
+      end
+
+    {:ok, %{rows: tables}} = repo.query(tables_sql)
 
     for [table] <- tables, not String.starts_with?(table, "sqlite_"), into: %{} do
-      {:ok, %{rows: rows}} =
-        Repo.active_repo().query("SELECT * FROM \"#{table}\" ORDER BY rowid")
-
+      {:ok, %{rows: rows}} = repo.query(rows_sql.(table))
       {table, {length(rows), :erlang.phash2(rows, 4_294_967_296)}}
     end
-    |> Map.put(
-      :schema,
-      Repo.active_repo().query!("SELECT type, name, sql FROM sqlite_master ORDER BY name").rows
-    )
+    |> Map.put(:schema, repo.query!(schema_sql).rows)
   end
 
   test "a clean workspace reports no precision loss", %{workspace: workspace} do
