@@ -37,6 +37,9 @@ config :debt_relief_tracker, :auth0_req_options,
 config :debt_relief_tracker, DebtReliefTrackerWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "HGSZ25JeWJcHnUHU4mFtI2xnbyu9SHc1xq35zkF38ASVoT3SduyG8LKlVGGtghcu",
+  # Browser tests (test/support/browser_case.ex) serve the endpoint on a random
+  # loopback port, so the LiveView websocket's origin never matches `url`.
+  check_origin: false,
   server: false
 
 # In test we don't send emails
