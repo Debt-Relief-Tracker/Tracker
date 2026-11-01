@@ -93,3 +93,20 @@ config :swoosh, :api_client, false
 # Load every app module at boot, like a release does -- see
 # DebtReliefTracker.Application.preload_modules/0 (Hologram command names).
 config :debt_relief_tracker, preload_modules: true
+
+# Load KEY=VALUE pairs from a local, gitignored `.env` into the environment (dev
+# only, no dotenv dependency) so `mix holo` / `mix phx.server` honour it -- e.g.
+# `E2EE=true`. Variables already set in the shell win. config/runtime.exs runs
+# after this file, so it sees them. docker-compose reads `.env` separately.
+env_file = Path.expand("../.env", __DIR__)
+
+if File.exists?(env_file) do
+  for line <- env_file |> File.read!() |> String.split("\n", trim: true),
+      line = String.trim(line),
+      line != "" and not String.starts_with?(line, "#"),
+      [key, value] <- [String.split(line, "=", parts: 2)],
+      key = String.trim(key),
+      System.get_env(key) == nil do
+    System.put_env(key, value |> String.trim() |> String.trim("\"") |> String.trim("'"))
+  end
+end
