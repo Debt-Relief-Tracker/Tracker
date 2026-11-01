@@ -10,6 +10,9 @@ defmodule DebtReliefTrackerWeb.Holo.Format do
   def symbol("JPY"), do: "¥"
   def symbol(_usd_cad_aud_or_unknown), do: "$"
 
+  @doc "Currency codes the settings can choose from."
+  def currency_codes, do: ["AUD", "CAD", "EUR", "GBP", "JPY", "USD"]
+
   @doc "12345 cents, \"USD\" -> \"$123.45\"; negatives get a leading \"-\"."
   def money(cents, currency) when is_integer(cents) do
     sign = if cents < 0, do: "-", else: ""

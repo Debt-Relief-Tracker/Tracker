@@ -103,6 +103,17 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def action(:account_updated, %{account: account}, component),
     do: put_state(component, :account, account)
 
+  # Account-level changes (settings saved, workspace switched, sharing
+  # changed) update account, snapshot and modal in one step: a command can
+  # return only ONE next action, so these can't be chained.
+  def action(:account_changed, %{account: account, snapshot: snapshot, modal: modal}, component) do
+    component
+    |> put_state(:account, account)
+    |> put_state(:snapshot, snapshot)
+    |> put_state(:modal, modal)
+    |> put_state(:error, nil)
+  end
+
   def action(:open_modal, %{modal: modal}, component), do: put_state(component, :modal, modal)
   def action(:close_modal, _params, component), do: put_state(component, :modal, nil)
 

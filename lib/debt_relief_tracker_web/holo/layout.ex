@@ -16,6 +16,7 @@ defmodule DebtReliefTrackerWeb.Holo.Layout do
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Debt Relief Tracker</title>
         <link rel="stylesheet" href="/assets/css/app.css" />
+        <script src="/assets/js/holo_account.js"></script>
         <Hologram.UI.Runtime />
       </head>
       <body>
