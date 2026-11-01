@@ -291,7 +291,16 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     end
   end
 
+  def action(:vault_result, %{op: :save_vault} = params, component) do
+    if component.state.vault.flow == :migration_rebuild,
+      do: VaultFlow.migration_rebuilt(component, params),
+      else: VaultFlow.result(component, params)
+  end
+
   def action(:vault_result, params, component), do: VaultFlow.result(component, params)
+
+  def action(:migration_rebuild, %{snapshot: snapshot}, component),
+    do: VaultFlow.migration_rebuild(component, snapshot)
 
   def action(:migration_fetch, _params, component) do
     component
