@@ -74,7 +74,10 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationRecoveryBrowserTest do
     # every finalize is busy: the vault is created, the plaintext stays
     Application.put_env(:debt_relief_tracker, :migration_test_busy_finalize, 99)
     ctx = ctx |> open_app() |> click("#migration-begin")
-    {ctx, _} = create_vault(ctx, @pass, done_selector: "#migration-error")
+    {ctx, _} = create_vault(ctx, @pass, done_selector: "#migration-progress")
+    # the 1 s + 3 s + 9 s backoff runs out
+    Process.sleep(15_000)
+    assert_selector(ctx, "#migration-error")
     assert attr(ctx, "#migration-error", "data-reason") == "busy"
     assert Migration.status(ws) == :both
 
