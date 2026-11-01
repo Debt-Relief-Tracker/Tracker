@@ -147,6 +147,28 @@ const handlers = {
   async click_xy({ x, y }) {
     await page.mouse.click(x, y);
   },
+  // Chromium virtual WebAuthn authenticator (CDP). `hasPrf` is passed through so
+  // a Chromium build that lacks it fails loudly in the returned error.
+  async webauthn_enable({ hasPrf }) {
+    const cdp = await context.newCDPSession(page);
+    await cdp.send("WebAuthn.enable", { enableUI: false });
+    const r = await cdp.send("WebAuthn.addVirtualAuthenticator", {
+      options: {
+        protocol: "ctap2",
+        ctap2Version: "ctap2_1",
+        transport: "internal",
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: true,
+        automaticPresenceSimulation: true,
+        hasPrf: hasPrf !== false,
+      },
+    });
+    return r.authenticatorId;
+  },
+  async browser_version() {
+    return browser.version();
+  },
   async path() {
     return new URL(page.url()).pathname;
   },
