@@ -55,7 +55,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.Footer do
               <button
                 type="button"
                 id="donate-modal-close"
-                class="btn btn-ghost btn-sm btn-square"
+                class="btn btn-ghost btn-sm btn-square min-h-9 min-w-9 sm:min-h-0 sm:min-w-0"
                 aria-label="Close"
                 $click={:close_donate}
               >✕</button>

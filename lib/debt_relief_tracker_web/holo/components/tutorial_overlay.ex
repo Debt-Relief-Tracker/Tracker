@@ -46,14 +46,14 @@ defmodule DebtReliefTrackerWeb.Holo.Components.TutorialOverlay do
           <h3 id="tutorial-title" class="font-semibold mb-2">{@view.title}</h3>
           <p id="tutorial-body" class="text-sm mb-4">{@view.body}</p>
           <div class="flex items-center justify-between gap-2">
-            <button type="button" id="tutorial-skip" class="btn btn-ghost btn-sm" $click={:skip}>Skip</button>
+            <button type="button" id="tutorial-skip" class="btn btn-ghost btn-sm min-h-9 sm:min-h-0" $click={:skip}>Skip</button>
             <div class="flex items-center gap-2">
               {%if @view.first?}
                 <button type="button" id="tutorial-back" class="btn btn-soft btn-sm invisible" $click={:prev}>Back</button>
               {%else}
                 <button type="button" id="tutorial-back" class="btn btn-soft btn-sm" $click={:prev}>Back</button>
               {/if}
-              <button type="button" id="tutorial-next" class="btn btn-primary btn-sm" $click={:next}>{@view.next_label}</button>
+              <button type="button" id="tutorial-next" class="btn btn-primary btn-sm min-h-9 sm:min-h-0" $click={:next}>{@view.next_label}</button>
             </div>
           </div>
         </div>

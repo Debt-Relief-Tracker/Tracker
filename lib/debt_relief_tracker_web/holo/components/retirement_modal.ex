@@ -137,7 +137,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
             {/for}
 
             {%if @editing_profile_id == nil && @members != []}
-              <div id="retirement-source" class="flex gap-4 text-sm">
+              <div id="retirement-source" class="flex flex-wrap gap-x-4 gap-y-1 text-sm">
                 <label class="flex items-center gap-1">
                   <input
                     type="radio"
@@ -204,7 +204,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
               </div>
               <div class="fieldset mb-2">
                 <label>
-                  <span class="label mb-1">Email (optional -- links their account automatically if they sign in later)</span>
+                  <span class="label mb-1 whitespace-normal">Email (optional -- links their account automatically if they sign in later)</span>
                   <input
                     type="email"
                     id="retirement_profile_claim_email"
@@ -223,7 +223,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
             {%for {field, label, _kind} <- RetirementForm.numeric_fields()}
               <div class="fieldset mb-2">
                 <label>
-                  <span class="label mb-1">{label}</span>
+                  <span class="label mb-1 whitespace-normal">{label}</span>
                   <input
                     type="text"
                     inputmode="decimal"

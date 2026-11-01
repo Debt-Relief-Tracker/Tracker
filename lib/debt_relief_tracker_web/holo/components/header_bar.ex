@@ -35,15 +35,15 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
       class="navbar px-4 border-b border-base-300 gap-3 flex-wrap gap-y-2"
       data-saved-theme={@account.user.theme}
     >
-      <div class="flex-1 flex items-center gap-3">
-        <span id="workspace-name" class="font-semibold">{@account.workspace.name}</span>
+      <div class="flex-1 flex items-center gap-3 min-w-0">
+        <span id="workspace-name" class="font-semibold truncate min-w-0 sm:overflow-visible sm:text-clip sm:whitespace-normal">{@account.workspace.name}</span>
 
         {%if @account.oidc_enabled}
           {%if length(@account.workspaces) > 1}
             <select
               id="workspace-switcher"
               name="workspace_id"
-              class="select select-sm"
+              class="select select-sm max-w-[10rem] sm:max-w-none"
               value={@account.workspace.id}
               $change="switch_workspace"
             >
@@ -58,7 +58,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
           id="settings-button"
           type="button"
           $click={command: :open_settings}
-          class="btn btn-ghost btn-sm btn-circle"
+          class="btn btn-ghost btn-sm btn-circle min-h-9 min-w-9 sm:min-h-0 sm:min-w-0"
           aria-label="Settings"
         >
           <span class="hero-cog-6-tooth w-5 h-5"></span>
@@ -66,9 +66,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
       </div>
 
       {%if @account.oidc_enabled}
-        <div id="user-menu" class="flex-none flex items-center gap-2 text-sm">
-          <span id="user-display-name">{@account.user.display_name}</span>
-          <button id="logout-button" type="button" $click="logout" class="btn btn-ghost btn-sm">
+        <div id="user-menu" class="flex-none min-w-0 max-w-full flex items-center gap-2 text-sm">
+          <span id="user-display-name" class="truncate max-w-[8rem] sm:max-w-none">{@account.user.display_name}</span>
+          <button id="logout-button" type="button" $click="logout" class="btn btn-ghost btn-sm min-h-9 sm:min-h-0">
             Log out
           </button>
         </div>

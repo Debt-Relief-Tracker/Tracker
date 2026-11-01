@@ -75,23 +75,23 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   def template do
     ~HOLO"""
     <div id="plan-panel" class="flex flex-col gap-4">
-      <div id="summary-stats" class="stats stats-vertical sm:stats-horizontal shadow w-full">
-        <div id="stat-total-paid" class="stat bg-purple-600 text-white">
+      <div id="summary-stats" class="stats stats-vertical sm:flex sm:flex-wrap shadow w-full">
+        <div id="stat-total-paid" class="stat sm:w-auto sm:grow sm:basis-44 bg-purple-600 text-white">
           <div class="stat-figure"><span class="hero-currency-dollar size-6"></span></div>
           <div class="stat-title text-purple-100">Total Paid</div>
           <div class="stat-value text-2xl">{Format.money(@view.stats.total_paid, @view.currency)}</div>
         </div>
-        <div id="stat-interest-paid" class="stat bg-orange-600 text-white">
+        <div id="stat-interest-paid" class="stat sm:w-auto sm:grow sm:basis-44 bg-orange-600 text-white">
           <div class="stat-figure"><span class="hero-face-frown size-6"></span></div>
           <div class="stat-title text-orange-100">Interest Paid</div>
           <div class="stat-value text-2xl">{Format.money(@view.stats.interest_paid, @view.currency)}</div>
         </div>
-        <div id="stat-debt-remaining" class="stat bg-yellow-500 text-white">
+        <div id="stat-debt-remaining" class="stat sm:w-auto sm:grow sm:basis-44 bg-yellow-500 text-white">
           <div class="stat-figure"><span class="hero-building-library size-6"></span></div>
           <div class="stat-title text-yellow-100">Debt Remaining</div>
           <div class="stat-value text-2xl">{Format.money(@view.stats.debt_remaining, @view.currency)}</div>
         </div>
-        <div id="stat-payoff-date" class="stat bg-teal-600 text-white">
+        <div id="stat-payoff-date" class="stat sm:w-auto sm:grow sm:basis-44 bg-teal-600 text-white">
           <div class="stat-figure"><span class="hero-calendar size-6"></span></div>
           <div class="stat-title text-teal-100">Payoff Date</div>
           <div class="stat-value text-2xl">{@view.stats.payoff_date}</div>
@@ -100,7 +100,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
           {/if}
         </div>
         {%if @view.stats.utilization_bp}
-          <div id="stat-utilization" class="stat bg-pink-600 text-white">
+          <div id="stat-utilization" class="stat sm:w-auto sm:grow sm:basis-44 bg-pink-600 text-white">
             <div class="stat-figure"><span class="hero-chart-pie size-6"></span></div>
             <div class="stat-title text-pink-100">Credit Utilization</div>
             <div class="stat-value text-2xl">{Format.percent_bp(@view.stats.utilization_bp)}</div>
@@ -149,7 +149,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
           <button
             id="budget-mode-total"
             type="button"
-            class={button_class("btn btn-xs join-item", mode(@mode_pending, @snapshot) == :total)}
+            class={button_class("btn btn-xs join-item min-h-8 sm:min-h-0", mode(@mode_pending, @snapshot) == :total)}
             $click={:select_budget_mode, mode: :total}
           >
             Total
@@ -157,7 +157,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
           <button
             id="budget-mode-margin"
             type="button"
-            class={button_class("btn btn-xs join-item", mode(@mode_pending, @snapshot) == :margin)}
+            class={button_class("btn btn-xs join-item min-h-8 sm:min-h-0", mode(@mode_pending, @snapshot) == :margin)}
             $click={:select_budget_mode, mode: :margin}
           >
             Margin
@@ -165,7 +165,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
         </div>
 
         <div id="chart-type-switcher">
-          <div class="join hidden sm:flex">
+          <div class="join hidden lg:flex">
             {%for type <- Charts.chart_types()}
               <button
                 id="chart-type-{type}"
@@ -177,7 +177,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
               </button>
             {/for}
           </div>
-          <form class="sm:hidden">
+          <form class="lg:hidden">
             <select id="chart-type-select" name="type" class="select select-sm w-full" value="{@chart_type}" $change="chart_type_selected">
               {%for type <- Charts.chart_types()}
                 <option value="{type}">{Charts.chart_label(type)}</option>
@@ -188,7 +188,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
 
         {%if Charts.strategy_dependent?(@chart_type)}
           <div id="strategy-switcher">
-            <div class="join hidden sm:flex">
+            <div class="join hidden lg:flex">
               {%for strategy <- Charts.strategies()}
                 <button
                   id="strategy-{strategy}"
@@ -200,7 +200,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
                 </button>
               {/for}
             </div>
-            <form class="sm:hidden">
+            <form class="lg:hidden">
               <select id="strategy-select" name="strategy" class="select select-sm w-full" value="{@strategy}" $change="strategy_selected">
                 {%for strategy <- Charts.strategies()}
                   <option value="{strategy}">{Charts.strategy_label(strategy)}</option>

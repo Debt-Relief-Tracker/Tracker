@@ -37,7 +37,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementBanner do
           <button
             type="button"
             id="open-retirement-onboarding"
-            class="btn btn-primary btn-sm"
+            class="btn btn-primary btn-sm min-h-9 sm:min-h-0"
             $click={action: :open_modal, target: "page", params: %{modal: %{type: :retirement_onboarding}}}
           >
             Set up retirement plan

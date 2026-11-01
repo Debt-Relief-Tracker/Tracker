@@ -178,7 +178,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
                   value={@share_email}
                   $change="set_share_email"
                 />
-                <button id="settings-share-submit" type="submit" class="btn btn-sm">Invite</button>
+                <button id="settings-share-submit" type="submit" class="btn btn-sm min-h-9 sm:min-h-0">Invite</button>
               </form>
 
               {%if @modal.notice}
