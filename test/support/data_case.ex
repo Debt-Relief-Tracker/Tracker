@@ -42,7 +42,8 @@ defmodule DebtReliefTracker.DataCase do
     # is not itself an Ecto.Repo, so Sandbox needs the real module.
     pid =
       Ecto.Adapters.SQL.Sandbox.start_owner!(DebtReliefTracker.Repo.configured_repo(),
-        shared: not tags[:async]
+        shared: not tags[:async],
+        ownership_timeout: Map.get(tags, :ownership_timeout, 120_000)
       )
 
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)

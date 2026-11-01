@@ -76,7 +76,8 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       notice: nil,
       other_tab: nil,
       idle_ms: Keyword.fetch!(opts, :idle_ms),
-      test_hook: Keyword.fetch!(opts, :test_hook)
+      test_hook: Keyword.fetch!(opts, :test_hook),
+      perf: nil
     }
   end
 
@@ -364,13 +365,19 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
         c
 
       true ->
+        t0 = VaultEnv.now_ms()
+
         case Ledger.apply_change(c.state.doc, change, ctx(c)) do
           {:ok, doc} ->
+            t1 = VaultEnv.now_ms()
             {sync, token} = SaveLoop.changed(c.state.sync)
+            snapshot = VaultDoc.view(doc)
+            t2 = VaultEnv.now_ms()
 
             c
+            |> merge(%{perf: %{apply_ms: t1 - t0, view_ms: t2 - t1}})
             |> put_state(:doc, doc)
-            |> put_state(:snapshot, VaultDoc.view(doc))
+            |> put_state(:snapshot, snapshot)
             |> put_state(:sync, sync)
             |> put_state(:error, nil)
             |> tap_flag()
@@ -413,10 +420,15 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
         c
 
       true ->
+        t0 = VaultEnv.now_ms()
+
         case apply_all(c.state.doc, changes, ctx(c, Map.get(req, :members))) do
           {:ok, doc} ->
+            t1 = VaultEnv.now_ms()
             {sync, token} = SaveLoop.changed(c.state.sync)
             snapshot = VaultDoc.view(doc)
+            t2 = VaultEnv.now_ms()
+            c = merge(c, %{perf: %{apply_ms: t1 - t0, view_ms: t2 - t1}})
 
             c
             |> put_state(:doc, doc)

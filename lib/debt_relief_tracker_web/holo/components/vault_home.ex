@@ -69,6 +69,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
             {/for}
           </ul>
           <p id="vault-payments-count" class="text-sm text-base-content/60">{length(@snapshot.payments)} payments</p>
+          {%if @vault.perf}
+            <p id="vault-perf" class="hidden" data-apply-ms={@vault.perf.apply_ms} data-view-ms={@vault.perf.view_ms}></p>
+          {/if}
           <form id="test-hook-form" class="flex gap-2" $submit={action: :vault_hook_add, target: "page"}>
             <input id="test-hook-name" name="name" type="text" class="input input-sm flex-1" placeholder="Debt name" />
             <button id="test-hook-add" type="submit" class="btn btn-sm btn-outline">Add debt</button>

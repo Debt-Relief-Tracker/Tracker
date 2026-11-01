@@ -46,6 +46,33 @@ Never write to Ecto from a component. Send a `Storage` change (vocabulary in
       end
     end
 
+### Saving in both modes (plaintext and E2EE): `Holo.DataPath`
+
+With `config :e2ee true` the server cannot read or write financial data, so a
+component must NOT call `Context.apply_change` from its own command alone.
+Use `Holo.DataPath.save/4` instead of `put_command/3`; plaintext mode behaves
+exactly as before, E2EE mode applies the same `Storage` changes through
+`VaultDoc.Ledger` in the browser and answers with the same reply actions:
+
+    prop :e2ee, :boolean, from_context: :e2ee       # the page puts it in the context
+
+    DataPath.save(component, :save, %{changes: changes, notice: n},
+      changes: changes,
+      ok: DataPath.ok(:saved, "my_component"),       # gets `snapshot` (+ `today`) in params
+      error: DataPath.error(:save_failed, "my_component"))   # gets `%{error: error}`
+
+Rules: (1) the `ok`/`error` actions are shared by both modes -- build the
+validation/error rendering once; (2) nothing a command computes from the
+plaintext may stay server-side: derive it from the snapshot with `Engine.*`
+and a client `today` (the ledger does this for every `Storage` change); (3)
+`DataPath.save` takes the handler's one follow-up action in E2EE mode (so skip
+a local `refresh`/`close_modal` action there, or fold it into `ok` params);
+(4) a component mounted after unlock needs `init/2` (no server `init/3`);
+(5) account data (names, theme, members) stays a server command; (6) a
+feature that exports/reads data does it from `props.snapshot` in the browser
+(e.g. `Holo.CsvExport` + `Holo.CsvDownload`). Test new flows in both modes by
+adding them to `dual_mode_flows_browser_test.exs`.
+
 **A handler can queue only ONE follow-up action** (`put_action` overwrites the
 previous one, it does not append). Fold what you need into a single action's
 params (`close_modal: true` on `:snapshot_updated` closes the modal), or keep

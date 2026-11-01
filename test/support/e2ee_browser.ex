@@ -7,6 +7,7 @@ defmodule DebtReliefTracker.E2EEBrowser do
   """
 
   import DebtReliefTracker.BrowserCase
+  import ExUnit.Assertions, only: [refute: 2]
   import DebtReliefTracker.BrowserExtras, only: [js: 2]
 
   alias DebtReliefTracker.BrowserCase.Driver
@@ -163,4 +164,58 @@ defmodule DebtReliefTracker.E2EEBrowser do
         wait_until(fun, tries - 1)
     end
   end
+
+  @doc "Every row of every table on the server (the proof that only ciphertext is stored)."
+  def all_rows do
+    repo = DebtReliefTracker.Repo.active_repo()
+
+    tables =
+      case repo.__adapter__() do
+        Ecto.Adapters.Postgres ->
+          %{rows: rows} =
+            Ecto.Adapters.SQL.query!(
+              repo,
+              "SELECT tablename FROM pg_tables WHERE schemaname = current_schema()",
+              []
+            )
+
+          List.flatten(rows)
+
+        _ ->
+          %{rows: rows} =
+            Ecto.Adapters.SQL.query!(
+              repo,
+              "SELECT name FROM sqlite_master WHERE type = 'table'",
+              []
+            )
+
+          List.flatten(rows)
+      end
+
+    for table <- tables, table != "schema_migrations" do
+      %{rows: rows} = Ecto.Adapters.SQL.query!(repo, ~s(SELECT * FROM "#{table}"), [])
+      {table, rows}
+    end
+  end
+
+  @doc """
+  Fails when any `marker` string occurs in any row of any table (as text, so
+  binary columns are scanned too) -- run after a flow that used the markers
+  in names / notes.
+  """
+  def refute_in_database(markers) do
+    rows = all_rows()
+
+    for marker <- markers do
+      refute contains?(rows, marker), "#{marker} found in the server database"
+    end
+
+    :ok
+  end
+
+  defp contains?(bin, marker) when is_binary(bin), do: :binary.match(bin, marker) != :nomatch
+  defp contains?(list, marker) when is_list(list), do: Enum.any?(list, &contains?(&1, marker))
+  defp contains?(tuple, marker) when is_tuple(tuple), do: contains?(Tuple.to_list(tuple), marker)
+  defp contains?(%{} = map, marker), do: contains?(Map.to_list(map), marker)
+  defp contains?(other, marker), do: contains?(inspect(other), marker)
 end
