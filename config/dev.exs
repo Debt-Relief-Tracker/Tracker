@@ -66,6 +66,13 @@ config :debt_relief_tracker, DebtReliefTrackerWeb.Endpoint,
     ]
   ]
 
+# CSP is report-only in dev: Phoenix.LiveReloader injects an <iframe> into HTML
+# responses, which the policy's `default-src 'none'` (no frame-src) would block,
+# and enforcing could not be verified against the live-reload/esbuild/tailwind
+# watcher setup without running the dev server. Violations still show in the
+# browser console. Test and prod enforce.
+config :debt_relief_tracker, :csp, mode: :report_only
+
 # Enable dev routes for dashboard and mailbox
 config :debt_relief_tracker, dev_routes: true
 
