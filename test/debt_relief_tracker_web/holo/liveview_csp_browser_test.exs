@@ -13,14 +13,18 @@ defmodule DebtReliefTrackerWeb.Holo.LiveViewCspBrowserTest do
   defp connected(ctx), do: wait_for_expr(ctx, "document.querySelector('.phx-connected') !== null")
 
   test "dashboard: LiveView connects, modals open, theme toggles, no CSP violation", ctx do
+    visit(ctx, "/")
+
     ctx
-    |> visit("/")
     |> connected()
     |> click("#settings-button")
-    |> assert_selector("#settings-modal")
-    |> click("#settings-cancel")
-    |> refute_selector("#settings-modal")
+    |> assert_selector("#settings-form")
+    |> press("Escape")
+    |> refute_selector("#settings-form")
     |> click("#add-debt-button")
+    |> assert_selector(
+      "form[phx-submit=save_debt], form[phx-submit=add_debt], dialog[open], .modal"
+    )
     |> press("Escape")
     |> click("[data-phx-theme=dark]")
     |> wait_for_expr("document.documentElement.getAttribute('data-theme') === 'dark'")
@@ -29,8 +33,9 @@ defmodule DebtReliefTrackerWeb.Holo.LiveViewCspBrowserTest do
   end
 
   test "admin: connects and switches tabs, no CSP violation", ctx do
+    visit(ctx, "/admin")
+
     ctx
-    |> visit("/admin")
     |> connected()
     |> assert_selector("#admin-settings-form")
     |> click(~s(a[href="/admin?tab=emails"]))
