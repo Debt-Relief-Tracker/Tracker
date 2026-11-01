@@ -172,10 +172,15 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
     with {:ok, now} <- Stamp.normalize(now),
          {:ok, ymd} <- Stamp.parse_date(today),
          true <- is_map(doc) and doc.schema_version == VaultDoc.schema_version() do
+      # New records must sort after everything already logged, even if the
+      # device clock stands still or went backwards.
+      latest = doc.activity |> Map.values() |> Enum.reduce(nil, &Stamp.max_stamp(&2, &1.inserted_at))
+      clock = if latest != nil and now <= latest, do: Stamp.bump(latest), else: now
+
       {:ok,
        %{
          doc: doc,
-         clock: now,
+         clock: clock,
          now: now,
          today: ymd,
          today_iso: Stamp.format_date(ymd),
