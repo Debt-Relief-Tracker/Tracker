@@ -13,6 +13,12 @@ defmodule DebtReliefTracker.E2EE.Migration do
       `e2ee_vaults` row exists for the workspace. The browser builds the vault
       from `export/2`, creates it, re-downloads and verifies it, and only then
       calls `finalize/4`.
+    * **Vault-bound.** `finalize/4` also takes the `vault_rev` and
+      `vault_blob_sha256` (lower hex SHA-256 of the blob string) of the vault
+      the browser downloaded and verified, and re-checks both against the
+      locked vault row before deleting (`:vault_changed` otherwise), so a
+      vault overwritten, rebuilt or rolled back after verification can never
+      authorise the deletion.
     * **Digest-guarded.** `export/2` returns a digest of the entire plaintext
       state; `finalize/4` recomputes it inside its transaction (after taking
       row locks) and refuses with `:changed` if anything differs, e.g. a
@@ -298,7 +304,8 @@ defmodule DebtReliefTracker.E2EE.Migration do
              canceled_invitations: non_neg_integer()
            }}
           | {:ok, :already_clean}
-          | {:error, :forbidden | :no_vault | :changed | :members_present | :busy}
+          | {:error,
+             :forbidden | :no_vault | :changed | :vault_changed | :members_present | :busy}
   def finalize(%Workspace{} = workspace, user, digest, opts \\ []) do
     with {:ok, _} <- authorize(workspace, user) do
       result =
@@ -348,6 +355,7 @@ defmodule DebtReliefTracker.E2EE.Migration do
       true ->
         lock_rows(ws_id)
         verify_digest!(workspace, presented)
+        verify_vault!(ws_id, opts)
         confirm_members!(workspace, opts)
         summary = delete_everything(workspace)
         if hook = opts[:before_commit], do: hook.()
@@ -363,6 +371,30 @@ defmodule DebtReliefTracker.E2EE.Migration do
       :ok
     else
       _ -> Repo.rollback(:changed)
+    end
+  end
+
+  # The vault must be the very one the browser verified: same rev and same
+  # SHA-256 (lower hex) of the stored blob. Anything else (missing options
+  # included) means it was overwritten, rebuilt or rolled back since: refuse,
+  # nothing is deleted. The row is locked so it cannot move before commit.
+  defp verify_vault!(ws_id, opts) do
+    query =
+      if postgres?(),
+        do: from(v in Vault, where: v.workspace_id == ^ws_id, lock: "FOR UPDATE"),
+        else: from(v in Vault, where: v.workspace_id == ^ws_id)
+
+    rev = opts[:vault_rev]
+    sha = opts[:vault_blob_sha256]
+
+    with %Vault{} = vault <- Repo.one(query, @q),
+         true <- is_integer(rev) and vault.rev == rev,
+         true <- is_binary(sha) and is_binary(vault.blob),
+         actual = Base.encode16(:crypto.hash(:sha256, vault.blob), case: :lower),
+         true <- Plug.Crypto.secure_compare(actual, String.downcase(sha)) do
+      :ok
+    else
+      _ -> Repo.rollback(:vault_changed)
     end
   end
 

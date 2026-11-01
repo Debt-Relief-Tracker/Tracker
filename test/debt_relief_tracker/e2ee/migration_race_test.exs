@@ -85,7 +85,7 @@ defmodule DebtReliefTracker.E2EE.MigrationRaceTest do
       # claim_email is the one plaintext column that carries the marker
       assert has_marker?.()
 
-      assert {:ok, %{deleted: %{retirement_profiles: 1}}} = Migration.finalize(ws, owner, digest)
+      assert {:ok, %{deleted: %{retirement_profiles: 1}}} = fin(ws, owner, digest)
       refute has_marker?.()
     end
   end
@@ -104,12 +104,13 @@ defmodule DebtReliefTracker.E2EE.MigrationRaceTest do
   test "racing finalizes: exactly one deletes, the rest see nothing left" do
     {owner, ws, digest} = fresh("fin")
     racers = if sqlite?(), do: 2, else: 4
+    vo = vopts(ws)
 
     results =
       1..racers
       |> Enum.map(fn _ ->
         Task.async(fn ->
-          safely(fn -> Migration.finalize(ws, owner, digest, compact: false) end)
+          safely(fn -> Migration.finalize(ws, owner, digest, [compact: false] ++ vo) end)
         end)
       end)
       |> Task.await_many(60_000)
@@ -153,10 +154,12 @@ defmodule DebtReliefTracker.E2EE.MigrationRaceTest do
           end)
         end
 
+      vo = vopts(ws)
+
       finalizer =
         Task.async(fn ->
           Process.sleep(:rand.uniform(6) - 1)
-          safely(fn -> Migration.finalize(ws, owner, digest, compact: false) end)
+          safely(fn -> Migration.finalize(ws, owner, digest, [compact: false] ++ vo) end)
         end)
 
       result = Task.await(finalizer, 60_000)

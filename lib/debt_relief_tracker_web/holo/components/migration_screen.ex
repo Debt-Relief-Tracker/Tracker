@@ -26,7 +26,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
 
   alias DebtReliefTracker.{Crypto, VaultDoc}
   alias DebtReliefTrackerWeb.Holo.Components.VaultSetup
-  alias DebtReliefTrackerWeb.Holo.MigrationFlow
+  alias DebtReliefTrackerWeb.Holo.{BlobHash, MigrationFlow}
 
   prop :vault, :map
   prop :account, :map
@@ -157,6 +157,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
     do:
       "The encrypted copy did not match your data, so nothing was deleted. You can try again or rebuild the encrypted copy."
 
+  def error_text(:vault_changed),
+    do:
+      "Your encrypted copy changed while we were checking it, so we stopped before deleting anything. Please try again."
+
   def error_text(:vault_failed),
     do: "The encrypted vault could not be created. Nothing was deleted. Please try again."
 
@@ -203,11 +207,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
   # the fresh export. The first mismatch is repaired by itself (rebuild once);
   # anything after that is shown to the user.
   def action(:migration_event, %{event: {:fetched, reply}}, component) do
-    component = step(component, {:vault_downloaded, decode_download(reply, component.props)})
+    component = step(component, downloaded_event(reply, component.props))
     flow = component.state.flow
 
-    if flow.step == :failed and flow.reason == :verification_mismatch and flow.resume and
-         flow.rebuilds == 0,
+    if flow.step == :failed and flow.reason == :verification_mismatch and
+         (flow.resume or flow.vault_rounds > 0) and flow.rebuilds == 0,
        do: step(component, :rebuild),
        else: component
   end
@@ -275,8 +279,23 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
   defp do_effect(component, {:retry_after, delay, effect}),
     do: put_action(component, name: :run_effect, params: %{effect: effect}, delay: delay)
 
+  # The verification step's event: the decoded view plus the rev and SHA-256
+  # (of the exact blob string downloaded) that finalize will be bound to.
+  defp downloaded_event(%{ok: true, exists: true, rev: rev, blob: blob} = reply, props)
+       when is_integer(rev) and is_binary(blob) do
+    with {:ok, view} <- decode_download(reply, props),
+         {:ok, sha} <- BlobHash.sha256_hex(blob) do
+      {:vault_downloaded, {:ok, view}, %{rev: rev, sha256: sha}}
+    else
+      error -> {:vault_downloaded, error}
+    end
+  end
+
+  defp downloaded_event(reply, props), do: {:vault_downloaded, decode_download(reply, props)}
+
   # Re-downloaded blob -> decrypt -> decode -> view (what `verify/2` compares).
-  defp decode_download(%{ok: true, exists: true, rev: rev, blob: blob}, props) do
+  defp decode_download(%{ok: true, exists: true, rev: rev, blob: blob}, props)
+       when is_binary(blob) do
     ws = props.account.workspace.id
 
     with {:ok, text} <- Crypto.decrypt_document(props.vault.handle, ws, rev, blob),

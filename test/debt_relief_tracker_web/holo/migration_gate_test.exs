@@ -50,24 +50,55 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGateTest do
              run(owner, :migration_dry_run)
 
     assert %{ok: false, error: :no_vault} =
-             run(owner, :migration_finalize, %{digest: digest, confirm_remove_members: true})
+             run(owner, :migration_finalize, %{
+               digest: digest,
+               confirm_remove_members: true,
+               vault_rev: 1,
+               vault_blob_sha256: String.duplicate("0", 64)
+             })
 
     create_vault!(ws)
 
+    vp = vault_params(ws)
+
     assert %{ok: false, error: :members_present} =
-             run(owner, :migration_finalize, %{digest: digest})
+             run(owner, :migration_finalize, Map.put(vp, :digest, digest))
 
     assert %{ok: false, error: :changed} =
-             run(owner, :migration_finalize, %{digest: "nope", confirm_remove_members: true})
+             run(
+               owner,
+               :migration_finalize,
+               %{digest: "nope", confirm_remove_members: true} |> Map.merge(vp)
+             )
+
+    assert %{ok: false, error: :vault_changed} =
+             run(owner, :migration_finalize, %{
+               digest: digest,
+               confirm_remove_members: true,
+               vault_rev: vp.vault_rev,
+               vault_blob_sha256: String.duplicate("0", 64)
+             })
 
     assert %{ok: true, deleted: %{debts: 1}, removed_members: 1} =
-             run(owner, :migration_finalize, %{digest: digest, confirm_remove_members: true})
+             run(
+               owner,
+               :migration_finalize,
+               Map.merge(vp, %{digest: digest, confirm_remove_members: true})
+             )
 
     assert %{ok: true, already_clean: true} =
-             run(owner, :migration_finalize, %{digest: digest, confirm_remove_members: true})
+             run(
+               owner,
+               :migration_finalize,
+               Map.merge(vp, %{digest: digest, confirm_remove_members: true})
+             )
 
     assert Migration.status(ws) == :vault_only
     assert %{ok: false, error: :already_encrypted} = run(owner, :migration_export)
+  end
+
+  defp vault_params(ws) do
+    Map.new(vopts(ws))
   end
 
   test "a non-owner member is forbidden and nothing changes", %{owner: owner, ws: ws} do
@@ -94,7 +125,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGateTest do
              run(owner, :migration_finalize, %{
                digest: d2,
                workspace_id: ws2.id,
-               confirm_remove_members: true
+               confirm_remove_members: true,
+               vault_rev: 1,
+               vault_blob_sha256: String.duplicate("0", 64)
              })
 
     assert Migration.status(ws2) == :both

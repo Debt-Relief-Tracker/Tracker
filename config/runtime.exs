@@ -114,6 +114,12 @@ else
   config :debt_relief_tracker, :umami, nil
 end
 
+# Opt-in TLS hardening (HTTP->HTTPS redirect honouring x-forwarded-proto, HSTS,
+# Secure cookies). Default off so plain-HTTP self-hosting keeps working.
+config :debt_relief_tracker,
+       :force_ssl,
+       String.downcase(System.get_env("FORCE_SSL") || "") in ["true", "1", "yes"]
+
 if config_env() == :prod do
   # Lets E2EE.check_boot treat an unset PHX_HOST as public (not local).
   config :debt_relief_tracker, :prod_release, true

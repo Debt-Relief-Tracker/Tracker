@@ -23,6 +23,8 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
       :verifying --{:vault_downloaded, {:ok, view}}, verify/2 == :ok--> :finalizing
                  --anything else--> :failed(:verification_mismatch)
       :finalizing --finalize ok--> :done
+                  --:vault_changed--> :verifying (re-download, at most 3 rounds,
+                       then :failed(:vault_changed))
                   --:changed--> :re_exporting --export--> :setting_up (rebuild)
                   --:busy | :rate_limited--> :finalizing (retry_after backoff,
                        at most 3 retries, then :failed(:busy))
@@ -30,7 +32,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
 
   Failures are `step: :failed` with `reason` (`:forbidden | :already_encrypted
   | :nothing_to_migrate | :too_large | :verification_mismatch | :busy |
-  :changed | :members_present | :no_vault | :export_failed | :vault_failed |
+  :changed | :vault_changed | :members_present | :no_vault | :export_failed | :vault_failed |
   :finalize_failed`). `terminal?/1` is true for `:done` and the reasons that
   retrying cannot fix (`:forbidden`, `:already_encrypted`,
   `:nothing_to_migrate`, `:too_large`, `:members_present`, `:no_vault`).
@@ -76,6 +78,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
 
   @max_busy_retries 3
   @max_changed_rounds 3
+  @max_vault_rounds 3
   @max_rebuilds 2
   @backoff_ms [1_000, 3_000, 9_000]
   @collections [:debts, :payments, :activity, :retirement_profiles]
@@ -96,9 +99,12 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
       confirmed: false,
       resume: false,
       verified_digest: nil,
+      verified_vault: nil,
+      vault_rounds: 0,
       busy_retries: 0,
       changed_rounds: 0,
       rebuilds: 0,
+      rebuilding: false,
       retry_effect: nil
     }
   end
@@ -152,7 +158,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
   end
 
   def apply(%{step: :re_exporting} = s, {:export_result, %{ok: true} = r}) do
-    s = %{s | export: export_of(r), step: :setting_up}
+    s = %{s | export: export_of(r), step: :setting_up, rebuilding: true}
     {s, [{:rebuild_vault, s.export.snapshot}]}
   end
 
@@ -187,7 +193,15 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
 
   # vault wizard
   def apply(%{step: :setting_up} = s, :vault_created),
-    do: {%{s | step: :verifying}, [{:redownload_vault}]}
+    do: {%{s | step: :verifying, rebuilding: false}, [{:redownload_vault}]}
+
+  # A failed REBUILD save (the vault already exists): `:retry` repeats the
+  # rebuild save, it must not re-show the create wizard.
+  def apply(
+        %{step: :setting_up, rebuilding: true, export: %{snapshot: snapshot}} = s,
+        :vault_failed
+      ),
+      do: {fail(s, :vault_failed, {:rebuild_vault, snapshot}), []}
 
   # Vault creation failed (network, server refusal): `:retry` rebuilds it from
   # the exported snapshot. Nothing is deleted at this point, so retrying is safe.
@@ -198,10 +212,21 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
     do: {fail(s, :vault_failed), []}
 
   # verify (the only way into :finalizing)
-  def apply(%{step: :verifying} = s, {:vault_downloaded, {:ok, view}}) do
+  # `vault_ref` is `%{rev: integer, sha256: hex}` of the EXACT blob that was
+  # downloaded and verified; finalize is bound to it. A download event without
+  # a well-formed ref can never finalize (fails closed, see the clause below).
+  def apply(%{step: :verifying} = s, {:vault_downloaded, {:ok, view}, %{rev: rev, sha256: sha}})
+      when is_integer(rev) and is_binary(sha) and sha != "" do
     case verify(s.export.snapshot, view) do
       :ok ->
-        s = %{s | step: :finalizing, verified_digest: s.export.digest, busy_retries: 0}
+        s = %{
+          s
+          | step: :finalizing,
+            verified_digest: s.export.digest,
+            verified_vault: %{rev: rev, sha256: sha},
+            busy_retries: 0
+        }
+
         {s, [finalize_effect(s)]}
 
       {:error, :verification_mismatch} ->
@@ -209,18 +234,47 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
     end
   end
 
+  def apply(%{step: :verifying} = s, {:vault_downloaded, _error, _ref}),
+    do: {fail(s, :verification_mismatch, {:redownload_vault}), []}
+
   def apply(%{step: :verifying} = s, {:vault_downloaded, _error}),
     do: {fail(s, :verification_mismatch, {:redownload_vault}), []}
 
   # finalize
   def apply(%{step: :finalizing} = s, {:finalize_result, %{ok: true}}),
-    do: {%{s | step: :done, verified_digest: nil, retry_effect: nil}, []}
+    do: {%{s | step: :done, verified_digest: nil, verified_vault: nil, retry_effect: nil}, []}
+
+  # The stored vault is no longer the one we verified (overwritten, rebuilt or
+  # rolled back). Nothing was deleted: download and verify it again; a
+  # mismatch is then repaired by a rebuild. Bounded.
+  def apply(%{step: :finalizing} = s, {:finalize_result, %{ok: false, error: :vault_changed}}) do
+    if s.vault_rounds >= @max_vault_rounds do
+      {fail(s, :vault_changed, {:redownload_vault}), []}
+    else
+      s = %{
+        s
+        | step: :verifying,
+          verified_digest: nil,
+          verified_vault: nil,
+          vault_rounds: s.vault_rounds + 1
+      }
+
+      {s, [{:redownload_vault}]}
+    end
+  end
 
   def apply(%{step: :finalizing} = s, {:finalize_result, %{ok: false, error: :changed}}) do
     if s.changed_rounds >= @max_changed_rounds do
       {fail(s, :changed), []}
     else
-      s = %{s | step: :re_exporting, verified_digest: nil, changed_rounds: s.changed_rounds + 1}
+      s = %{
+        s
+        | step: :re_exporting,
+          verified_digest: nil,
+          verified_vault: nil,
+          changed_rounds: s.changed_rounds + 1
+      }
+
       {s, [{:command, :migration_export}]}
     end
   end
@@ -256,7 +310,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
         :rebuild
       )
       when n < @max_rebuilds do
-    {%{s | step: :setting_up, reason: nil, retry_effect: nil, rebuilds: n + 1},
+    {%{s | step: :setting_up, reason: nil, retry_effect: nil, rebuilds: n + 1, rebuilding: true},
      [{:rebuild_vault, s.export.snapshot}]}
   end
 
@@ -271,18 +325,35 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
   defp retry(%{retry_effect: {:command, :migration_status}} = s),
     do: {%{s | step: :checking, reason: nil, retry_effect: nil}, [{:command, :migration_status}]}
 
+  defp retry(%{retry_effect: {:rebuild_vault, snapshot}} = s),
+    do:
+      {%{s | step: :setting_up, reason: nil, retry_effect: nil, rebuilding: true},
+       [{:rebuild_vault, snapshot}]}
+
   defp retry(%{retry_effect: {:build_vault, snapshot}} = s),
     do: {%{s | step: :setting_up, reason: nil, retry_effect: nil}, [{:build_vault, snapshot}]}
 
   defp retry(s), do: {s, []}
 
   defp fail(s, reason, retry_effect \\ nil),
-    do: %{s | step: :failed, reason: reason, verified_digest: nil, retry_effect: retry_effect}
+    do: %{
+      s
+      | step: :failed,
+        reason: reason,
+        verified_digest: nil,
+        verified_vault: nil,
+        retry_effect: retry_effect
+    }
 
   defp finalize_effect(s),
     do:
       {:command, :migration_finalize,
-       %{digest: s.verified_digest, confirm_remove_members: s.confirmed}}
+       %{
+         digest: s.verified_digest,
+         confirm_remove_members: s.confirmed,
+         vault_rev: s.verified_vault.rev,
+         vault_blob_sha256: s.verified_vault.sha256
+       }}
 
   defp export_of(r) do
     %{
