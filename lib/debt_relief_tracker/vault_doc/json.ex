@@ -22,11 +22,19 @@ defmodule DebtReliefTracker.VaultDoc.Json do
     * it keeps "no application logic in JS" and the CSP (no `eval`) trivially
       true.
 
-  The price is speed, handled by working on whole strings rather than single
-  characters (Hologram lists and bitstrings copy on every cons/tail match,
-  so a char-by-char descent is quadratic): the decoder splits the text on
-  `"` once, so string bodies are never walked unless they contain a
-  backslash, and it parses a token tuple by index.
+  The price is speed. In Hologram every `[h | t]` match, cons, `Map.put` and
+  most recursive `Enum` functions copy their whole list/map (measured: 1000
+  cons cells ~35 ms, 1000 `Map.put`s ~350 ms, `Enum.join` of 1000 strings
+  ~220 ms, `String.codepoints` of 4 KB effectively hangs), so a conventional
+  recursive-descent or accumulator-based coder is quadratic and unusable on a
+  document of thousands of records. This module therefore only uses
+  operations that are linear in the browser: `Enum.map`/`for`, `:lists`
+  folds, `Map.new`, `IO.iodata_to_binary`, `String.split`/`String.replace`,
+  tuple indexing with `elem/2`. The decoder splits the text on `"` once
+  (after protecting escaped backslashes and quotes), turns the pieces into a
+  token tuple, computes every token's nesting depth with one `mapfoldl`, and
+  then builds each container from index ranges split at its depth-matched
+  commas.
 
   ## Format
 
@@ -66,6 +74,11 @@ defmodule DebtReliefTracker.VaultDoc.Json do
 
   @escape_triggers Map.keys(@escapes)
   @raw_control_chars Map.keys(@escapes) -- ["\"", "\\"]
+  @control_escapes Map.to_list(Map.drop(@escapes, ["\"", "\\"]))
+
+  # Placeholders for an escaped backslash / escaped quote while splitting.
+  @bs "\u0001"
+  @qt "\u0002"
 
   @unescapes %{
     "\"" => "\"",
@@ -107,41 +120,32 @@ defmodule DebtReliefTracker.VaultDoc.Json do
 
   @doc "Deterministic JSON text for `term` (see the moduledoc)."
   @spec encode(term()) :: String.t()
-  def encode(term), do: term |> enc([]) |> Enum.reverse() |> Enum.join()
+  def encode(term), do: IO.iodata_to_binary(enc(term))
 
-  defp enc(nil, acc), do: ["null" | acc]
-  defp enc(true, acc), do: ["true" | acc]
-  defp enc(false, acc), do: ["false" | acc]
-  defp enc(n, acc) when is_integer(n), do: [Integer.to_string(n) | acc]
-  defp enc(s, acc) when is_binary(s), do: [enc_string(s) | acc]
-  defp enc([], acc), do: ["[]" | acc]
+  defp enc(nil), do: "null"
+  defp enc(true), do: "true"
+  defp enc(false), do: "false"
+  defp enc(n) when is_integer(n), do: Integer.to_string(n)
+  defp enc(s) when is_binary(s), do: enc_string(s)
+  defp enc([]), do: "[]"
 
-  defp enc(list, acc) when is_list(list) do
-    inner =
-      Enum.reduce(list, {true, ["[" | acc]}, fn item, {first?, acc} ->
-        acc = if first?, do: acc, else: ["," | acc]
-        {false, enc(item, acc)}
-      end)
-      |> elem(1)
-
-    ["]" | inner]
+  defp enc(list) when is_list(list) do
+    ["[", commas(Enum.map(list, &enc/1)), "]"]
   end
 
-  defp enc(map, acc) when is_map(map) do
-    pairs = map |> Enum.map(fn {k, v} -> {key_string(k), v} end) |> Enum.sort_by(&elem(&1, 0))
-
-    inner =
-      Enum.reduce(pairs, {true, ["{" | acc]}, fn {k, v}, {first?, acc} ->
-        acc = if first?, do: acc, else: ["," | acc]
-        {false, enc(v, [":", enc_string(k) | acc])}
-      end)
-      |> elem(1)
-
-    ["}" | inner]
+  defp enc(map) when is_map(map) do
+    if map_size(map) == 0 do
+      "{}"
+    else
+      pairs = map |> Enum.map(fn {k, v} -> {key_string(k), v} end) |> Enum.sort_by(&elem(&1, 0))
+      ["{", commas(Enum.map(pairs, fn {k, v} -> [enc_string(k), ":", enc(v)] end)), "}"]
+    end
   end
 
-  defp enc(other, _acc),
-    do: raise(ArgumentError, "cannot encode #{kind(other)} as vault JSON")
+  defp enc(other), do: raise(ArgumentError, "cannot encode #{kind(other)} as vault JSON")
+
+  # Comma-separated iodata of a non-empty list, without recursion on the list.
+  defp commas([first | rest]), do: [first, Enum.map(rest, &[",", &1])]
 
   defp kind(term) when is_float(term), do: "a float"
   defp kind(term) when is_atom(term), do: "an atom"
@@ -156,9 +160,22 @@ defmodule DebtReliefTracker.VaultDoc.Json do
     unless String.valid?(s), do: raise(ArgumentError, "cannot encode invalid UTF-8")
 
     if String.contains?(s, @escape_triggers) do
-      "\"" <> Enum.map_join(String.codepoints(s), &Map.get(@escapes, &1, &1)) <> "\""
+      ["\"", escape(s), "\""]
     else
-      "\"" <> s <> "\""
+      ["\"", s, "\""]
+    end
+  end
+
+  # Whole-string replaces (linear) instead of walking code points.
+  defp escape(s) do
+    s = s |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
+
+    if String.contains?(s, @raw_control_chars) do
+      Enum.reduce(@control_escapes, s, fn {raw, esc}, acc ->
+        if String.contains?(acc, raw), do: String.replace(acc, raw, esc), else: acc
+      end)
+    else
+      s
     end
   end
 
@@ -167,130 +184,80 @@ defmodule DebtReliefTracker.VaultDoc.Json do
   @doc "Parses JSON text without floats; `{:error, :invalid}` for anything else."
   @spec decode(term()) :: {:ok, term()} | {:error, :invalid}
   def decode(text) when is_binary(text) do
-    if byte_size(text) > @max_input_bytes or not String.valid?(text) do
-      {:error, :invalid}
-    else
-      with {:ok, tokens} <- tokenize(text),
-           toks = List.to_tuple(tokens),
-           {:ok, value, next} <- parse_value(toks, 0, 0),
-           true <- next == tuple_size(toks) do
-        {:ok, value}
-      else
-        _ -> {:error, :invalid}
-      end
+    cond do
+      byte_size(text) > @max_input_bytes or not String.valid?(text) -> {:error, :invalid}
+      String.contains?(text, [@bs, @qt]) -> {:error, :invalid}
+      true -> text |> protect() |> tokens() |> parse()
     end
   end
 
   def decode(_), do: {:error, :invalid}
 
-  # Splits on `"`: even-numbered pieces are outside strings, odd-numbered are
-  # string bodies (a body ending in an odd number of backslashes ended at an
-  # escaped quote and continues in the next piece).
-  defp tokenize(text) do
-    result =
-      Enum.reduce_while(String.split(text, "\""), {:outside, "", []}, fn piece, {mode, buf, toks} ->
-        case mode do
-          :outside ->
-            case lex_outside(piece) do
-              {:ok, new} -> {:cont, {:string, "", new ++ toks}}
-              :error -> {:halt, :error}
-            end
-
-          :string ->
-            body = buf <> piece
-
-            cond do
-              byte_size(body) > @max_string_bytes ->
-                {:halt, :error}
-
-              odd_trailing_backslashes?(piece) ->
-                {:cont, {:string, body <> "\"", toks}}
-
-              true ->
-                case unescape(body) do
-                  {:ok, str} -> {:cont, {:outside, "", [{:str, str} | toks]}}
-                  :error -> {:halt, :error}
-                end
-            end
-        end
-      end)
-
-    case result do
-      # Finished in :string mode = the last piece was outside (a quote count
-      # of 2n gives 2n+1 pieces, so the last piece is outside and the mode
-      # afterwards is :string); finishing in :outside means an unclosed string.
-      {:string, "", toks} -> {:ok, Enum.reverse(toks)}
-      _ -> :error
-    end
+  # \\ and \" become single placeholder characters (raw U+0001/U+0002 never
+  # occur in valid JSON, rejected above), so every remaining `"` delimits a
+  # string and every remaining backslash starts some other escape.
+  defp protect(text) do
+    text |> String.replace("\\\\", @bs) |> String.replace("\\\"", @qt)
   end
 
-  defp odd_trailing_backslashes?(piece) do
-    if String.ends_with?(piece, "\\") do
-      trailing = String.length(piece) - String.length(String.trim_trailing(piece, "\\"))
-      rem(trailing, 2) == 1
+  defp tokens(text) do
+    pieces = String.split(text, "\"")
+
+    if rem(length(pieces), 2) == 1 do
+      tuple = List.to_tuple(pieces)
+
+      lists =
+        for i <- 0..(tuple_size(tuple) - 1) do
+          if rem(i, 2) == 0, do: lex_outside(elem(tuple, i)), else: [string_token(elem(tuple, i))]
+        end
+
+      {:ok, :lists.flatten(lists)}
     else
-      false
+      :error
     end
   end
 
-  # Tokens for a piece outside any string, REVERSED (so they prepend onto acc).
+  defp string_token(body) do
+    body =
+      if String.contains?(body, [@bs, @qt]),
+        do: body |> String.replace(@bs, "\\\\") |> String.replace(@qt, "\\\""),
+        else: body
+
+    cond do
+      byte_size(body) > @max_string_bytes -> :bad
+      String.contains?(body, @raw_control_chars) -> :bad
+      not String.contains?(body, "\\") -> {:str, body}
+      true -> unescape(body)
+    end
+  end
+
+  # Tokens of a piece outside any string. Structural characters are padded
+  # with spaces, then the piece is split into words.
   defp lex_outside(piece) do
-    result =
-      Enum.reduce_while(String.codepoints(piece), {"", []}, fn cp, {run, toks} ->
-        token = punct(cp)
+    words =
+      piece
+      |> String.replace("{", " { ")
+      |> String.replace("}", " } ")
+      |> String.replace("[", " [ ")
+      |> String.replace("]", " ] ")
+      |> String.replace(",", " , ")
+      |> String.replace(":", " : ")
+      |> String.split()
 
-        cond do
-          token != nil ->
-            case close_run(run, toks) do
-              {:ok, toks} -> {:cont, {"", [token | toks]}}
-              :error -> {:halt, :error}
-            end
-
-          cp == " " or cp == "\n" or cp == "\t" or cp == "\r" ->
-            case close_run(run, toks) do
-              {:ok, toks} -> {:cont, {"", toks}}
-              :error -> {:halt, :error}
-            end
-
-          run_char?(cp) ->
-            {:cont, {run <> cp, toks}}
-
-          true ->
-            {:halt, :error}
-        end
-      end)
-
-    case result do
-      :error -> :error
-      {run, toks} -> close_run(run, toks)
-    end
+    Enum.map(words, &word/1)
   end
 
-  # Closes the pending number/literal run (if any).
-  defp close_run("", toks), do: {:ok, toks}
+  defp word("{"), do: :obj_open
+  defp word("}"), do: :obj_close
+  defp word("["), do: :arr_open
+  defp word("]"), do: :arr_close
+  defp word(","), do: :comma
+  defp word(":"), do: :colon
+  defp word("true"), do: true
+  defp word("false"), do: false
+  defp word("null"), do: :null
 
-  defp close_run(run, toks) do
-    case literal(run) do
-      {:ok, token} -> {:ok, [token | toks]}
-      :error -> :error
-    end
-  end
-
-  defp punct("{"), do: :obj_open
-  defp punct("}"), do: :obj_close
-  defp punct("["), do: :arr_open
-  defp punct("]"), do: :arr_close
-  defp punct(","), do: :comma
-  defp punct(":"), do: :colon
-  defp punct(_), do: nil
-
-  defp run_char?(cp), do: cp == "-" or (cp >= "0" and cp <= "9") or (cp >= "a" and cp <= "z")
-
-  defp literal("true"), do: {:ok, true}
-  defp literal("false"), do: {:ok, false}
-  defp literal("null"), do: {:ok, :null}
-
-  defp literal(run) do
+  defp word(run) do
     {sign, digits} =
       if String.starts_with?(run, "-"), do: {-1, String.slice(run, 1, String.length(run))}, else: {1, run}
 
@@ -298,28 +265,21 @@ defmodule DebtReliefTracker.VaultDoc.Json do
          DebtReliefTracker.VaultDoc.Stamp.digits?(digits) and
          (digits == "0" or not String.starts_with?(digits, "0")) and
          not (sign == -1 and digits == "0") do
-      {:ok, {:int, sign * String.to_integer(digits)}}
+      {:int, sign * String.to_integer(digits)}
     else
-      :error
+      :bad
     end
   end
 
   defp unescape(body) do
-    cond do
-      String.contains?(body, @raw_control_chars) ->
-        :error
-
-      not String.contains?(body, "\\") ->
-        {:ok, body}
-
-      true ->
-        cps = List.to_tuple(String.codepoints(body))
-        unescape_loop(cps, 0, tuple_size(cps), [])
-    end
+    cps = List.to_tuple(String.codepoints(body))
+    unescape_loop(cps, 0, tuple_size(cps), [])
   end
 
+  # String bodies with escapes are short in practice (names, notes); the
+  # accumulator is bounded by the 1 MiB string limit.
   defp unescape_loop(_cps, i, size, acc) when i >= size,
-    do: {:ok, acc |> Enum.reverse() |> Enum.join()}
+    do: {:str, acc |> Enum.reverse() |> IO.iodata_to_binary()}
 
   defp unescape_loop(cps, i, size, acc) do
     case elem(cps, i) do
@@ -333,15 +293,15 @@ defmodule DebtReliefTracker.VaultDoc.Json do
           esc == "u" ->
             case read_unicode(cps, i + 2, size) do
               {:ok, str, next} -> unescape_loop(cps, next, size, [str | acc])
-              :error -> :error
+              :error -> :bad
             end
 
           true ->
-            :error
+            :bad
         end
 
       "\\" ->
-        :error
+        :bad
 
       cp ->
         unescape_loop(cps, i + 1, size, [cp | acc])
@@ -386,59 +346,107 @@ defmodule DebtReliefTracker.VaultDoc.Json do
     end
   end
 
-  defp token_at(toks, i), do: if(i < tuple_size(toks), do: elem(toks, i), else: :eof)
+  # --- parse -----------------------------------------------------------------
 
-  defp parse_value(toks, i, depth) do
-    case token_at(toks, i) do
-      {:str, s} -> {:ok, s, i + 1}
-      {:int, n} -> {:ok, n, i + 1}
-      true -> {:ok, true, i + 1}
-      false -> {:ok, false, i + 1}
-      :null -> {:ok, nil, i + 1}
-      :arr_open when depth < @max_depth -> parse_array(toks, i + 1, depth + 1)
-      :obj_open when depth < @max_depth -> parse_object(toks, i + 1, depth + 1)
+  defp parse(:error), do: {:error, :invalid}
+
+  defp parse({:ok, tokens}) do
+    # Depth of every token: openers and the tokens inside a container carry
+    # the container's level (1 = outermost), closers the level outside it.
+    {deps, final} =
+      :lists.mapfoldl(
+        fn
+          tok, d when tok == :obj_open or tok == :arr_open -> {d + 1, d + 1}
+          tok, d when tok == :obj_close or tok == :arr_close -> {d - 1, d - 1}
+          _tok, d -> {d, d}
+        end,
+        0,
+        tokens
+      )
+
+    cond do
+      tokens == [] or final != 0 -> {:error, :invalid}
+      :lists.member(:bad, tokens) -> {:error, :invalid}
+      Enum.min(deps) < 0 or Enum.max(deps) > @max_depth -> {:error, :invalid}
+      true ->
+        toks = List.to_tuple(tokens)
+        ds = List.to_tuple(deps)
+
+        case value(toks, ds, 0, tuple_size(toks) - 1) do
+          {:ok, v} -> {:ok, v}
+          :error -> {:error, :invalid}
+        end
+    end
+  end
+
+  # The value spanning tokens a..b (inclusive).
+  defp value(_toks, _ds, a, b) when a > b, do: :error
+
+  defp value(toks, ds, a, b) do
+    case elem(toks, a) do
+      {:str, s} -> scalar(a, b, s)
+      {:int, n} -> scalar(a, b, n)
+      true -> scalar(a, b, true)
+      false -> scalar(a, b, false)
+      :null -> scalar(a, b, nil)
+      :arr_open -> container(toks, ds, a, b, :arr_close, &array/4)
+      :obj_open -> container(toks, ds, a, b, :obj_close, &object/4)
       _ -> :error
     end
   end
 
-  defp parse_array(toks, i, depth) do
-    case token_at(toks, i) do
-      :arr_close -> {:ok, [], i + 1}
-      _ -> parse_elements(toks, i, depth, [])
+  defp scalar(a, b, v), do: if(a == b, do: {:ok, v}, else: :error)
+
+  # a..b must be an opener and its matching closer with only deeper tokens between.
+  defp container(toks, ds, a, b, closer, build) do
+    level = elem(ds, a)
+
+    cond do
+      b <= a or elem(toks, b) != closer or elem(ds, b) != level - 1 -> :error
+      b == a + 1 -> build.(toks, ds, [], level)
+      true ->
+        inside = for k <- (a + 1)..(b - 1), do: elem(ds, k)
+
+        if Enum.min(inside) < level do
+          :error
+        else
+          commas = for k <- (a + 1)..(b - 1), elem(ds, k) == level and elem(toks, k) == :comma, do: k
+          bounds = List.to_tuple([a | commas] ++ [b])
+          build.(toks, ds, for(i <- 0..(tuple_size(bounds) - 2), do: {elem(bounds, i) + 1, elem(bounds, i + 1) - 1}), level)
+        end
     end
   end
 
-  defp parse_elements(toks, i, depth, acc) do
-    with {:ok, value, next} <- parse_value(toks, i, depth) do
-      case token_at(toks, next) do
-        :comma -> parse_elements(toks, next + 1, depth, [value | acc])
-        :arr_close -> {:ok, Enum.reverse([value | acc]), next + 1}
-        _ -> :error
+  defp array(_toks, _ds, [], _level), do: {:ok, []}
+
+  defp array(toks, ds, ranges, _level) do
+    results = for {from, to} <- ranges, do: value(toks, ds, from, to)
+
+    if :lists.member(:error, results),
+      do: :error,
+      else: {:ok, for({:ok, v} <- results, do: v)}
+  end
+
+  defp object(_toks, _ds, [], _level), do: {:ok, %{}}
+
+  defp object(toks, ds, ranges, _level) do
+    results =
+      for {from, to} <- ranges do
+        with true <- to >= from + 2,
+             {:str, key} <- elem(toks, from),
+             :colon <- elem(toks, from + 1),
+             {:ok, v} <- value(toks, ds, from + 2, to) do
+          {:ok, {key, v}}
+        else
+          _ -> :error
+        end
       end
-    end
-  end
 
-  defp parse_object(toks, i, depth) do
-    case token_at(toks, i) do
-      :obj_close -> {:ok, %{}, i + 1}
-      _ -> parse_members(toks, i, depth, %{})
-    end
-  end
-
-  defp parse_members(toks, i, depth, acc) do
-    with {:str, key} <- token_at(toks, i),
-         false <- Map.has_key?(acc, key),
-         :colon <- token_at(toks, i + 1),
-         {:ok, value, next} <- parse_value(toks, i + 2, depth) do
-      acc = Map.put(acc, key, value)
-
-      case token_at(toks, next) do
-        :comma -> parse_members(toks, next + 1, depth, acc)
-        :obj_close -> {:ok, acc, next + 1}
-        _ -> :error
-      end
+    if :lists.member(:error, results) do
+      :error
     else
-      _ -> :error
+      map = Map.new(for {:ok, pair} <- results, do: pair)
+      if map_size(map) == length(results), do: {:ok, map}, else: :error
     end
   end
 end

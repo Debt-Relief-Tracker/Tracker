@@ -118,14 +118,9 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
 
   # --- generic -----------------------------------------------------------------
 
-  defp union(x, y, pick) do
-    Enum.reduce(y, x, fn {id, rec}, acc ->
-      case Map.fetch(acc, id) do
-        {:ok, mine} -> Map.put(acc, id, pick.(mine, rec))
-        :error -> Map.put(acc, id, rec)
-      end
-    end)
-  end
+  # Map.merge/3 is a native, linear operation in the browser (a reduce with
+  # Map.put is quadratic).
+  defp union(x, y, pick), do: Map.merge(x, y, fn _id, mine, theirs -> pick.(mine, theirs) end)
 
   defp pick_append_only(x, y) do
     cond do
@@ -174,27 +169,22 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
 
   # Applies, to each live debt, every live payment its `applied` set lacks.
   defp apply_payments(debts, payments) do
-    by_debt =
-      Enum.reduce(payments, %{}, fn {_id, p}, acc ->
-        if p.deleted, do: acc, else: Map.update(acc, p.debt_id, [p], &[p | &1])
-      end)
+    live_payments = for p <- Map.values(payments), not p.deleted, do: p
 
     Map.new(debts, fn {id, debt} ->
-      case Map.get(by_debt, id) do
-        nil ->
-          {id, debt}
+      list = if debt.deleted, do: [], else: for(p <- live_payments, p.debt_id == id, do: p)
 
-        _ when debt.deleted ->
-          {id, debt}
+      if list == [] do
+        {id, debt}
+      else
+        # balance -= sum(principal - what the winner already applied)
+        delta =
+          Enum.reduce(list, 0, fn p, acc ->
+            acc + VaultDoc.principal(p) - Map.get(debt.applied, p.id, 0)
+          end)
 
-        list ->
-          {balance, applied} =
-            Enum.reduce(list, {debt.balance, debt.applied}, fn p, {balance, applied} ->
-              principal = VaultDoc.principal(p)
-              {balance - (principal - Map.get(applied, p.id, 0)), Map.put(applied, p.id, principal)}
-            end)
-
-          {id, %{debt | balance: balance, applied: applied}}
+        applied = Map.merge(debt.applied, Map.new(list, &{&1.id, VaultDoc.principal(&1)}))
+        {id, %{debt | balance: debt.balance - delta, applied: applied}}
       end
     end)
   end

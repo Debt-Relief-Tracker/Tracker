@@ -123,12 +123,18 @@ defmodule DebtReliefTracker.VaultDoc.Shape do
 
   @doc "A map of `id => record` of `kind`; every key must equal its record's id."
   def records(kind, map) when is_map(map) do
-    Enum.reduce_while(map, {:ok, %{}}, fn {key, raw}, {:ok, acc} ->
-      case record(kind, raw) do
-        {:ok, %{id: ^key} = rec} -> {:cont, {:ok, Map.put(acc, key, rec)}}
-        _ -> {:halt, :error}
+    # `for` + `Map.new` (linear in the browser; reduce + Map.put is not).
+    results =
+      for {key, raw} <- map do
+        case record(kind, raw) do
+          {:ok, %{id: ^key} = rec} -> {:ok, {key, rec}}
+          _ -> :error
+        end
       end
-    end)
+
+    if :lists.member(:error, results),
+      do: :error,
+      else: {:ok, Map.new(for({:ok, pair} <- results, do: pair))}
   end
 
   def records(_kind, _other), do: :error

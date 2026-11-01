@@ -133,7 +133,8 @@ defmodule DebtReliefTracker.VaultDoc do
   path).
   """
   def view(doc) do
-    debts = doc.debts |> Map.values() |> Enum.reject(& &1.deleted)
+    # `for` instead of Enum.filter/reject: those are quadratic in the browser.
+    debts = for d <- Map.values(doc.debts), not d.deleted, do: d
     live = Map.new(debts, &{&1.id, true})
 
     %{
@@ -146,16 +147,12 @@ defmodule DebtReliefTracker.VaultDoc do
           debt |> Map.take(@debt_view) |> Map.update!(:balance, &max(&1, 0))
         end),
       payments:
-        doc.payments
-        |> Map.values()
-        |> Enum.filter(&(not &1.deleted and Map.has_key?(live, &1.debt_id)))
+        for(p <- Map.values(doc.payments), not p.deleted and Map.has_key?(live, p.debt_id), do: p)
         |> Enum.sort_by(&{&1.paid_on, &1.inserted_at, &1.id})
         |> Enum.reverse()
         |> Enum.map(&Map.take(&1, @payment_view)),
       activity:
-        doc.activity
-        |> Map.values()
-        |> Enum.reject(& &1.deleted)
+        for(e <- Map.values(doc.activity), not e.deleted, do: e)
         |> Enum.sort_by(&{&1.inserted_at, &1.id})
         |> Enum.reverse()
         |> Enum.map(fn entry ->
@@ -163,9 +160,7 @@ defmodule DebtReliefTracker.VaultDoc do
           if Map.has_key?(live, entry.debt_id), do: entry, else: %{entry | debt_id: nil}
         end),
       retirement_profiles:
-        doc.retirement_profiles
-        |> Map.values()
-        |> Enum.reject(& &1.deleted)
+        for(r <- Map.values(doc.retirement_profiles), not r.deleted, do: r)
         |> Enum.sort_by(&{&1.inserted_at, &1.id})
         |> Enum.map(&Map.take(&1, @retirement_view))
     }
@@ -201,10 +196,7 @@ defmodule DebtReliefTracker.VaultDoc do
          })}
       end)
 
-    applied =
-      Enum.reduce(payments, %{}, fn {id, p}, acc ->
-        Map.update(acc, p.debt_id, %{id => principal(p)}, &Map.put(&1, id, principal(p)))
-      end)
+    payment_list = Map.values(payments)
 
     debts =
       snapshot.debts
@@ -217,7 +209,7 @@ defmodule DebtReliefTracker.VaultDoc do
            updated_at: stamp.(Map.get(d, :updated_at)),
            inserted_at: inserted_or_synthetic(Map.get(d, :inserted_at), index),
            deleted: false,
-           applied: Map.get(applied, d.id, %{})
+           applied: Map.new(for(p <- payment_list, p.debt_id == d.id, do: {p.id, principal(p)}))
          })}
       end)
 

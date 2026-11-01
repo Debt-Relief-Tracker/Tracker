@@ -473,9 +473,11 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
 
   # payment_id => principal, for the debt's payments in this document.
   defp debt_payments(doc, debt_id) do
-    for {pid, p} <- doc.payments, p.debt_id == debt_id and not p.deleted, into: %{} do
-      {pid, VaultDoc.principal(p)}
-    end
+    Map.new(
+      for {pid, p} <- doc.payments, p.debt_id == debt_id and not p.deleted do
+        {pid, VaultDoc.principal(p)}
+      end
+    )
   end
 
   # Logs a payment against `rec` (Payments.log_payment/5): `opts` has :action,

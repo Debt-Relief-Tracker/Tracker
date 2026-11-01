@@ -3,25 +3,7 @@ defmodule DebtReliefTracker.VaultDoc.JsonTest do
 
   alias DebtReliefTracker.VaultDoc.Json
 
-  # Shared with the browser test (same data, same assertions in the page).
-  def tricky do
-    %{
-      "unicode" => "Zoë's Kreditkarte – 日本語 😀 \u00e9",
-      "quotes" => "she said \"hi\" and \\ left",
-      "controls" => "line1\nline2\r\n\ttab\u0000nul\u001f\u007f",
-      "sixty" => String.duplicate("N", 60),
-      "empty" => "",
-      "nil" => nil,
-      "bools" => [true, false],
-      "big" => 999_999_999_999_999,
-      "neg" => -999_999_999_999_999,
-      "zero" => 0,
-      "list" => [1, [2, [3, []]], %{}],
-      "deep" => %{"a" => %{"b" => %{"c" => %{"d" => [%{"e" => "x\"y"}]}}}},
-      "slash/key" => "/",
-      "ключ" => "значение"
-    }
-  end
+  defp tricky, do: DebtReliefTracker.VaultDocScript.tricky() |> Map.put("slash/key", "/")
 
   test "round-trips tricky data and is deterministic" do
     data = tricky()
