@@ -26,6 +26,13 @@ defmodule DebtReliefTrackerWeb.Holo.Context do
   def load(server), do: Storage.load(workspace(server))
 
   @doc """
+  Today's date (UTC) as an ISO 8601 string. Hologram has no `Date` on the
+  client, so server code (component `init/3`, commands) supplies "today" and
+  the client works with the string / `Engine.Days` tuples.
+  """
+  def today_iso, do: Date.to_iso8601(Date.utc_today())
+
+  @doc """
   Plain (non-financial) account data for the page: who is signed in, which
   workspace, whether OIDC is on. Lives beside the snapshot in page state but
   is never part of the E2EE vault -- it is account/session data.

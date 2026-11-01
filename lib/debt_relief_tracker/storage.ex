@@ -30,6 +30,15 @@ defmodule DebtReliefTracker.Storage do
       `:principal_portion`/`:interest_portion`, `:paid_on`, `:note`
     * `{:update_settings, attrs}` -- also how the retirement onboarding
       prompt is dismissed: `%{retirement_onboarding_dismissed: true}`
+    * `{:reconcile_balance, debt_id, new_balance_cents}` -- the "log all
+      balances" flow (`Debts.reconcile_balance/5`): logs the gap to the
+      estimated balance as a payment and resets the statement baseline
+    * `{:handle_due, debt_id, :post | :skip, cycle_due_date_iso}` -- confirm-mode
+      due payments (`DuePayments`): `:post` logs the fixed payment (activity
+      `payment_auto_logged`, or `payment_logged` for a signed-in user) and
+      stamps `last_due_handled_on`; `:skip` only stamps it (activity
+      `due_payment_skipped`). `{:error, :not_due}` if that cycle is not
+      actually due.
     * `{:add_member_retirement_profile, user_id, attrs}` -- a profile for a
       confirmed workspace member (owner or invited member); `:not_found` for
       anyone else
@@ -76,7 +85,9 @@ defmodule DebtReliefTracker.Storage do
           | {:add_manual_retirement_profile, map()}
           | {:update_retirement_profile, id(), map()}
           | {:delete_retirement_profile, id()}
-  @type error :: :not_found | {:invalid, %{atom() => [String.t()]}}
+          | {:reconcile_balance, id(), integer()}
+          | {:handle_due, id(), :post | :skip, String.t()}
+  @type error :: :not_found | :not_due | {:invalid, %{atom() => [String.t()]}}
 
   @callback load(Workspace.t()) :: {:ok, snapshot()} | {:error, term()}
   @callback apply_change(Workspace.t(), user :: term(), change()) ::
