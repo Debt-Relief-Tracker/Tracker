@@ -366,9 +366,10 @@ strategy affects long-run retirement savings, not just debt payoff itself.
 
 Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 
-- [~] 0. Feasibility spike: Hologram 0.12.4 compiles; Decimal/Date not
-      portable (integer engine instead); CSP needs nonce plug. Still to
-      verify: crypto facade, passkey PRF, bundle size, locked first render.
+- [x] 0. Feasibility spike: GO (ADR 0007). Hologram 0.12.4 compiles; Decimal/Date
+      not portable (integer engine instead); CSP nonce plug built (Hologram
+      needs `'unsafe-eval'`, documented). Engine parity proven in the browser.
+      Open: real-device passkey PRF, Safari/Firefox, production bundle size.
 - [x] 1. ADR + JSON fixtures from the Decimal engine.
 - [x] 2. Client-safe integer engine (`Engine.*`) with parity tests. The
       Decimal engine is untouched and remains the app's live engine until
@@ -410,7 +411,7 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
       runs the debt/plan/retirement/settings flows in both modes and scans the
       server DB for plaintext. Sharing and the workspace switcher are hidden in
       E2EE v1. ADR 0007 "Data path".
-- [ ] 9. Plaintext -> vault migration with verification and confirmed delete.
+- [x] 9. Plaintext -> vault migration with verification and confirmed delete.
       Decided: owner of a shared workspace migrates and other members lose
       access (explicit confirmation listing them); unmigrated users keep
       plaintext until next login (forced wizard, admin count of unmigrated);
@@ -424,9 +425,27 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
         `DuePayments.Scheduler` skips any workspace with a vault, admin
         encryption counts/column. Tested on SQLite and Postgres incl. racing
         finalizes and rollback.
-  - [ ] Browser half: build vault from the export, verify by re-download,
-        call finalize (confirmation UI listing members), mount `MigrationGate`.
-- [ ] 10. Security review.
+  - [x] Browser half: `MigrationFlow` (pure state machine; finalize reachable
+        only after a strict verified match, bound to the verified vault
+        rev + blob hash), `MigrationScreen`, rebuild-on-change and resume
+        after reload, member-loss confirmation. Browser tests: happy path and
+        recovery paths (changed mid-migration, resume, corrupted download
+        deletes nothing, busy retry).
+- [x] 10. Security review: two read-only reviews (client/crypto: 0 Critical/High;
+      server/auth/migration: 3 High fixed) and fixes -- command gating on
+      `E2EE.enabled?`, owner-only vault writes, CSP on `/`, `/admin`, `/auth/*`,
+      clock-skew clamp, save-loop wedge, device-lock persistence, KDF bounds,
+      CSV formula guard, opt-in `FORCE_SSL`. Findings and open Lows in ADR 0007.
+
+### Remaining before a production deploy (owner)
+
+- [ ] Review the draft Terms / in-app wording (`docs/e2ee-user-facing-copy.md`).
+- [ ] Real-device passkey (PRF) and Safari/Firefox/mobile check of the wizard.
+- [ ] Run `mix drt.audit_snapshot` against a COPY of production data.
+- [ ] Docker/Render build of the image (never built here) and the
+      `docs/deploy-e2ee.md` two-step deploy with a Render backup first.
+- [ ] Decide: `activity_logs.inserted_at` precision migration (Postgres),
+      cutting `/` over to `/app`, and the stale `CLAUDE.md` dev-DB line.
 
 ## Verification
 
