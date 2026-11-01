@@ -135,6 +135,20 @@ defmodule DebtReliefTracker.BrowserCase do
     ctx
   end
 
+  def check(%{driver: d} = ctx, selector) do
+    Driver.call(d, "check", %{selector: selector})
+    ctx
+  end
+
+  @doc "Current value of an input (raises if absent; see BrowserExtras.value/2 for a nil-safe read)."
+  def input_value(%{driver: d}, selector), do: Driver.call(d, "value", %{selector: selector})
+
+  @doc "Mouse click at viewport coordinates (e.g. on the overlay outside a dialog)."
+  def click_xy(%{driver: d} = ctx, x, y) do
+    Driver.call(d, "click_xy", %{x: x, y: y})
+    ctx
+  end
+
   def text(%{driver: d}, selector), do: Driver.call(d, "text", %{selector: selector})
 
   def current_path(%{driver: d}), do: Driver.call(d, "path", %{})
