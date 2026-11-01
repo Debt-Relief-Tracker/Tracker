@@ -47,7 +47,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
   def template do
     ~HOLO"""
     <div id="debt-sidebar" class="flex flex-col gap-3">
-      <button id="add-debt-button" type="button" class="btn btn-primary btn-sm w-full" $click="open_add_debt">
+      <button id="add-debt-button" type="button" class="btn btn-primary btn-sm min-h-9 sm:min-h-0 w-full" $click="open_add_debt">
         <span class="hero-plus size-4"></span> Add debt
       </button>
       <button id="log-all-balances-button" type="button" class="btn btn-soft btn-sm w-full" $click="open_log_all_balances">
@@ -75,7 +75,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
             <button
               id={"confirm-due-payment-#{prompt.id}"}
               type="button"
-              class="btn btn-primary btn-xs"
+              class="btn btn-primary btn-xs min-h-8 sm:min-h-0"
               $click={:due_decision, id: prompt.id, decision: :post, cycle: prompt.cycle}
             >
               Log it
@@ -144,7 +144,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
               <div id={"confirm-paid-#{row.id}"} class="mt-1 text-xs flex flex-col gap-1">
                 <span>Mark {row.name} as paid off?</span>
                 <div class="flex gap-1">
-                  <button id={"confirm-mark-paid-#{row.id}"} type="button" class="btn btn-primary btn-xs" $click={:mark_paid, id: row.id}>
+                  <button id={"confirm-mark-paid-#{row.id}"} type="button" class="btn btn-primary btn-xs min-h-8 sm:min-h-0" $click={:mark_paid, id: row.id}>
                     Yes, mark paid
                   </button>
                   <button id={"cancel-mark-paid-#{row.id}"} type="button" class="btn btn-xs" $click="cancel_mark_paid">Cancel</button>

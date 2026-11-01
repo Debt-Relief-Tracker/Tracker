@@ -113,6 +113,9 @@ const handlers = {
   async viewport({ width, height }) {
     await page.setViewportSize({ width, height });
   },
+  async screenshot({ path, fullPage }) {
+    await page.screenshot({ path, fullPage: !!fullPage });
+  },
   async click_at({ selector, x, y }) {
     await page.click(selector, { position: { x, y } });
   },
