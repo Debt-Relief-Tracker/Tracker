@@ -30,6 +30,8 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   alias DebtReliefTrackerWeb.Holo.Components.Footer
   alias DebtReliefTrackerWeb.Holo.Components.HeaderBar
   alias DebtReliefTrackerWeb.Holo.Components.LogAllBalancesModal
+  alias DebtReliefTrackerWeb.Holo.Components.MigrationGate
+  alias DebtReliefTrackerWeb.Holo.Components.MigrationScreen
   alias DebtReliefTrackerWeb.Holo.Components.PaymentModal
   alias DebtReliefTrackerWeb.Holo.Components.PlanPanel
   alias DebtReliefTrackerWeb.Holo.Components.RetirementBanner
@@ -66,6 +68,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
         )
 
       component
+      |> put_state(:migration, migration_needed?(workspace))
       |> put_context(:e2ee, true)
       |> put_state(:e2ee, true)
       |> put_state(:vault, vault)
@@ -84,6 +87,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
       {:ok, snapshot} = Context.load(server)
 
       component
+      |> put_state(:migration, false)
       |> put_context(:e2ee, false)
       |> put_state(:e2ee, false)
       |> put_state(:vault, nil)
@@ -99,9 +103,19 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     end
   end
 
+  # E2EE is on and the workspace still holds plaintext: the one-time
+  # migration screen replaces the normal "no vault -> setup wizard".
+  defp migration_needed?(workspace),
+    do: DebtReliefTracker.E2EE.Migration.status(workspace) in [:plaintext_only, :both]
+
   def template do
     ~HOLO"""
     <div id="holo-dashboard" class="flex flex-col min-h-screen">
+      {%if @e2ee and @migration and @vault.phase != :locked}
+        <main id="e2ee-migrating" class="flex-1 flex flex-col items-center justify-center gap-4 p-4 sm:p-6">
+          <MigrationScreen cid="migration_screen" vault={@vault} account={@account} />
+        </main>
+      {%else}
       {%if @e2ee and @vault.rollback}
         <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
           <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
@@ -188,9 +202,11 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
           {/if}
         {/if}
       {/if}
+      {/if}
 
       {%if @e2ee}
         <VaultGate cid="vault_gate" />
+        <MigrationGate cid="migration_gate" />
         {%if @modal}
           {%if @modal.type == :vault_methods}
             <VaultMethods cid="vault_methods" vault={@vault} account={@account} />
@@ -244,8 +260,63 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
   # --- E2EE mode: delegated to Holo.VaultFlow (see its moduledoc) --------------
 
-  def action(:vault_boot, _params, component), do: VaultFlow.boot(component)
+  def action(:vault_boot, _params, component) do
+    component = VaultFlow.boot(component)
+
+    # A plaintext workspace with no vault yet: start the migration right away
+    # (with an existing vault, `:both`, it starts once the vault is unlocked).
+    if component.state.migration and component.state.vault.phase == :no_vault do
+      put_action(component,
+        name: :migration_event,
+        target: "migration_screen",
+        params: %{event: :vault_ready}
+      )
+    else
+      component
+    end
+  end
+
+  # The migration's verification download: the fetch reply goes to the screen.
+  def action(:vault_result, %{op: :fetch_vault} = params, component) do
+    if component.state.vault.flow == :migration_verify do
+      component
+      |> put_state(:vault, %{component.state.vault | flow: nil})
+      |> put_action(
+        name: :migration_event,
+        target: "migration_screen",
+        params: %{event: {:fetched, params}}
+      )
+    else
+      VaultFlow.result(component, params)
+    end
+  end
+
   def action(:vault_result, params, component), do: VaultFlow.result(component, params)
+
+  def action(:migration_fetch, _params, component) do
+    component
+    |> put_state(:vault, %{component.state.vault | flow: :migration_verify})
+    |> put_action(name: :fetch_vault, target: "vault_gate")
+  end
+
+  # MigrationGate replies (target "page") are routed to the screen.
+  def action(:migration_status_result, params, component),
+    do: to_migration(component, {:status_result, params})
+
+  def action(:migration_export_result, params, component),
+    do: to_migration(component, {:export_result, params})
+
+  def action(:migration_finalize_result, params, component),
+    do: to_migration(component, {:finalize_result, params})
+
+  def action(:migration_error_result, _params, component), do: component
+
+  def action(:migration_finished, _params, component) do
+    component
+    |> put_state(:migration, false)
+    |> put_action(name: :plan_inputs_changed, target: "plan_panel", delay: 50)
+  end
+
   def action(:vault_opened, params, component), do: VaultFlow.opened(component, params)
 
   def action(:vault_create_request, params, component),
@@ -303,4 +374,12 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     |> put_state(:strategy, strategy)
     |> put_action(name: :plan_inputs_changed, target: "plan_panel")
   end
+
+  defp to_migration(component, event),
+    do:
+      put_action(component,
+        name: :migration_event,
+        target: "migration_screen",
+        params: %{event: event}
+      )
 end

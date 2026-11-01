@@ -343,14 +343,35 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       plan_changed(c)
     else
       if creating, do: Crypto.lock(creating.handle)
-      merge(c, %{busy: nil, error: :create_failed, creating: nil})
+      c = merge(c, %{busy: nil, error: :create_failed, creating: nil})
+
+      if Map.get(c.state, :migration) do
+        put_action(c,
+          name: :migration_event,
+          target: "migration_screen",
+          params: %{event: :vault_failed}
+        )
+      else
+        c
+      end
     end
   end
 
   # The dashboard components mount (or, after a lock, remount with their old
   # state) when the vault opens: have the plan panel derive from the document.
-  defp plan_changed(c),
-    do: put_action(c, name: :plan_inputs_changed, target: "plan_panel", delay: 50)
+  # During the plaintext -> vault migration the dashboard is not mounted: the
+  # migration screen is told the vault is ready instead.
+  defp plan_changed(c) do
+    if Map.get(c.state, :migration) do
+      put_action(c,
+        name: :migration_event,
+        target: "migration_screen",
+        params: %{event: :vault_ready}
+      )
+    else
+      put_action(c, name: :plan_inputs_changed, target: "plan_panel", delay: 50)
+    end
+  end
 
   defp wrap_with_defaults(w, now) do
     Map.merge(%{salt: nil, kdf_params: nil, credential_id: nil, inserted_at: now}, w)

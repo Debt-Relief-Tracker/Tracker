@@ -2,9 +2,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
   @moduledoc """
   Server side of the one-time plaintext -> vault migration
   (docs/architecture/0007-e2ee.md, "Migration server contract"). Thin
-  commands over `DebtReliefTracker.E2EE.Migration`; the browser UI is wired
-  later. Not yet mounted in `DashboardPage` (the integration step adds
-  `<MigrationGate cid="migration_gate" />` next to `VaultGate`).
+  commands over `DebtReliefTracker.E2EE.Migration`; the browser UI is
+  `Holo.Components.MigrationScreen`, and `DashboardPage` mounts this next to
+  `VaultGate` and routes the replies to the screen.
 
   Rules: the workspace and user come from `Holo.Context` (the session
   `Holo.Auth` resolved), NEVER params; owner-only checks live in the context;

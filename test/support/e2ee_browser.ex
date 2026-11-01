@@ -93,7 +93,7 @@ defmodule DebtReliefTracker.E2EEBrowser do
     |> check("#setup-ack-saved")
     |> fill("#setup-ack-final", final)
     |> click("#setup-finish")
-    |> assert_selector("#vault-home")
+    |> assert_selector(Keyword.get(opts, :done_selector, "#vault-home"))
 
     {ctx, key}
   end
