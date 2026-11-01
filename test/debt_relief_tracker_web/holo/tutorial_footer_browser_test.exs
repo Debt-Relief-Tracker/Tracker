@@ -31,8 +31,6 @@ defmodule DebtReliefTrackerWeb.Holo.TutorialFooterBrowserTest do
 
   defp tutorial_seen?, do: Accounts.get_default_user!().tutorial_seen
 
-  defp step_title(ctx), do: text(ctx, "#tutorial-title")
-
   # The spotlight hole must surround the target, the card must be on screen
   # and must not cover the target.
   defp assert_sane_geometry(ctx, target) do
@@ -150,7 +148,7 @@ defmodule DebtReliefTrackerWeb.Holo.TutorialFooterBrowserTest do
         "document.querySelector('#chart-type-monthly_payments').className.includes('btn-primary')"
       )
 
-      for _ <- 1..3, do: click(ctx, "#tutorial-next")
+      for _ <- 1..4, do: click(ctx, "#tutorial-next")
       assert_text(ctx, "#tutorial-progress", "Step 5 of 7")
 
       wait_js(

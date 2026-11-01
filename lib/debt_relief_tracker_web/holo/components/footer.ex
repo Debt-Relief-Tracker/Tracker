@@ -2,6 +2,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.Footer do
   @moduledoc """
   App footer plus the donate modal (ported from `Layouts.app_footer`).
   The modal's open/closed flag is local component state; no page modal.
+  It closes on the button, a click outside the card, and Escape (as the LiveView does).
   Mobile: the footer wraps onto two lines with edge padding.
   """
 
@@ -43,6 +44,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.Footer do
         id="donate-modal"
         class={donate_modal_class(@donate_open)}
       >
+        {%if @donate_open}
+          <window $key_down.escape="close_donate" />
+        {/if}
         <div class="absolute inset-0" $click={:close_donate}></div>
         <div class="relative bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
           <div class="space-y-4 text-base-content">
