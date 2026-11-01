@@ -88,6 +88,9 @@ math (no Decimal/float). Put reusable parse/format helpers in
   Hologram renderer / the test harness if available, else via its pure
   helpers + action tests. Port the *behavior* of the matching tests in
   `test/debt_relief_tracker_web/live/dashboard_live_test.exs`.
+- DB-touching code must also pass on Postgres: run `scripts/pg_test.sh`
+  (throwaway local cluster, see ADR 0001). Never assume row order without
+  `ORDER BY`, and don't rely on sub-second ordering of `inserted_at`.
 - Browser tests (if the `:browser` harness exists on your base) are tagged
   `@tag :browser` and excluded by default.
 
@@ -122,8 +125,9 @@ supervised endpoint (config keeps `server: false`; never `mix phx.server` /
 what the test seeded (so browser tests are never `async`), and drives headless
 Chromium through `test/browser/driver.mjs` (playwright-core over a Port).
 The driver uses the Chromium already cached in `~/.cache/ms-playwright`
-(override with `CHROMIUM_PATH`), so no download is needed. The test DB is the
-SQLite test database only.
+(override with `CHROMIUM_PATH`), so no download is needed. The test DB is SQLite by default; `scripts/pg_test.sh test --include browser`
+runs the same tests against a throwaway Postgres (ADR 0001, "Testing on
+Postgres").
 
 Writing one:
 
