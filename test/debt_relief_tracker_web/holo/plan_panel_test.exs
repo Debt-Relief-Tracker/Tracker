@@ -40,14 +40,44 @@ defmodule DebtReliefTrackerWeb.Holo.PlanPanelTest do
   defp server, do: Hologram.Server.put_stash(%Hologram.Server{}, :holo_user_id, nil)
 
   describe "init/3 (server render)" do
-    test "derives the cards for the comparison chart and queues the first draw", %{snapshot: s} do
+    test "derives the cards and draws the first chart from the server's config", %{snapshot: s} do
       props = %{snapshot: s, account: %{}, strategy: :cash_flow}
       component = PlanPanel.init(props, %Component{props: props}, %Hologram.Server{})
 
       assert component.state.chart_type == :comparison
       assert component.state.chart_message == nil
       assert [%{name: "Visa", extra: true}] = component.state.view.this_month.lines
-      assert %Action{name: :plan_inputs_changed} = component.next_action
+
+      assert %Action{name: :draw, target: "plan_chart", params: %{config: %{type: "bar"}}} =
+               component.next_action
+
+      # The full simulations aren't shipped in the page state.
+      assert component.state.derived == nil
+    end
+  end
+
+  describe "simulation cache" do
+    test "switching chart types reuses the cached simulations", %{snapshot: s} do
+      component = s |> mount() |> run(:plan_inputs_changed)
+      cached = component.state.derived
+      assert %{strategies: %{cash_flow: {:ok, _}}} = cached
+
+      component = run(component, :select_chart_type, %{chart_type: :simulation})
+      assert component.state.derived == cached
+    end
+
+    test "a strategy-only change reuses them; a budget change re-runs them", %{snapshot: s} do
+      component = s |> mount() |> run(:plan_inputs_changed)
+      strategies = component.state.derived.strategies
+
+      component = %{component | props: %{component.props | strategy: :avalanche}}
+      component = run(component, :plan_inputs_changed)
+      assert component.state.derived.strategies == strategies
+      assert component.state.derived.strategy == :avalanche
+
+      component = run(component, :budget_changed, %{event: %{value: "1000"}})
+      refute component.state.derived.strategies == strategies
+      assert component.state.derived.budget == 100_000
     end
   end
 
@@ -168,7 +198,11 @@ defmodule DebtReliefTrackerWeb.Holo.PlanPanelTest do
 
       assert component.state.budget_draft == "1000"
 
-      saved = %{component | props: %{component.props | snapshot: put_in(s.settings.monthly_budget, 100_000)}}
+      saved = %{
+        component
+        | props: %{component.props | snapshot: put_in(s.settings.monthly_budget, 100_000)}
+      }
+
       assert run(saved, :plan_inputs_changed).state.budget_draft == nil
     end
 
@@ -207,7 +241,11 @@ defmodule DebtReliefTrackerWeb.Holo.PlanPanelTest do
 
       assert %Action{name: :settings_saved, params: %{snapshot: snapshot}} = server.next_action
       assert snapshot.settings.monthly_budget == 123_456
-      assert Decimal.equal?(Settings.get_settings!(workspace).monthly_budget, Decimal.new("1234.56"))
+
+      assert Decimal.equal?(
+               Settings.get_settings!(workspace).monthly_budget,
+               Decimal.new("1234.56")
+             )
     end
 
     test "persists the budget mode", %{workspace: workspace} do

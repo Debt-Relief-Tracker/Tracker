@@ -13,7 +13,7 @@ defmodule DebtReliefTrackerWeb.Holo.PlanChartBrowserTest do
   @moduletag :browser
   @moduletag timeout: 180_000
 
-  @script Path.expand("../../../support/browser/plan_chart_check.mjs", __DIR__)
+  @script Path.expand("../../support/browser/plan_chart_check.mjs", __DIR__)
 
   defp chromium do
     System.get_env("BROWSER_CHROMIUM") ||
@@ -40,7 +40,8 @@ defmodule DebtReliefTrackerWeb.Holo.PlanChartBrowserTest do
     port = 4500 + :rand.uniform(400)
 
     start_supervised!(
-      {Bandit, plug: DebtReliefTrackerWeb.Endpoint, ip: {127, 0, 0, 1}, port: port, startup_log: false}
+      {Bandit,
+       plug: DebtReliefTrackerWeb.Endpoint, ip: {127, 0, 0, 1}, port: port, startup_log: false}
     )
 
     %{workspace: workspace, base_url: "http://127.0.0.1:#{port}"}
@@ -56,8 +57,14 @@ defmodule DebtReliefTrackerWeb.Holo.PlanChartBrowserTest do
     shots = Path.join(System.tmp_dir!(), "plan-chart-shots")
     File.mkdir_p!(shots)
 
-    {output, _status} = System.cmd("node", [@script, chromium, base_url, shots], stderr_to_stdout: true)
-    report = output |> String.split("\n", trim: true) |> List.last() |> Jason.decode!()
+    {output, _status} =
+      System.cmd("node", [@script, chromium, base_url, shots], stderr_to_stdout: true)
+
+    report =
+      case output |> String.split("\n", trim: true) |> List.last() |> Jason.decode() do
+        {:ok, report} -> report
+        {:error, _} -> flunk("browser script failed:\n#{output}")
+      end
 
     IO.puts("\nbrowser report: #{inspect(report, pretty: true)}\nscreenshots: #{shots}")
 

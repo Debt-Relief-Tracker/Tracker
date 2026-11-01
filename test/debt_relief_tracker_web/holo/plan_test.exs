@@ -11,7 +11,12 @@ defmodule DebtReliefTrackerWeb.Holo.PlanTest do
       schema_version: 1,
       settings:
         Map.merge(
-          %{monthly_budget: nil, currency: "USD", budget_mode: "total", retirement_onboarding_dismissed: false},
+          %{
+            monthly_budget: nil,
+            currency: "USD",
+            budget_mode: "total",
+            retirement_onboarding_dismissed: false
+          },
           settings
         ),
       debts: debts,
@@ -95,7 +100,9 @@ defmodule DebtReliefTrackerWeb.Holo.PlanTest do
 
   describe "budget" do
     test "the saved budget, else the 105%-of-minimums default" do
-      assert Plan.effective_budget(snapshot([debt([])], %{monthly_budget: 50_000}), nil, :total) == 50_000
+      assert Plan.effective_budget(snapshot([debt([])], %{monthly_budget: 50_000}), nil, :total) ==
+               50_000
+
       # $100 minimum * 1.05 rounded up to a whole dollar.
       assert Plan.effective_budget(snapshot([debt([])]), nil, :total) == 10_500
       assert Plan.effective_budget(snapshot([]), nil, :total) == 20_000
@@ -129,7 +136,10 @@ defmodule DebtReliefTrackerWeb.Holo.PlanTest do
       s = snapshot([debt(id: "a", name: "A"), debt(id: "b", name: "B", balance: 50_000)])
       %{this_month: %{lines: lines, message: nil}} = view(s, 30_000, :snowball)
 
-      assert [%{name: "A", payment: 20_000, extra: true}, %{name: "B", payment: 10_000, extra: false}] =
+      assert [
+               %{name: "A", payment: 20_000, extra: true},
+               %{name: "B", payment: 10_000, extra: false}
+             ] =
                lines
     end
 
@@ -144,7 +154,16 @@ defmodule DebtReliefTrackerWeb.Holo.PlanTest do
     end
 
     test "a plan that never converges says so (the LiveView called it a budget problem)" do
-      s = snapshot([card(balance: 1_000_000, apr_bp: 5_000, minimum_payment_floor: 100, minimum_payment_rate_bp: 0)])
+      s =
+        snapshot([
+          card(
+            balance: 1_000_000,
+            apr_bp: 5_000,
+            minimum_payment_floor: 100,
+            minimum_payment_rate_bp: 0
+          )
+        ])
+
       %{message: message} = view(s, 200).this_month
       assert message =~ "doesn't pay off within 50 years"
     end

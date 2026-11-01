@@ -62,7 +62,8 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageTest do
       assert text(doc, "#budget-form label") =~ "Monthly budget"
       assert count(doc, "#budget-mode-total.btn-primary") == 1
 
-      for type <- ~w(comparison simulation monthly_payments freed_cashflow interest_breakdown retirement_roadmap) do
+      for type <-
+            ~w(comparison simulation monthly_payments freed_cashflow interest_breakdown retirement_roadmap) do
         assert count(doc, "#chart-type-#{type}") == 1
       end
 
@@ -103,12 +104,15 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageTest do
 
   describe "page actions" do
     test "snapshot and strategy changes tell the plan panel to recompute" do
-      component = %Hologram.Component{state: %{}}
+      component = %Hologram.Component{state: %{modal: nil}}
 
       assert %{next_action: %{name: :plan_inputs_changed, target: "plan_panel"}} =
                DashboardPage.action(:snapshot_updated, %{snapshot: %{}}, component)
 
-      assert %{state: %{strategy: :snowball}, next_action: %{name: :plan_inputs_changed, target: "plan_panel"}} =
+      assert %{
+               state: %{strategy: :snowball},
+               next_action: %{name: :plan_inputs_changed, target: "plan_panel"}
+             } =
                DashboardPage.action(:select_strategy, %{strategy: :snowball}, component)
     end
   end

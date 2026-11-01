@@ -50,7 +50,8 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
         debt(id: 2, balance: 50_000, fixed_payment: 10_000)
       ]
 
-      {nil, config} = build(:comparison, Planning.compare_strategies(debts, 30_000), debts, 30_000)
+      {nil, config} =
+        build(:comparison, Planning.compare_strategies(debts, 30_000), debts, 30_000)
 
       assert config.type == "bar"
       assert config.data.labels == ["Cash flow", "Snowball", "Avalanche"]
@@ -215,15 +216,88 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
       assert {^message, nil} = build(:retirement_roadmap, %{}, [], 10_000, [], nil)
     end
 
-    # EXTENSION POINT: flips to a chart once Engine.Retirement is wired into
-    # Engine.Charts.retirement_projections/3 -- update this test then.
-    test "with profiles, an 'unavailable' message until Engine.Retirement is wired in" do
-      assert {message, nil} = build(:retirement_roadmap, %{}, [], 10_000, [], [%{id: "p1"}])
-      assert message =~ "isn't available"
+    # Ported from the LiveView charts_test, over Engine.Retirement and the
+    # snapshot's profile shape (cents / basis points).
+    defp profile(attrs) do
+      Map.merge(
+        %{
+          current_age: 30,
+          retirement_age: 32,
+          current_retirement_savings: 0,
+          monthly_retirement_contribution: 0,
+          monthly_gross_income: 0,
+          post_debt_investment_bp: 1_500,
+          expected_annual_return_bp: 700
+        },
+        Map.new(attrs)
+      )
+    end
+
+    test "a baseline plus one dataset per strategy when a profile is set" do
+      debts = [debt(id: 1, balance: 30_000, fixed_payment: 10_000)]
+      profiles = [profile(monthly_retirement_contribution: 10_000, monthly_gross_income: 400_000)]
+
+      {nil, config} = build(:retirement_roadmap, %{}, debts, 10_000, [], profiles)
+
+      assert config.type == "line"
+      assert config.data.labels == ["Year 0", "Year 1", "Year 2"]
+      assert config.options.interaction == %{mode: "index", intersect: false}
+
+      assert Enum.map(config.data.datasets, & &1.label) ==
+               ["Baseline (no debt strategy)", "Cash flow", "Snowball", "Avalanche"]
+
+      for dataset <- config.data.datasets do
+        assert length(dataset.data) == 3
+        assert Enum.all?(dataset.data, &is_binary/1)
+        assert length(dataset.afterLabels) == 3
+      end
+
+      # Debt gone by month 3 -> every strategy contributes 15% of $4000.
+      cash_flow = Enum.find(config.data.datasets, &(&1.label == "Cash flow"))
+
+      assert cash_flow.afterLabels ==
+               ["Contributing $100.00/mo", "Contributing $600.00/mo", "Contributing $600.00/mo"]
+
+      [baseline | _] = config.data.datasets
+      assert baseline.afterLabels == List.duplicate("Contributing $100.00/mo", 3)
+    end
+
+    test "drops a strategy's dataset when its plan errors, keeping the baseline" do
+      {nil, config} = build(:retirement_roadmap, %{}, unaffordable(), 1_000, [], [profile([])])
+      assert [%{label: "Baseline (no debt strategy)"}] = config.data.datasets
+    end
+
+    test "with no debts, every strategy line matches and diverges from baseline" do
+      profiles = [profile(monthly_retirement_contribution: 10_000, monthly_gross_income: 400_000)]
+      {nil, config} = build(:retirement_roadmap, %{}, [], 10_000, [], profiles)
+
+      [baseline | strategy_datasets] = config.data.datasets
+      strategy_series = Enum.map(strategy_datasets, & &1.data)
+      assert Enum.uniq(strategy_series) == [hd(strategy_series)]
+      refute hd(strategy_series) == baseline.data
+    end
+
+    test "sums two people's projections, each stopping at their own retirement age" do
+      common = [
+        monthly_retirement_contribution: 10_000,
+        post_debt_investment_bp: 0,
+        expected_annual_return_bp: 0
+      ]
+
+      profiles = [
+        profile([retirement_age: 31] ++ common),
+        profile([retirement_age: 32] ++ common)
+      ]
+
+      {nil, config} = build(:retirement_roadmap, %{}, [], 10_000, [], profiles)
+
+      assert config.data.labels == ["Year 0", "Year 1", "Year 2"]
+      [baseline | _] = config.data.datasets
+      assert baseline.data == ["0.00", "2400.00", "3600.00"]
     end
   end
 
-  describe "retirement_roadmap_config/2 (the extension point's chart shape)" do
+  describe "retirement_roadmap_config/2 (chart shape from given projections)" do
     # Mirrors the LiveView test: a 2-year horizon, debt paid off before
     # year 1, contributions jumping from $100 to $600/mo afterwards.
     defp projections do
@@ -240,7 +314,11 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
       %{
         months: 24,
         baseline: baseline,
-        strategies: %{cash_flow: {:ok, strategy}, snowball: {:ok, strategy}, avalanche: {:ok, strategy}}
+        strategies: %{
+          cash_flow: {:ok, strategy},
+          snowball: {:ok, strategy},
+          avalanche: {:ok, strategy}
+        }
       }
     end
 
@@ -305,18 +383,25 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
                maximumFractionDigits: 0
              }
 
-      assert Enum.all?(config.data.datasets, &(&1.valueFormat == %{style: "currency", currency: "GBP"}))
+      assert Enum.all?(
+               config.data.datasets,
+               &(&1.valueFormat == %{style: "currency", currency: "GBP"})
+             )
     end
 
     test "the comparison chart's months dataset is formatted as months" do
       debts = two_installments()
-      {nil, config} = build(:comparison, Planning.compare_strategies(debts, 20_000), debts, 20_000)
+
+      {nil, config} =
+        build(:comparison, Planning.compare_strategies(debts, 20_000), debts, 20_000)
 
       assert [%{valueFormat: %{style: "currency"}}, %{valueFormat: %{unit: "month"}}] =
                config.data.datasets
     end
 
-    test "configs contain no floats, atoms as values, or tuples (client-safe, JS-convertible)" do
+    # The only floats are Chart.js's line `tension` style literals -- never
+    # an amount -- so no money ever passes through a float.
+    test "configs hold no money floats, atom values or tuples (client-safe, JS-convertible)" do
       debts = two_installments()
       strategies = Planning.compare_strategies(debts, 20_000)
       payments = [%{principal_portion: 100, interest_portion: 5}]
@@ -338,7 +423,7 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
     defp assert_js_clean(value) when is_map(value) do
       for {key, v} <- value do
         assert is_atom(key)
-        assert_js_clean(v)
+        if key == :tension, do: assert(is_float(v)), else: assert_js_clean(v)
       end
     end
 
@@ -363,7 +448,9 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
     test "swaps list-valued colors and the freed-cash-flow fill" do
       payments = [%{principal_portion: 100, interest_portion: 5}]
       {nil, doughnut} = build(:interest_breakdown, %{}, [], 0, payments)
-      assert [%{backgroundColor: ["#60a5fa", "#fb923c"]}] = Charts.themed(doughnut, :dark).data.datasets
+
+      assert [%{backgroundColor: ["#60a5fa", "#fb923c"]}] =
+               Charts.themed(doughnut, :dark).data.datasets
 
       {nil, freed} = build(:freed_cashflow, %{}, two_installments(), 20_000)
 

@@ -277,4 +277,10 @@ defmodule DebtReliefTrackerWeb.Layouts do
   end
 
   def saved_theme(_assigns), do: nil
+
+  @doc """
+  The Umami script's `src` and `data-website-id` for root.html.heex, or `nil`
+  when `PUBLIC_UMAMI_URL`/`PUBLIC_UMAMI_ID` aren't both set (see runtime.exs).
+  """
+  def umami_config, do: Application.get_env(:debt_relief_tracker, :umami)
 end

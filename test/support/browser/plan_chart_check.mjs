@@ -23,7 +23,7 @@ const browser = spawn(chromium, [
 ])
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
-const report = {steps: {}, errors: [], console: []}
+const report = {steps: {}, errors: [], console: [], timings: []}
 
 async function pageSocketUrl() {
   for (let i = 0; i < 100; i++) {
@@ -47,8 +47,14 @@ function send(method, params = {}) {
   return new Promise((resolve, reject) => pending.set(id, {resolve, reject}))
 }
 
-async function evaluate(expression) {
-  const res = await send("Runtime.evaluate", {expression, awaitPromise: true, returnByValue: true})
+// Rejects instead of hanging when the page's main thread is busy.
+async function evaluate(expression, timeout = 5000) {
+  const res = await Promise.race([
+    send("Runtime.evaluate", {expression, awaitPromise: true, returnByValue: true}),
+    sleep(timeout).then(() => {
+      throw new Error(`page unresponsive for ${timeout}ms evaluating ${expression.slice(0, 60)}`)
+    }),
+  ])
   if (res.exceptionDetails) throw new Error(JSON.stringify(res.exceptionDetails))
   return res.result.value
 }
@@ -58,7 +64,9 @@ async function waitFor(expression, timeout = 15000) {
   while (Date.now() - start < timeout) {
     try {
       if (await evaluate(expression)) return true
-    } catch (_) {}
+    } catch (error) {
+      report.console.push(String(error.message || error))
+    }
     await sleep(100)
   }
   return false
@@ -93,6 +101,18 @@ async function shot(name) {
   writeFileSync(join(shotDir, `${name}.png`), Buffer.from(data, "base64"))
 }
 
+// Moves the page's own error/timing logs into the report (before a reload
+// wipes them, and at the end).
+async function collectPage() {
+  try {
+    const page = await evaluate(`({errors: window.__errors || [], timings: window.__timings || []})`)
+    report.errors.push(...page.errors)
+    report.timings.push(...page.timings)
+  } catch (error) {
+    report.errors.push(`could not read page logs: ${error.message}`)
+  }
+}
+
 async function changedFrom(signature) {
   return waitFor(`${SIGNATURE} !== null && ${SIGNATURE} !== ${JSON.stringify(signature)}`)
 }
@@ -106,21 +126,35 @@ async function run() {
     if (msg.id && pending.has(msg.id)) {
       pending.get(msg.id).resolve(msg.result || {exceptionDetails: msg.error})
       pending.delete(msg.id)
-    } else if (msg.method === "Runtime.exceptionThrown") {
-      report.errors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text)
-    } else if (msg.method === "Runtime.consoleAPICalled" && msg.params.type === "error") {
-      report.errors.push(msg.params.args.map((a) => a.value ?? a.description).join(" "))
     }
   })
 
-  await send("Runtime.enable")
+  // Errors and Hologram's per-action timings are collected in the page, NOT
+  // via Runtime.enable: Hologram 0.12.4 console.logs every function call
+  // during an action, and streaming those over CDP stalls the page for
+  // tens of seconds -- a test artifact, not what a user's browser does.
   await send("Page.enable")
+  await send("Page.addScriptToEvaluateOnNewDocument", {
+    source: `
+      window.__errors = []; window.__timings = [];
+      addEventListener("error", (e) => __errors.push(String((e.error && e.error.stack) || e.message)));
+      addEventListener("unhandledrejection", (e) => __errors.push(String((e.reason && e.reason.stack) || e.reason)));
+      const error = console.error.bind(console);
+      console.error = (...a) => { __errors.push(a.map(String).join(" ")); error(...a) };
+      const log = console.log.bind(console);
+      console.log = (...a) => {
+        if (typeof a[0] === "string" && a[0].startsWith("Hologram: action")) __timings.push(a.join(" "));
+        log(...a);
+      };`,
+  })
   await send("Page.navigate", {url: `${baseUrl}/app`})
 
   const s = report.steps
 
   // 1. First load: the comparison chart is drawn after the page mounts.
-  s.initial_canvas = await waitFor(`${PAINTED} > 500`)
+  const loadStart = Date.now()
+  s.initial_canvas = await waitFor(`${PAINTED} > 500`, 30000)
+  report.first_chart_ms = Date.now() - loadStart
   s.initial_painted = await evaluate(PAINTED)
   await shot("1-comparison")
   let sig = await evaluate(SIGNATURE)
@@ -143,6 +177,10 @@ async function run() {
   s.message_shown = await waitFor(`(document.querySelector('#plan-chart-message')?.textContent || '').includes('Log a payment')`)
   s.canvas_removed = await waitFor(`${CANVAS_COUNT} === 0`)
 
+  // 4b. Retirement roadmap with no profiles: its setup message.
+  await click("#chart-type-retirement_roadmap")
+  s.retirement_message = await waitFor(`(document.querySelector('#plan-chart-message')?.textContent || '').includes('retirement profile')`)
+
   // 5. Back to a chart: a fresh canvas in the same container.
   await click("#chart-type-monthly_payments")
   s.canvas_back = await waitFor(`${PAINTED} > 500`)
@@ -162,6 +200,7 @@ async function run() {
   s.budget_chart_back = await waitFor(`${PAINTED} > 500`)
   await evaluate(`document.querySelector('#budget-input').blur()`)
   await sleep(2500)
+  await collectPage()
   await send("Page.reload")
   await sleep(500)
   s.budget_persisted = await waitFor(`document.querySelector('#budget-input')?.value === '1000.00'`)
@@ -178,12 +217,13 @@ async function run() {
   await evaluate(`(() => { const el = document.querySelector('#chart-type-select'); el.value = 'freed_cashflow'; el.dispatchEvent(new Event('change', {bubbles: true})); })()`)
   s.mobile_select = await waitFor(`!!document.querySelector('#chart-type-freed_cashflow.btn-primary') && ${PAINTED} > 200`)
   await shot("5-mobile")
+  await collectPage()
 }
 
 const timer = setTimeout(() => {
   report.errors.push("timed out")
   finish(1)
-}, 90000)
+}, 170000)
 
 function finish(code) {
   clearTimeout(timer)

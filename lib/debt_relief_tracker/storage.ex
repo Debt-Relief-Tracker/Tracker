@@ -28,7 +28,28 @@ defmodule DebtReliefTracker.Storage do
     * `{:delete_debt, id}` / `{:mark_paid_off, id}`
     * `{:log_payment, debt_id, attrs}` -- `:amount`, optional
       `:principal_portion`/`:interest_portion`, `:paid_on`, `:note`
-    * `{:update_settings, attrs}`
+    * `{:update_settings, attrs}` -- also how the retirement onboarding
+      prompt is dismissed: `%{retirement_onboarding_dismissed: true}`
+    * `{:add_member_retirement_profile, user_id, attrs}` -- a profile for a
+      confirmed workspace member (owner or invited member); `:not_found` for
+      anyone else
+    * `{:add_manual_retirement_profile, attrs}` -- a profile for someone with
+      no account: `:name` and optional `:claim_email`
+    * `{:update_retirement_profile, id, attrs}` / `{:delete_retirement_profile, id}`
+
+  Retirement profile `attrs` use the snapshot's `retirement_profiles` keys:
+  `:current_age`, `:retirement_age`, `:current_retirement_savings`,
+  `:monthly_retirement_contribution`, `:monthly_gross_income` (cents),
+  `:post_debt_investment_bp`, `:expected_annual_return_bp` (basis points of a
+  percent: 15% -> `1500`), plus `:name`/`:claim_email` for manual profiles.
+  Editing a member-linked profile ignores `:name`/`:claim_email`, as the
+  LiveView does.
+
+  The snapshot's `retirement_profiles` list (oldest first) carries each
+  person's inputs in those same units, plus `:user_id` (nil for a manual
+  profile) and a resolved `:display_name`. Who the *eligible* members for a new
+  profile are is account data, not part of the snapshot -- see
+  `DebtReliefTrackerWeb.Holo.Components.RetirementModal`.
 
   Every successful change returns the fresh snapshot.
   """
@@ -41,7 +62,8 @@ defmodule DebtReliefTracker.Storage do
           settings: map(),
           debts: [map()],
           payments: [map()],
-          activity: [map()]
+          activity: [map()],
+          retirement_profiles: [map()]
         }
   @type change ::
           {:add_debt, map()}
@@ -50,6 +72,10 @@ defmodule DebtReliefTracker.Storage do
           | {:mark_paid_off, id()}
           | {:log_payment, id(), map()}
           | {:update_settings, map()}
+          | {:add_member_retirement_profile, id(), map()}
+          | {:add_manual_retirement_profile, map()}
+          | {:update_retirement_profile, id(), map()}
+          | {:delete_retirement_profile, id()}
   @type error :: :not_found | {:invalid, %{atom() => [String.t()]}}
 
   @callback load(Workspace.t()) :: {:ok, snapshot()} | {:error, term()}

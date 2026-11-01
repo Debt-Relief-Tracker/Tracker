@@ -32,7 +32,8 @@ defmodule DebtReliefTrackerWeb.Holo.Plan do
   end
 
   @doc "Sum of this month's minimum payments over the plan's debts, in cents."
-  def minimums(snapshot), do: snapshot |> FromSnapshot.debts() |> Planning.total_minimum_payments()
+  def minimums(snapshot),
+    do: snapshot |> FromSnapshot.debts() |> Planning.total_minimum_payments()
 
   @doc """
   The budget the plan runs on, in cents: the typed `draft` when it parses
@@ -137,8 +138,7 @@ defmodule DebtReliefTrackerWeb.Holo.Plan do
       {:error, :insufficient_budget} ->
         %{
           lines: [],
-          message:
-            "Your monthly budget doesn't cover minimum payments yet -- increase it below."
+          message: "Your monthly budget doesn't cover minimum payments yet -- increase it below."
         }
 
       {:error, :did_not_converge} ->

@@ -8,6 +8,7 @@ defmodule DebtReliefTracker.Storage.Plain do
 
   @behaviour DebtReliefTracker.Storage
 
+  alias DebtReliefTracker.Accounts
   alias DebtReliefTracker.Debts
   alias DebtReliefTracker.Engine.Convert
   alias DebtReliefTracker.Payments
@@ -59,6 +60,47 @@ defmodule DebtReliefTracker.Storage.Plain do
   defp run(workspace, _user, {:update_settings, attrs}) do
     with {:ok, db_attrs} <- settings_attrs(attrs) do
       workspace |> Settings.get_settings!() |> Settings.update_settings(db_attrs) |> normalize()
+    end
+  end
+
+  defp run(workspace, _user, {:add_member_retirement_profile, user_id, attrs}) do
+    with {:ok, member} <- fetch_member(workspace, user_id),
+         {:ok, db_attrs} <- profile_attrs(attrs, [:name, :claim_email]) do
+      workspace |> Settings.add_member_retirement_profile(member, db_attrs) |> normalize()
+    end
+  end
+
+  defp run(workspace, _user, {:add_manual_retirement_profile, attrs}) do
+    with {:ok, db_attrs} <- profile_attrs(attrs, []) do
+      workspace |> Settings.add_manual_retirement_profile(db_attrs) |> normalize()
+    end
+  end
+
+  defp run(workspace, _user, {:update_retirement_profile, id, attrs}) do
+    with {:ok, profile} <- fetch_profile(workspace, id),
+         {:ok, db_attrs} <- profile_attrs(attrs, []) do
+      profile |> Settings.update_retirement_profile(db_attrs) |> normalize()
+    end
+  end
+
+  defp run(workspace, _user, {:delete_retirement_profile, id}) do
+    with {:ok, profile} <- fetch_profile(workspace, id) do
+      profile |> Settings.delete_retirement_profile() |> normalize()
+    end
+  end
+
+  defp fetch_profile(workspace, id) do
+    case Enum.find(Settings.list_retirement_profiles(workspace), &(&1.id == id)) do
+      nil -> {:error, :not_found}
+      profile -> {:ok, profile}
+    end
+  end
+
+  # Only confirmed members (owner included) can have a linked profile.
+  defp fetch_member(workspace, user_id) do
+    case Enum.find(Accounts.list_confirmed_members(workspace), &(&1.user_id == user_id)) do
+      nil -> {:error, :not_found}
+      member -> {:ok, member.user}
     end
   end
 
@@ -136,6 +178,32 @@ defmodule DebtReliefTracker.Storage.Plain do
         {:ok, {"monthly_budget", value && Convert.from_cents(value)}}
 
       {key, value} when key in [:currency, :budget_mode, :retirement_onboarding_dismissed] ->
+        {:ok, {to_string(key), value}}
+
+      {key, _value} ->
+        {:error, key}
+    end)
+  end
+
+  @profile_cents ~w(current_retirement_savings monthly_retirement_contribution monthly_gross_income)a
+  @profile_passthrough ~w(name claim_email current_age retirement_age)a
+
+  # `rejected` keys are accepted but dropped (e.g. a member profile has no own
+  # name/email, and the changeset would ignore them anyway).
+  defp profile_attrs(attrs, rejected) do
+    attrs = Map.drop(attrs, rejected)
+
+    convert(attrs, fn
+      {key, value} when key in @profile_cents ->
+        {:ok, {to_string(key), value && Convert.from_cents(value)}}
+
+      {:post_debt_investment_bp, value} ->
+        {:ok, {"post_debt_investment_pct", value && Convert.bp_to_percent(value)}}
+
+      {:expected_annual_return_bp, value} ->
+        {:ok, {"expected_annual_return_pct", value && Convert.bp_to_percent(value)}}
+
+      {key, value} when key in @profile_passthrough ->
         {:ok, {to_string(key), value}}
 
       {key, _value} ->

@@ -13,7 +13,8 @@ defmodule DebtReliefTracker.Engine.Charts do
 
     * Plotted values are **dollar strings with exact cents** (`"1234.56"`)
       instead of floats. Chart.js reads primitive data with `+value`, so
-      strings plot as numbers, and no float ever exists on our side.
+      strings plot as numbers, and no amount is ever a float. (The only
+      floats are the constant line `tension` style literals.)
     * Tick and tooltip formatting is declarative, so the JS facade
       (`assets/js/chart_facade.mjs`) stays free of app logic: a scale's
       `ticks.format` and a dataset's `valueFormat` are `Intl.NumberFormat`
@@ -32,6 +33,7 @@ defmodule DebtReliefTracker.Engine.Charts do
 
   alias DebtReliefTracker.Engine.Calculations
   alias DebtReliefTracker.Engine.Planning
+  alias DebtReliefTracker.Engine.Retirement
 
   @strategies [:cash_flow, :snowball, :avalanche]
   @chart_types [
@@ -73,7 +75,6 @@ defmodule DebtReliefTracker.Engine.Charts do
   @insufficient_budget_message "Your monthly budget doesn't cover minimum payments yet -- increase it above."
   @did_not_converge_message "This plan doesn't pay off within 50 years at this budget -- try raising it."
   @no_retirement_profile_message "Set up a retirement profile for at least one person to see how debt strategies affect your household's nest egg."
-  @retirement_unavailable_message "The retirement roadmap isn't available in this view yet."
 
   def strategies, do: @strategies
   def chart_types, do: @chart_types
@@ -417,29 +418,34 @@ defmodule DebtReliefTracker.Engine.Charts do
   defp retirement_roadmap(nil, _debts, _budget, _currency),
     do: {@no_retirement_profile_message, nil}
 
-  defp retirement_roadmap(profiles, debts, budget, currency) do
-    case retirement_projections(profiles, debts, budget) do
-      :unavailable -> {@retirement_unavailable_message, nil}
-      projections -> {nil, retirement_roadmap_config(projections, currency)}
-    end
-  end
-
-  # ==========================================================================
-  # EXTENSION POINT -- Engine.Retirement (being built separately).
-  #
-  # Replace this body with calls into the integer retirement engine, returning
-  # the `projections` map documented on `retirement_roadmap_config/2` (one
-  # baseline series and one `{:ok, series} | {:error, reason}` per strategy in
-  # `strategies/0`, all in cents). Everything downstream -- yearly sampling,
-  # labels, colors, tooltips, dropping errored strategies -- is already
-  # implemented and tested in `retirement_roadmap_config/2`. Until then any
-  # non-empty profile list shows `@retirement_unavailable_message`.
-  # ==========================================================================
-  defp retirement_projections(_profiles, _debts, _budget), do: :unavailable
+  defp retirement_roadmap(profiles, debts, budget, currency),
+    do:
+      {nil, retirement_roadmap_config(retirement_projections(profiles, debts, budget), currency)}
 
   @doc """
-  The retirement roadmap chart from already-computed projections (integer
-  cents), ported from `DebtReliefTrackerWeb.Charts.retirement_roadmap_chart/3`:
+  Runs `Engine.Retirement` for the roadmap: the household horizon, the
+  baseline series and each strategy's `{:ok, series} | {:error, reason}`, in
+  the shape `retirement_roadmap_config/2` takes. `profiles` are the
+  snapshot's `retirement_profiles`, `debts` engine debt maps.
+  """
+  def retirement_projections(profiles, debts, budget) do
+    %{
+      months: Retirement.combined_months_to_retirement(profiles),
+      baseline: %{
+        balances: Retirement.baseline_projection(profiles),
+        contributions: Retirement.baseline_contributions(profiles)
+      },
+      strategies:
+        Map.new(
+          @strategies,
+          &{&1, Retirement.strategy_projection_with_contributions(debts, profiles, budget, &1)}
+        )
+    }
+  end
+
+  @doc """
+  The retirement roadmap chart from projections (`retirement_projections/3`,
+  integer cents), ported from `DebtReliefTrackerWeb.Charts.retirement_roadmap_chart/3`:
 
       %{
         months: household_months_to_retirement,
@@ -449,7 +455,7 @@ defmodule DebtReliefTracker.Engine.Charts do
       }
 
   `balances` has `months + 1` entries (the starting balance first) and
-  `contributions` one per month, matching the Decimal `Planning.Retirement`.
+  `contributions` one per month, as `Engine.Retirement` returns them.
   Errored strategies are left out; the baseline always stays.
   """
   def retirement_roadmap_config(projections, currency \\ "USD") do

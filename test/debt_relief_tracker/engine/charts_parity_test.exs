@@ -66,7 +66,10 @@ defmodule DebtReliefTracker.Engine.ChartsParityTest do
       e_budget = Convert.to_cents(@scenario["budget"])
 
       d_payments =
-        Enum.map(@payments, &%{principal_portion: decimal(&1.principal), interest_portion: decimal(&1.interest)})
+        Enum.map(
+          @payments,
+          &%{principal_portion: decimal(&1.principal), interest_portion: decimal(&1.interest)}
+        )
 
       e_payments =
         Enum.map(d_payments, fn p ->
@@ -77,7 +80,9 @@ defmodule DebtReliefTracker.Engine.ChartsParityTest do
         end)
 
       for strategy <- Charts.strategies() do
-        d_strategies = Map.new(Charts.strategies(), &{&1, Planning.simulate(d_debts, d_budget, &1)})
+        d_strategies =
+          Map.new(Charts.strategies(), &{&1, Planning.simulate(d_debts, d_budget, &1)})
+
         e_strategies = EnginePlanning.compare_strategies(e_debts, e_budget)
 
         {d_message, d_config} =
@@ -87,8 +92,13 @@ defmodule DebtReliefTracker.Engine.ChartsParityTest do
           Charts.build(@type_, strategy, e_strategies, e_debts, e_budget, e_payments, [])
 
         assert_same_message(@type_, d_message, e_message)
+
         horizon =
-          e_strategies |> Map.values() |> Enum.map(&elem(&1, 1)) |> Enum.map(&(is_map(&1) && &1.total_months || 1)) |> Enum.max()
+          e_strategies
+          |> Map.values()
+          |> Enum.map(&elem(&1, 1))
+          |> Enum.map(&((is_map(&1) && &1.total_months) || 1))
+          |> Enum.max()
 
         if d_config,
           do: assert_parity(d_config, e_config, length(Planning.eligible(d_debts)), horizon)
@@ -96,8 +106,9 @@ defmodule DebtReliefTracker.Engine.ChartsParityTest do
     end
   end
 
-  defp assert_same_message(:freed_cashflow, "Add a debt" <> _, e_message) when is_binary(e_message),
-    do: assert(e_message =~ "budget" or e_message =~ "Add a debt")
+  defp assert_same_message(:freed_cashflow, "Add a debt" <> _, e_message)
+       when is_binary(e_message),
+       do: assert(e_message =~ "budget" or e_message =~ "Add a debt")
 
   defp assert_same_message(_type, d_message, e_message), do: assert(d_message == e_message)
 
@@ -142,7 +153,13 @@ defmodule DebtReliefTracker.Engine.ChartsParityTest do
 
   defp assert_close(e_value, d_value, max_cents) when is_binary(e_value) and is_float(d_value) do
     e_cents = Convert.to_cents(e_value)
-    d_cents = d_value |> Decimal.from_float() |> Decimal.mult(100) |> Decimal.round(0) |> Decimal.to_integer()
+
+    d_cents =
+      d_value
+      |> Decimal.from_float()
+      |> Decimal.mult(100)
+      |> Decimal.round(0)
+      |> Decimal.to_integer()
 
     assert abs(e_cents - d_cents) <= max_cents,
            "#{e_value} vs #{d_value}: drift over #{max_cents} cents"

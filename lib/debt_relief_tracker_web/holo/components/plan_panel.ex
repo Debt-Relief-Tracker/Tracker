@@ -7,8 +7,15 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   Inputs are the `snapshot` and `strategy` props plus this component's own
   state (chart type, the budget being typed). Everything shown is derived
   once per input change by `Holo.Plan` and kept in `:view`, so ordinary
-  re-renders cost nothing; the chart is drawn by the `plan_chart`
-  `Holo.Components.Chart` from an action, since JS interop only runs there.
+  re-renders cost nothing; the simulations are cached in `:derived` (keyed
+  on snapshot + budget), so switching chart type or strategy doesn't re-run
+  them. The chart is drawn by the `plan_chart` `Holo.Components.Chart` from
+  an action, since JS interop only runs there.
+
+  Performance note (Hologram 0.12.4): every client action console.logs the
+  duration of every function call it makes, which makes a full re-plan of a
+  long payoff (hundreds of months x 3 strategies) take ~2 s in the browser;
+  hence the cache and the server-computed first chart.
 
   Actions other components may target (`target: "plan_panel"`):
 
@@ -39,23 +46,29 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
 
   @save_error "Couldn't save your budget settings -- please try again."
 
-  # Server, first render: the cards are rendered from here; the chart is
-  # drawn once the component mounts in the browser.
+  # Server, first render: the cards and the first chart's config are
+  # computed here, so the browser draws the chart on mount without
+  # re-running the simulations. The client-side cache (`:derived`) starts
+  # empty and is filled by the first action that needs it -- the full plan
+  # is not shipped in the page.
   def init(props, component, _server) do
     %Date{year: year, month: month, day: day} = Date.utc_today()
 
+    component =
+      put_state(component,
+        chart_type: :comparison,
+        budget_draft: nil,
+        budget_focused?: false,
+        mode_pending: nil,
+        save_error: nil,
+        today: {year, month, day}
+      )
+
+    derived = derive(component, props.snapshot, props.strategy)
+
     component
-    |> put_state(
-      chart_type: :comparison,
-      budget_draft: nil,
-      budget_focused?: false,
-      mode_pending: nil,
-      save_error: nil,
-      today: {year, month, day}
-    )
-    |> recompute(props.snapshot, props.strategy)
-    |> elem(0)
-    |> put_action(:plan_inputs_changed)
+    |> put_state(view: Plan.view(derived), derived: nil)
+    |> draw(derived)
   end
 
   def template do
@@ -228,9 +241,16 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
     component |> settle_draft() |> refresh()
   end
 
+  # Only the chart changes: reuses the cached simulations.
   def action(:select_chart_type, %{chart_type: chart_type}, component) do
     if chart_type in Charts.chart_types() do
-      component |> put_state(:chart_type, chart_type) |> refresh()
+      component = put_state(component, :chart_type, chart_type)
+
+      derived =
+        component.state.derived ||
+          derive(component, component.props.snapshot, component.props.strategy)
+
+      component |> put_state(:derived, derived) |> draw(derived)
     else
       component
     end
@@ -250,7 +270,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
         component
 
       strategy ->
-        put_action(component, name: :select_strategy, target: "page", params: %{strategy: strategy})
+        put_action(component,
+          name: :select_strategy,
+          target: "page",
+          params: %{strategy: strategy}
+        )
     end
   end
 
@@ -277,7 +301,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
     do: put_state(component, :budget_focused?, true)
 
   def action(:budget_blurred, _params, component) do
-    component |> put_state(:budget_focused?, false) |> settle_draft() |> refresh()
+    component = put_state(component, :budget_focused?, false)
+    settled = settle_draft(component)
+
+    # Re-plan only if dropping the draft changed the budget in use.
+    if settled.state.budget_draft == component.state.budget_draft,
+      do: settled,
+      else: refresh(settled)
   end
 
   def action(:select_budget_mode, %{mode: mode}, component) when mode in [:total, :margin] do
@@ -312,7 +342,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   defp settings_attrs(attrs) do
     Map.new(
       for {key, value} <- attrs,
-          key == :monthly_budget and is_integer(value) or
+          (key == :monthly_budget and is_integer(value)) or
             (key == :budget_mode and value in ["total", "margin"]),
           do: {key, value}
     )
@@ -320,25 +350,43 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
 
   # --- internals ----------------------------------------------------------------
 
-  # Re-derives the cards and hands the chart config straight to the chart
-  # component (the config is not kept in state: it can be large).
+  # An input changed (snapshot, strategy, budget, mode): re-run the
+  # simulations once, cache them, re-derive the cards and redraw.
   defp refresh(component) do
-    {component, config} = recompute(component, component.props.snapshot, component.props.strategy)
+    derived = derive(component, component.props.snapshot, component.props.strategy)
 
-    case config do
-      nil -> put_action(component, name: :clear, target: "plan_chart")
-      config -> put_action(component, name: :draw, target: "plan_chart", params: %{config: config})
-    end
+    component
+    |> put_state(derived: derived, view: Plan.view(derived))
+    |> draw(derived)
   end
 
-  defp recompute(component, snapshot, strategy) do
+  # The simulations depend only on the snapshot and the budget, so a cached
+  # result for the same pair is reused (e.g. when just the strategy changed).
+  defp derive(component, snapshot, strategy) do
     state = component.state
     mode = mode(state.mode_pending, snapshot)
     budget = Plan.effective_budget(snapshot, state.budget_draft, mode)
-    derived = Plan.derive(snapshot, strategy, budget, state.today)
-    {message, config} = Plan.chart(derived, state.chart_type)
 
-    {put_state(component, view: Plan.view(derived), chart_message: message), config}
+    case Map.get(state, :derived) do
+      %{snapshot: ^snapshot, budget: ^budget} = cached -> %{cached | strategy: strategy}
+      _stale_or_none -> Plan.derive(snapshot, strategy, budget, state.today)
+    end
+  end
+
+  # Builds the selected chart and hands its config straight to the chart
+  # component (the config is not kept in state: it can be large). This is
+  # the handler's one follow-up action.
+  defp draw(component, derived) do
+    {message, config} = Plan.chart(derived, component.state.chart_type)
+    component = put_state(component, :chart_message, message)
+
+    case config do
+      nil ->
+        put_action(component, name: :clear, target: "plan_chart")
+
+      config ->
+        put_action(component, name: :draw, target: "plan_chart", params: %{config: config})
+    end
   end
 
   # Drops the typed budget once it's no longer needed: the input isn't

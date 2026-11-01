@@ -35,11 +35,21 @@ Never write to Ecto from a component. Send a `Storage` change (vocabulary in
     def command(:save, %{change: change}, server) do
       case DebtReliefTrackerWeb.Holo.Context.apply_change(server, change) do
         {:ok, snapshot} ->
-          server |> put_action(name: :snapshot_updated, target: "page", params: %{snapshot: snapshot})
-                 |> put_action(name: :close_modal, target: "page")
-        {:error, error} -> put_action(server, :save_failed, error: error)
+          put_action(server,
+            name: :snapshot_updated,
+            target: "page",
+            params: %{snapshot: snapshot, close_modal: true}
+          )
+
+        {:error, error} ->
+          put_action(server, :save_failed, error: error)
       end
     end
+
+**A handler can queue only ONE follow-up action** (`put_action` overwrites the
+previous one, it does not append). Fold what you need into a single action's
+params (`close_modal: true` on `:snapshot_updated` closes the modal), or keep
+screen state inside your own component.
 
 Server-only data (accounts, workspaces, sharing, preferences) goes through
 `Context` / the `Accounts` context in a command, never from client-supplied

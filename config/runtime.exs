@@ -83,6 +83,20 @@ else
   config :debt_relief_tracker, :auth0_management, nil
 end
 
+# Optional Umami analytics (root.html.heex). Both vars must be set together;
+# they're read at runtime so the host and website ID stay out of the repo.
+# PUBLIC_UMAMI_URL is the Umami base URL -- /script.js is appended.
+umami_url = System.get_env("PUBLIC_UMAMI_URL")
+umami_id = System.get_env("PUBLIC_UMAMI_ID")
+
+if umami_url && umami_id do
+  config :debt_relief_tracker, :umami,
+    script_url: String.trim_trailing(umami_url, "/") <> "/script.js",
+    website_id: umami_id
+else
+  config :debt_relief_tracker, :umami, nil
+end
+
 if config_env() == :prod do
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
