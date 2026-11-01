@@ -60,6 +60,7 @@ Background: `docs/architecture/0007-e2ee.md` ("Production rollout"). Step 2 is
 |---|---|---|
 | `E2EE` | no (**new**) | `true`/`1`/`yes` enables E2EE. Step 2 only. |
 | `PHX_HOST` | yes (required in prod) | public hostname; also decides the localhost exemption for E2EE-without-OIDC. Unset in a prod release counts as PUBLIC, so E2EE without OIDC refuses to boot |
+| `FORCE_SSL` | no (**set `true` on Render**) | `true`/`1`/`yes`: redirect HTTP to HTTPS (honours `x-forwarded-proto`, as Render terminates TLS), send HSTS and mark cookies (incl. the session cookie) `Secure`. Default off so plain-HTTP self-hosting (Docker on localhost) keeps working; never enable it without HTTPS in front |
 | `DATABASE_URL` | yes on Render | `ecto://...` Postgres URL; unset -> SQLite at `DATABASE_PATH` |
 | `DATABASE_USE_SSL` | no | SSL on unless `false`/`0` |
 | `ENCRYPTION_KEY` | yes | Cloak key, 32 random bytes base64. Never change/lose |
