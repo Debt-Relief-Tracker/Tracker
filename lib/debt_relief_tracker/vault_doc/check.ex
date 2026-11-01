@@ -20,7 +20,7 @@ defmodule DebtReliefTracker.VaultDoc.Check do
   # {attr key, changeset field, cast type}
   @debt_spec [
     {:name, :name, :string},
-    {:type, :type, {:enum, ["revolving", "installment"]}},
+    {:type, :type, {:enum, ["revolving", "installment"], nil}},
     {:balance, :balance, :int},
     {:original_balance, :original_balance, :int},
     {:apr_bp, :apr, :int},
@@ -33,7 +33,7 @@ defmodule DebtReliefTracker.VaultDoc.Check do
     {:statement_date, :statement_date, :date},
     {:position, :position, :int},
     {:due_day, :due_day, :int},
-    {:auto_log_mode, :auto_log_mode, {:enum, ["off", "confirm", "automatic"]}},
+    {:auto_log_mode, :auto_log_mode, {:enum, ["off", "confirm", "automatic"], "off"}},
     {:last_due_handled_on, :last_due_handled_on, :date}
   ]
 
@@ -47,8 +47,8 @@ defmodule DebtReliefTracker.VaultDoc.Check do
 
   @settings_spec [
     {:monthly_budget, :monthly_budget, :int},
-    {:currency, :currency, :string},
-    {:budget_mode, :budget_mode, {:enum, ["total", "margin"]}},
+    {:currency, :currency, {:string, "USD"}},
+    {:budget_mode, :budget_mode, {:enum, ["total", "margin"], "total"}},
     {:retirement_onboarding_dismissed, :retirement_onboarding_dismissed, :bool}
   ]
 
@@ -265,8 +265,8 @@ defmodule DebtReliefTracker.VaultDoc.Check do
 
   # --- machinery -------------------------------------------------------------
 
-  @doc "Adds `message` under `field`."
-  def add(errors, field, message), do: Map.update(errors, field, [message], &(&1 ++ [message]))
+  @doc "Adds `message` under `field` (newest first, like `traverse_errors`)."
+  def add(errors, field, message), do: Map.update(errors, field, [message], &[message | &1])
 
   defp finish(values, errors) when map_size(errors) == 0, do: {:ok, values}
   defp finish(_values, errors), do: {:error, errors}
@@ -301,15 +301,28 @@ defmodule DebtReliefTracker.VaultDoc.Check do
 
   defp cast_value(_type, nil), do: {:ok, nil}
 
-  defp cast_value(:string, value) when is_binary(value) do
-    if String.valid?(value) and String.trim(value) != "", do: {:ok, value}, else: blank_or_error(value)
+  # Ecto's cast turns an empty ("" / whitespace) string into the field's
+  # schema default (nil when it has none), e.g. currency "" -> "USD".
+  defp cast_value(:string, value), do: cast_value({:string, nil}, value)
+
+  defp cast_value({:string, default}, value) when is_binary(value) do
+    cond do
+      not String.valid?(value) -> :error
+      String.trim(value) == "" -> {:ok, default}
+      true -> {:ok, value}
+    end
   end
 
   defp cast_value(:int, value) when is_integer(value), do: {:ok, value}
   defp cast_value(:bool, value) when is_boolean(value), do: {:ok, value}
 
-  defp cast_value({:enum, values}, value) when is_binary(value),
-    do: if(value in values, do: {:ok, value}, else: :error)
+  defp cast_value({:enum, values, default}, value) when is_binary(value) do
+    cond do
+      value in values -> {:ok, value}
+      String.trim(value) == "" -> {:ok, default}
+      true -> :error
+    end
+  end
 
   defp cast_value(:date, value) when is_binary(value) do
     case Stamp.parse_date(value) do
@@ -319,8 +332,6 @@ defmodule DebtReliefTracker.VaultDoc.Check do
   end
 
   defp cast_value(_type, _value), do: :error
-
-  defp blank_or_error(value), do: if(String.valid?(value), do: {:ok, nil}, else: :error)
 
   # validate_required: nil value, and no earlier error on that field.
   defp required(errors, values, pairs) do

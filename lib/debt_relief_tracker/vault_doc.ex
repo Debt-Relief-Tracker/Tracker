@@ -80,7 +80,8 @@ defmodule DebtReliefTracker.VaultDoc do
     :paid_on,
     :note,
     :logged_by_user_id,
-    :inserted_at
+    :inserted_at,
+    :updated_at
   ]
   @activity_view [:id, :action, :debt_id, :user_id, :metadata, :inserted_at]
   @retirement_view [
@@ -96,7 +97,8 @@ defmodule DebtReliefTracker.VaultDoc do
     :monthly_gross_income,
     :post_debt_investment_bp,
     :expected_annual_return_bp,
-    :inserted_at
+    :inserted_at,
+    :updated_at
   ]
 
   def schema_version, do: @schema_version
@@ -136,7 +138,7 @@ defmodule DebtReliefTracker.VaultDoc do
 
     %{
       schema_version: doc.schema_version,
-      settings: doc.settings,
+      settings: Map.put(doc.settings, :updated_at, doc.settings_updated_at |> Map.values() |> Enum.max()),
       debts:
         debts
         |> Enum.sort_by(&{&1.position, &1.inserted_at, &1.id})
@@ -192,7 +194,11 @@ defmodule DebtReliefTracker.VaultDoc do
         {p.id,
          p
          |> Map.take(@payment_view)
-         |> Map.merge(%{inserted_at: inserted, updated_at: inserted, deleted: false})}
+         |> Map.merge(%{
+           inserted_at: inserted,
+           updated_at: stamp.(Map.get(p, :updated_at)) |> max(inserted),
+           deleted: false
+         })}
       end)
 
     applied =
@@ -218,7 +224,8 @@ defmodule DebtReliefTracker.VaultDoc do
     %{
       schema_version: @schema_version,
       settings: Map.take(snapshot.settings, Shape.settings_keys()),
-      settings_updated_at: Map.new(Shape.settings_keys(), &{&1, now}),
+      settings_updated_at:
+        Map.new(Shape.settings_keys(), &{&1, stamp.(Map.get(snapshot.settings, :updated_at))}),
       debts: debts,
       payments: payments,
       activity:
@@ -237,7 +244,11 @@ defmodule DebtReliefTracker.VaultDoc do
           {r.id,
            r
            |> Map.take(@retirement_view)
-           |> Map.merge(%{inserted_at: inserted, updated_at: inserted, deleted: false})}
+           |> Map.merge(%{
+             inserted_at: inserted,
+             updated_at: stamp.(Map.get(r, :updated_at)) |> max(inserted),
+             deleted: false
+           })}
         end)
     }
   end

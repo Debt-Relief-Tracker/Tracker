@@ -109,9 +109,12 @@ defmodule DebtReliefTracker.VaultDocParity do
   end
 
   def normalize(snapshot) do
+    assert_iso(snapshot.settings.updated_at)
+
     %{
       snapshot
-      | debts:
+      | settings: Map.delete(snapshot.settings, :updated_at),
+        debts:
           Enum.map(snapshot.debts, fn d ->
             assert_iso(d.updated_at)
             d |> Map.drop([:updated_at]) |> Map.update!(:paid_off_at, &(&1 && :set))
@@ -119,7 +122,8 @@ defmodule DebtReliefTracker.VaultDocParity do
         payments:
           Enum.map(snapshot.payments, fn p ->
             assert_iso(p.inserted_at)
-            Map.drop(p, [:id, :inserted_at])
+            assert_iso(p.updated_at)
+            Map.drop(p, [:id, :inserted_at, :updated_at])
           end),
         activity:
           Enum.map(snapshot.activity, fn e ->
@@ -129,7 +133,8 @@ defmodule DebtReliefTracker.VaultDocParity do
         retirement_profiles:
           Enum.map(snapshot.retirement_profiles, fn r ->
             assert_iso(r.inserted_at)
-            Map.drop(r, [:inserted_at])
+            assert_iso(r.updated_at)
+            Map.drop(r, [:inserted_at, :updated_at])
           end)
     }
   end
