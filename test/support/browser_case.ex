@@ -38,6 +38,7 @@ defmodule DebtReliefTracker.BrowserCase do
     # runtime bundle); makes `mix test` invoked some other way work too.
     ensure_hologram!()
     ensure_assets!()
+    load_app_modules!()
 
     {:ok, bandit} =
       Bandit.start_link(
@@ -72,6 +73,15 @@ defmodule DebtReliefTracker.BrowserCase do
     # stylesheet -- e.g. missing newer `sm:flex` classes, which hides the debt
     # list. They are gitignored build output; drop them so tests see the build.
     for gz <- Path.wildcard(Path.expand("priv/static/assets/**/*.gz")), do: File.rm(gz)
+  end
+
+  # Hologram decodes a command's name with `binary_to_existing_atom/1`, so a
+  # component module that hasn't been loaded yet (e.g. a modal that the
+  # server never rendered) makes its first command fail with "not an already
+  # existing atom". Releases load every module at boot; do the same here.
+  defp load_app_modules! do
+    {:ok, modules} = :application.get_key(:debt_relief_tracker, :modules)
+    Enum.each(modules, &Code.ensure_loaded/1)
   end
 
   defp ensure_hologram! do

@@ -39,6 +39,17 @@ const browser = await chromium.launch({
 const context = await browser.newContext();
 const page = await context.newPage();
 page.setDefaultTimeout(TIMEOUT);
+// Console errors / uncaught page errors, readable with the `errors` command.
+const pageErrors = [];
+page.on("pageerror", (e) => pageErrors.push(String(e && e.message ? e.message : e)));
+// Console listeners are costly (Hologram logs every function call it runs),
+// so they are attached only on request.
+if (process.env.BROWSER_LOG_ALL) {
+  page.on("console", (m) => pageErrors.push(m.type() + ": " + m.text().slice(0, 300)));
+}
+page.on("response", (r) => {
+  if (r.status() >= 400) pageErrors.push(`HTTP ${r.status()} ${r.url()}`);
+});
 
 const handlers = {
   async visit({ url }) {
@@ -83,6 +94,12 @@ const handlers = {
   async press({ key }) {
     await page.keyboard.press(key);
   },
+  async errors() {
+    return pageErrors;
+  },
+  async viewport({ width, height }) {
+    await page.setViewportSize({ width, height });
+  },
   async click_at({ selector, x, y }) {
     await page.click(selector, { position: { x, y } });
   },
@@ -103,6 +120,9 @@ const handlers = {
   },
   async wait_for_url({ pattern }) {
     await page.waitForURL(new RegExp(pattern));
+  },
+  async select_option({ selector, value }) {
+    await page.selectOption(selector, value);
   },
   async path() {
     return new URL(page.url()).pathname;

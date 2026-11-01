@@ -31,6 +31,7 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementFormTest do
     test "reports blanks and junk" do
       assert RetirementForm.parse_scaled("", 2) == :blank
       assert RetirementForm.parse_scaled("   ", 2) == :blank
+
       for junk <- ["abc", "1.2.3", ".", "-", "1e5", "$5", "1,000"] do
         assert RetirementForm.parse_scaled(junk, 2) == :error, junk
       end

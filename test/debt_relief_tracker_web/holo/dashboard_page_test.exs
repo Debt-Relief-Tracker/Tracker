@@ -122,8 +122,19 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageTest do
 
     assert LazyHTML.query(doc, "#app-footer #donate-link") |> Enum.count() == 1
     assert LazyHTML.query(doc, "#donate-modal.hidden") |> Enum.count() == 1
-    assert LazyHTML.query(doc, ~s(#donate-modal a#donate-liberapay[href="https://liberapay.com/DebtReliefTracker/"])) |> Enum.count() == 1
-    assert LazyHTML.query(doc, ~s(#donate-modal a#donate-ko-fi[href="https://ko-fi.com/calonmerc"])) |> Enum.count() == 1
+
+    assert LazyHTML.query(
+             doc,
+             ~s(#donate-modal a#donate-liberapay[href="https://liberapay.com/DebtReliefTracker/"])
+           )
+           |> Enum.count() == 1
+
+    assert LazyHTML.query(
+             doc,
+             ~s(#donate-modal a#donate-ko-fi[href="https://ko-fi.com/calonmerc"])
+           )
+           |> Enum.count() == 1
+
     assert LazyHTML.query(doc, "#donate-modal div#donate-github-sponsors") |> Enum.count() == 1
     assert LazyHTML.query(doc, "#donate-modal a#donate-github-sponsors") |> Enum.count() == 0
     # no-auth mode is fully trusted

@@ -145,7 +145,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
                     id="retirement-source-member"
                     value="member"
                     checked={@source == "member"}
-                    $change="set_source"
+                    $change={:set_source, source: "member"}
                   />
                   Existing member
                 </label>
@@ -156,7 +156,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
                     id="retirement-source-manual"
                     value="manual"
                     checked={@source == "manual"}
-                    $change="set_source"
+                    $change={:set_source, source: "manual"}
                   />
                   Someone without an account
                 </label>
@@ -318,7 +318,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
     |> put_state(:errors, Map.delete(component.state.errors, field))
   end
 
-  def action(:set_source, %{event: %{value: source}}, component) do
+  # The source comes from the radio's own params, not the change event: for a
+  # radio the event's `value` is not the option's string (the form then
+  # showed neither the member picker nor the name field).
+  def action(:set_source, %{source: source}, component) when source in ["member", "manual"] do
     current = component.state.form.user_id
 
     user_id =

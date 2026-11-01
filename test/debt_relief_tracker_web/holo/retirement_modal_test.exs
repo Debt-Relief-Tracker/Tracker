@@ -30,6 +30,7 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
 
     base |> then(&RetirementModal.init(&1.props, &1)) |> merge_state(state)
   end
+
   defp merge_state(component, state), do: %{component | state: Map.merge(component.state, state)}
 
   defp valid_form(overrides) do
@@ -91,7 +92,9 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
     end
 
     test "the dismiss action asks the server to dismiss", ctx do
-      component = RetirementBanner.action(:dismiss, %{}, %Component{props: %{snapshot: ctx.snapshot}})
+      component =
+        RetirementBanner.action(:dismiss, %{}, %Component{props: %{snapshot: ctx.snapshot}})
+
       assert component.next_command.name == :dismiss
     end
   end
@@ -168,7 +171,9 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
       component =
         component(ctx.snapshot)
         |> open_form(ctx)
-        |> merge_state(%{form: valid_form(%{user_id: ctx.owner.id, current_age: "40", retirement_age: "40"})})
+        |> merge_state(%{
+          form: valid_form(%{user_id: ctx.owner.id, current_age: "40", retirement_age: "40"})
+        })
 
       rejected = RetirementModal.action(:submit, %{}, component)
       assert rejected.next_command == nil
@@ -191,8 +196,12 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
     end
 
     test "editing a field clears that field's error", ctx do
-      component = merge_state(component(ctx.snapshot), %{errors: %{name: ["x"], current_age: ["y"]}})
-      updated = RetirementModal.action(:set_field, %{field: :name, event: %{value: "Z"}}, component)
+      component =
+        merge_state(component(ctx.snapshot), %{errors: %{name: ["x"], current_age: ["y"]}})
+
+      updated =
+        RetirementModal.action(:set_field, %{field: :name, event: %{value: "Z"}}, component)
+
       assert updated.state.form.name == "Z"
       assert updated.state.errors == %{current_age: ["y"]}
     end
@@ -221,7 +230,10 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
 
       changed = merge_state(edit, %{form: %{edit.state.form | retirement_age: "62"}})
       submitted = RetirementModal.action(:submit, %{}, changed)
-      assert {:update_retirement_profile, id, %{retirement_age: 62}} = submitted.next_command.params.change
+
+      assert {:update_retirement_profile, id, %{retirement_age: 62}} =
+               submitted.next_command.params.change
+
       assert id == profile.id
 
       server = RetirementModal.command(:save, submitted.next_command.params, ctx.server)
@@ -236,7 +248,10 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
                %Component.Command{name: :delete, params: %{id: profile.id}}
 
       server = RetirementModal.command(:delete, %{id: profile.id}, ctx.server)
-      assert %{name: :snapshot_updated, params: %{snapshot: %{retirement_profiles: []}}} = server.next_action
+
+      assert %{name: :snapshot_updated, params: %{snapshot: %{retirement_profiles: []}}} =
+               server.next_action
+
       assert Settings.list_retirement_profiles(ctx.workspace) == []
     end
   end
@@ -255,12 +270,24 @@ defmodule DebtReliefTrackerWeb.Holo.RetirementModalTest do
 
   test "escape closes the roster but only backs out of the form", ctx do
     roster = component(ctx.snapshot)
-    assert %{name: :close_modal, target: "page"} = RetirementModal.action(:escape, %{}, roster).next_action
+
+    assert %{name: :close_modal, target: "page"} =
+             RetirementModal.action(:escape, %{}, roster).next_action
 
     form = open_form(roster, ctx)
     backed = RetirementModal.action(:escape, %{}, form)
     assert backed.state.screen == :roster
     assert backed.next_action == nil
+  end
+
+  test "set_source switches between the member picker and manual entry", ctx do
+    form = open_form(component(ctx.snapshot), ctx)
+
+    manual = RetirementModal.action(:set_source, %{source: "manual"}, form)
+    assert manual.state.source == "manual"
+
+    assert RetirementModal.action(:set_source, %{source: "member"}, manual).state.source ==
+             "member"
   end
 
   defp open_form(component, ctx) do
