@@ -132,7 +132,7 @@ defmodule DebtReliefTracker.E2EE.Migration do
       Repo.exists?(from(r in RetirementProfile, where: r.workspace_id == ^ws), @q) or
       Repo.exists?(payments_in(ws), @q) or
       Repo.exists?(
-        from(s in Setting, where: s.workspace_id == ^ws and ^non_default_settings()),
+        from(s in Setting, where: s.workspace_id == ^ws, where: ^non_default_settings()),
         @q
       )
   end
@@ -182,8 +182,8 @@ defmodule DebtReliefTracker.E2EE.Migration do
              pending_invitations: non_neg_integer()
            }}
           | {:error, :forbidden | :already_encrypted | :nothing_to_migrate | :too_large}
-  def export(%Workspace{id: ws} = workspace, user) do
-    with :ok <- authorize(workspace, user),
+  def export(%Workspace{} = given, user) do
+    with {:ok, %Workspace{id: ws} = workspace} <- authorize(given, user),
          :ok <- exportable(status(workspace)),
          :ok <- size_ok(ws),
          {:ok, snapshot} <- Plain.load(workspace) do
@@ -224,8 +224,8 @@ defmodule DebtReliefTracker.E2EE.Migration do
              pending_invitations: non_neg_integer()
            }}
           | {:error, :forbidden}
-  def dry_run(%Workspace{id: ws} = workspace, user) do
-    with :ok <- authorize(workspace, user) do
+  def dry_run(%Workspace{} = given, user) do
+    with {:ok, %Workspace{id: ws} = workspace} <- authorize(given, user) do
       {:ok,
        %{
          counts: row_counts(ws),
@@ -295,7 +295,7 @@ defmodule DebtReliefTracker.E2EE.Migration do
           | {:ok, :already_clean}
           | {:error, :forbidden | :no_vault | :changed | :members_present}
   def finalize(%Workspace{} = workspace, user, digest, opts \\ []) do
-    with :ok <- authorize(workspace, user) do
+    with {:ok, _} <- authorize(workspace, user) do
       result = Repo.transaction(fn -> locked_finalize(workspace.id, user, digest, opts) end, @q)
 
       case result do
@@ -451,12 +451,11 @@ defmodule DebtReliefTracker.E2EE.Migration do
 
       lock.(
         from(p in Payment,
-          join: d in Debt,
-          on: d.id == p.debt_id,
-          where: d.workspace_id == ^ws_id,
+          where:
+            p.debt_id in subquery(from(d in Debt, where: d.workspace_id == ^ws_id, select: d.id)),
           order_by: p.id,
           select: p.id,
-          lock: "FOR UPDATE OF p"
+          lock: "FOR UPDATE"
         )
       )
 
@@ -498,7 +497,15 @@ defmodule DebtReliefTracker.E2EE.Migration do
 
   # --- authorization ------------------------------------------------------------
 
-  defp authorize(%Workspace{owner_user_id: owner}, %User{id: id}) when owner == id, do: :ok
+  # The owner is re-read from the database: a stale or forged struct cannot
+  # grant access. Returns the fresh workspace.
+  defp authorize(%Workspace{id: ws}, %User{id: uid}) do
+    case Repo.get(Workspace, ws, @q) do
+      %Workspace{owner_user_id: ^uid} = fresh -> {:ok, fresh}
+      _ -> {:error, :forbidden}
+    end
+  end
+
   defp authorize(_workspace, _user), do: {:error, :forbidden}
 
   # --- digest -------------------------------------------------------------------
