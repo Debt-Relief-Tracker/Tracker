@@ -387,7 +387,11 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
         now runs `npm install` before `mix compile`). The retirement roadmap
         chart runs on `Engine.Retirement` via
         `Engine.Charts.retirement_projections/3`.
-- [ ] 5. Crypto facade.
+- [x] 5. Crypto facade (`assets/js/crypto_facade.mjs` + `DebtReliefTracker.Crypto`):
+      WebCrypto AES-256-GCM/HKDF + hash-wasm Argon2id; published KATs; 56-char
+      recovery key with checksum; floor on new-wrap Argon2 params. CSP needs
+      `'wasm-unsafe-eval'` (no `unsafe-eval`). Real-device passkey PRF,
+      Safari/Firefox and phone Argon2 speed are still unverified.
 - [ ] 6. Server vault (`E2EE` config, migration, commands, hardening).
 - [ ] 7. Client vault flows (setup wizard, unlock, remember device).
 - [ ] 8. Sync (CAS merge, catch-up of auto-logged installments).
