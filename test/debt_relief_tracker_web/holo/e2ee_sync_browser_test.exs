@@ -149,6 +149,38 @@ defmodule DebtReliefTrackerWeb.Holo.E2EESyncBrowserTest do
     )
   end
 
+  test "opening the vault catches up missed automatic installments through the same save path",
+       ctx do
+    ctx = open_app(ctx)
+    {ctx, _} = create_vault(ctx, @pass)
+    click(ctx, "#test-hook-add-auto")
+    assert_text(ctx, "#vault-debts", "Auto loan")
+    wait_status(ctx, "saved")
+    assert text(ctx, "#vault-payments-count") =~ "0 payments"
+    rev = server_vault().rev
+
+    ctx = lock(ctx)
+    unlock_with_passphrase(ctx, @pass)
+    # the catch-up posted the missed cycles ...
+    wait_for_expr(
+      ctx,
+      "!document.querySelector('#vault-payments-count').innerText.startsWith('0 ')"
+    )
+
+    # ... and saved them like any edit (new revision)
+    wait_status(ctx, "saved")
+    wait_until(fn -> server_vault().rev > rev end)
+
+    # idempotent: another open posts nothing more
+    count_text = text(ctx, "#vault-payments-count")
+    rev = server_vault().rev
+    ctx = lock(ctx)
+    unlock_with_passphrase(ctx, @pass)
+    assert_text(ctx, "#vault-payments-count", count_text)
+    Process.sleep(1500)
+    assert server_vault().rev == rev
+  end
+
   test "leaving with unsaved changes warns; once saved it does not", ctx do
     ctx = open_app(ctx)
     {ctx, _} = create_vault(ctx, @pass)
@@ -183,6 +215,32 @@ defmodule DebtReliefTrackerWeb.Holo.E2EESyncBrowserTest do
     assert length(wraps) == 2
     wait_status(ctx, "saved")
     assert server_vault().rev == 2
+  end
+
+  test "locking with an unsaveable change keeps the vault unlocked until the user decides", ctx do
+    ctx = open_app(ctx)
+    {ctx, _} = create_vault(ctx, @pass)
+    {:ok, vault} = DebtReliefTracker.E2EE.Vaults.fetch(workspace())
+    Repo.delete_all(DebtReliefTracker.E2EE.Vault)
+
+    add_debt(ctx, "Precious change")
+    click(ctx, "#vault-lock-btn")
+    assert_selector(ctx, "#vault-lock-blocked")
+    assert_selector(ctx, "#vault-home")
+    assert text(ctx, "#vault-debts") =~ "Precious change"
+
+    # when the server is back the retry saves the change and the lock can proceed
+    Repo.insert!(%DebtReliefTracker.E2EE.Vault{
+      workspace_id: workspace().id,
+      rev: 1,
+      format_version: 1,
+      blob: vault.blob
+    })
+
+    wait_status(ctx, "saved")
+    assert server_vault().rev == 2
+    click(ctx, "#vault-lock-btn")
+    assert_selector(ctx, "#vault-unlock")
   end
 
   test "NOTHING sensitive reaches the server DB, logs, cookies, URLs or browser storage", ctx do

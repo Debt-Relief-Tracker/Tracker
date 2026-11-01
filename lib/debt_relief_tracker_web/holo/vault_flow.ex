@@ -431,9 +431,14 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     else
       {sync, action} = SaveLoop.failed(c.state.sync)
 
+      # A lock that was waiting for this save stops waiting: the vault stays
+      # unlocked and says so (the change keeps retrying in the background).
+      locking? = c.state.vault.locking != nil
+
       c
       |> put_state(:sync, sync)
       |> merge(%{inflight: nil})
+      |> merge(if locking?, do: %{locking: nil, lock_blocked: true}, else: %{})
       |> tap_flag()
       |> retry_or_give_up(action)
     end
@@ -514,7 +519,6 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       rollback: nil,
       pending: nil,
       notice: nil,
-      error: nil,
       methods: %{busy: false, status: nil, message: nil, queue: [], removing: nil}
     })
   end
@@ -662,6 +666,29 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
          apr_bp: 1999,
          minimum_payment_floor: 3500,
          minimum_payment_rate_bp: 200
+       }}
+    )
+  end
+
+  # An automatic installment whose cycles since a year ago were never handled:
+  # the NEXT open's `Ledger.catch_up` posts them.
+  def test_hook_add_auto(c) do
+    today = VaultEnv.today_iso()
+    year = String.to_integer(String.slice(today, 0, 4)) - 1
+
+    apply_change(
+      c,
+      {:add_debt,
+       %{
+         name: "Auto loan",
+         type: "installment",
+         balance: 120_000,
+         original_balance: 120_000,
+         apr_bp: 0,
+         fixed_payment: 10_000,
+         due_day: 1,
+         auto_log_mode: "automatic",
+         last_due_handled_on: Integer.to_string(year) <> String.slice(today, 4, 6)
        }}
     )
   end

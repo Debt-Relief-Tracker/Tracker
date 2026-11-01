@@ -62,6 +62,12 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` stays the
   LiveView until the owner decides the cutover; `AdminLive` stays a LiveView
   (it never touches financial data).
+- **Raw key material never enters Elixir.** E2EE crypto is the opaque-handle
+  `DebtReliefTracker.Crypto` API (facade `assets/js/crypto_facade.mjs`); Elixir
+  holds handle ids and ciphertext only. The E2EE client state machine is
+  `Holo.VaultFlow`; see ADR 0007 "Client vault flows". An `await` inside an
+  anonymous function is not awaited by Hologram's interpreter -- call the
+  facade from direct recursion / `with`.
 - Code reachable from a Hologram page is compiled to JavaScript: **no
   `Decimal`, `Date`/`DateTime`, floats, `Regex`, or Ecto** there -- use the
   integer-cents `DebtReliefTracker.Engine.*` modules and `Holo.Format`.

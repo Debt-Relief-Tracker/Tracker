@@ -75,6 +75,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
         <form id="test-hook-form" class="flex gap-2" $submit={action: :vault_hook_add, target: "page"}>
           <input id="test-hook-name" name="name" type="text" class="input input-sm flex-1" placeholder="Debt name" />
           <button id="test-hook-add" type="submit" class="btn btn-sm btn-outline">Add debt</button>
+          <button id="test-hook-add-auto" type="button" class="btn btn-sm btn-outline" $click={action: :vault_hook_add_auto, target: "page"}>Add auto loan</button>
         </form>
       {/if}
 

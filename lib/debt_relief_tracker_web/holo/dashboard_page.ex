@@ -266,6 +266,9 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
   def action(:vault_hook_add, _params, component), do: component
 
+  def action(:vault_hook_add_auto, _params, component),
+    do: VaultFlow.test_hook_add_auto(component)
+
   def action(:vault_hook_pay, %{id: id}, component), do: VaultFlow.test_hook_pay(component, id)
 
   def action(:vault_hook_delete, %{id: id}, component),
