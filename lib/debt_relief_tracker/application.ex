@@ -7,6 +7,8 @@ defmodule DebtReliefTracker.Application do
 
   @impl true
   def start(_type, _args) do
+    if Application.get_env(:debt_relief_tracker, :preload_modules, false), do: preload_modules()
+
     active_repo = DebtReliefTracker.Repo.configured_repo()
     DebtReliefTracker.Repo.set_active_repo(active_repo)
 
@@ -50,5 +52,15 @@ defmodule DebtReliefTracker.Application do
   defp skip_migrations?() do
     # By default, sqlite migrations are run when using a release
     System.get_env("RELEASE_NAME") == nil
+  end
+
+  # Hologram decodes a command's component/function names with
+  # `String.to_existing_atom/1`, so a component whose module hasn't loaded yet
+  # (e.g. a modal nobody has opened) fails its first command with "not an
+  # already existing atom". Releases load every module at boot; dev loads them
+  # lazily, so dev (config/dev.exs) opts in to loading them up front.
+  defp preload_modules do
+    {:ok, modules} = :application.get_key(:debt_relief_tracker, :modules)
+    Enum.each(modules, &Code.ensure_loaded/1)
   end
 end

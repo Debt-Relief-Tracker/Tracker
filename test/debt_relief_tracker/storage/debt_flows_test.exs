@@ -45,7 +45,8 @@ defmodule DebtReliefTracker.Storage.DebtFlowsTest do
           "minimum_payment_rate" => "0.02"
         })
 
-      assert {:ok, snapshot} = Plain.apply_change(workspace, nil, {:reconcile_balance, card.id, 400_000})
+      assert {:ok, snapshot} =
+               Plain.apply_change(workspace, nil, {:reconcile_balance, card.id, 400_000})
 
       assert Enum.find(snapshot.debts, &(&1.id == card.id)).balance == 400_000
       assert Decimal.equal?(Debts.get_debt!(workspace, card.id).balance, Decimal.new("4000.00"))
@@ -65,7 +66,8 @@ defmodule DebtReliefTracker.Storage.DebtFlowsTest do
       debt = loan(workspace)
       cycle = Date.to_iso8601(Date.utc_today())
 
-      assert {:ok, snapshot} = Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
+      assert {:ok, snapshot} =
+               Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
 
       loaded = Enum.find(snapshot.debts, &(&1.id == debt.id))
       assert loaded.balance == 85_000
@@ -78,7 +80,8 @@ defmodule DebtReliefTracker.Storage.DebtFlowsTest do
       debt = loan(workspace)
       cycle = Date.to_iso8601(Date.utc_today())
 
-      assert {:ok, snapshot} = Plain.apply_change(workspace, nil, {:handle_due, debt.id, :skip, cycle})
+      assert {:ok, snapshot} =
+               Plain.apply_change(workspace, nil, {:handle_due, debt.id, :skip, cycle})
 
       loaded = Enum.find(snapshot.debts, &(&1.id == debt.id))
       assert loaded.balance == 100_000
@@ -87,12 +90,16 @@ defmodule DebtReliefTracker.Storage.DebtFlowsTest do
       assert "due_payment_skipped" in actions(snapshot)
     end
 
-    test "a cycle that was already handled is :not_due and writes nothing", %{workspace: workspace} do
+    test "a cycle that was already handled is :not_due and writes nothing", %{
+      workspace: workspace
+    } do
       debt = loan(workspace)
       cycle = Date.to_iso8601(Date.utc_today())
       {:ok, _} = Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
 
-      assert {:error, :not_due} = Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
+      assert {:error, :not_due} =
+               Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
+
       assert Decimal.equal?(Debts.get_debt!(workspace, debt.id).balance, Decimal.new("850.00"))
     end
 
@@ -104,7 +111,8 @@ defmodule DebtReliefTracker.Storage.DebtFlowsTest do
       wrong_day = Date.to_iso8601(Date.add(Date.utc_today(), -1))
 
       for cycle <- [tomorrow, wrong_day, "not-a-date"] do
-        assert {:error, :not_due} = Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
+        assert {:error, :not_due} =
+                 Plain.apply_change(workspace, nil, {:handle_due, debt.id, :post, cycle})
       end
 
       off = loan(workspace, %{"auto_log_mode" => "off", "name" => "Off Loan"})

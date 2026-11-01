@@ -70,7 +70,10 @@ defmodule DebtReliefTracker.Engine.ParityTest do
         for {name, exp} <- ctx.expected["strategies"] do
           strategy = atom(name)
 
-          assert ctx.debts |> Planning.eligible() |> then(&Planning.order(strategy, &1)) |> Enum.map(& &1.id) ==
+          assert ctx.debts
+                 |> Planning.eligible()
+                 |> then(&Planning.order(strategy, &1))
+                 |> Enum.map(& &1.id) ==
                    exp["order"]
 
           result = Planning.simulate(ctx.debts, ctx.budget, strategy)

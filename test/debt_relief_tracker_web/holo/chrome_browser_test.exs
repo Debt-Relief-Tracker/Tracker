@@ -53,7 +53,9 @@ defmodule DebtReliefTrackerWeb.Holo.ChromeBrowserTest do
     |> open_settings()
     |> refute_selector("#page-notice")
 
-    assert eval(ctx, "document.querySelector('#settings-workspace-name').value") == "Casey's Debts"
+    assert eval(ctx, "document.querySelector('#settings-workspace-name').value") ==
+             "Casey's Debts"
+
     assert eval(ctx, "document.querySelector('#settings-currency').value") == "EUR"
   end
 

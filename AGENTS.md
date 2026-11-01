@@ -50,6 +50,31 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   either a mobile-only `<select>`/stacked alternative or an `overflow-x-auto`
   wrapper.
 
+## E2EE and the Hologram UI (docs/architecture/0007-e2ee.md, docs/holo-ui-conventions.md)
+
+- **Never log, parse, index, or decrypt vault data server-side.** With
+  `E2EE=true` the server stores ciphertext blobs and key wraps only; it must
+  never see a key, passphrase, or plaintext. No `inspect`/`Logger` of vault
+  request bodies, and the vault columns (`blob`, `wrapped_key`, `salt`, `iv`)
+  stay in `:filter_parameters`. A new feature that needs to read financial
+  data must do it in the browser (shared `Engine.*`), not on the server.
+- `/app` (`Holo.DashboardPage`) is a **Hologram** page, not a LiveView; the
+  `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` stays the
+  LiveView until the owner decides the cutover; `AdminLive` stays a LiveView
+  (it never touches financial data).
+- Code reachable from a Hologram page is compiled to JavaScript: **no
+  `Decimal`, `Date`/`DateTime`, floats, `Regex`, or Ecto** there -- use the
+  integer-cents `DebtReliefTracker.Engine.*` modules and `Holo.Format`.
+- A Hologram handler can queue **one** follow-up action (a second `put_action`
+  overwrites the first); fold what you need into one action's params.
+- Hologram keeps incremental build state that can go stale (symptom: browser
+  `UndefinedFunctionError` for a function that exists): run `mix holo.clean`.
+- Real-browser tests are tagged `:browser` (`mix test --include browser`);
+  run one browser suite at a time (shared SQLite test DB).
+- `Ecto.Migrator` runs at app boot (`application.ex`), so a new migration runs
+  on the next server start or deploy -- the "migrations must be perfect" rules
+  above apply to every migration, including additive ones.
+
 ## Claude guidelines
 
 ### Subagents v1.0

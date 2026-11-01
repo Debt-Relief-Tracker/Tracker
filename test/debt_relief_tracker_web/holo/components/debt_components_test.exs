@@ -8,6 +8,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
   use DebtReliefTracker.DataCase
 
   alias DebtReliefTracker.{Accounts, Debts, Storage}
+
   alias DebtReliefTrackerWeb.Holo.Components.{
     DebtFormModal,
     DebtSidebar,
@@ -71,8 +72,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
 
       for {name, params, modal} <- [
             {:open_add_debt, %{}, %{type: :add_debt, today: today}},
-            {:open_edit_debt, %{id: card.id}, %{type: :edit_debt, debt_id: card.id, today: today}},
-            {:open_log_payment, %{id: card.id}, %{type: :log_payment, debt_id: card.id, today: today}},
+            {:open_edit_debt, %{id: card.id},
+             %{type: :edit_debt, debt_id: card.id, today: today}},
+            {:open_log_payment, %{id: card.id},
+             %{type: :log_payment, debt_id: card.id, today: today}},
             {:open_log_all_balances, %{}, %{type: :log_all_balances, today: today}},
             {:open_activity_log, %{}, %{type: :activity_log}}
           ] do
@@ -134,7 +137,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       assert Enum.map(prompts, & &1.name) |> Enum.sort() == ["Post Loan", "Skip Loan"]
       assert Enum.all?(prompts, &(&1.cycle == today))
 
-      logged = DebtSidebar.action(:due_decision, %{id: post.id, decision: :post, cycle: today}, sidebar)
+      logged =
+        DebtSidebar.action(:due_decision, %{id: post.id, decision: :post, cycle: today}, sidebar)
+
       synced = logged |> run_command(DebtSidebar) |> apply_sidebar_synced(logged)
       assert synced.state.notice == "Logged Post Loan's payment."
 
@@ -142,7 +147,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       assert Decimal.equal?(reloaded.balance, Decimal.new("850.00"))
       assert reloaded.last_due_handled_on == Date.utc_today()
 
-      skipped = DebtSidebar.action(:due_decision, %{id: skip.id, decision: :skip, cycle: today}, sidebar)
+      skipped =
+        DebtSidebar.action(:due_decision, %{id: skip.id, decision: :skip, cycle: today}, sidebar)
+
       synced = skipped |> run_command(DebtSidebar) |> apply_sidebar_synced(skipped)
       assert synced.state.notice == "Skipped Skip Loan this month."
 
@@ -211,7 +218,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
         )
 
       saved = DebtFormModal.action(:save, %{}, modal)
-      assert %{params: %{changes: [{:add_debt, attrs}], notice: "Saved Auto Loan."}} = saved.next_command
+
+      assert %{params: %{changes: [{:add_debt, attrs}], notice: "Saved Auto Loan."}} =
+               saved.next_command
+
       assert attrs.fixed_payment == 15_000
 
       reply = run_command(saved, DebtFormModal)
@@ -227,7 +237,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       synced = DebtSidebar.action(:synced, reply.params, sidebar)
       assert synced.next_action.params.close_modal == true
 
-      page = DashboardPage.action(:snapshot_updated, synced.next_action.params, component(%{}, %{modal: %{type: :add_debt}}))
+      page =
+        DashboardPage.action(
+          :snapshot_updated,
+          synced.next_action.params,
+          component(%{}, %{modal: %{type: :add_debt}})
+        )
+
       assert page.state.modal == nil
       assert Enum.any?(page.state.snapshot.debts, &(&1.name == "Auto Loan"))
     end
@@ -254,7 +270,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       run_command(saved, DebtFormModal)
       assert Decimal.equal?(Debts.get_debt!(workspace, card.id).balance, Decimal.new("4000.00"))
 
-      failed = DebtFormModal.action(:save_failed, %{error: {:invalid, %{name: ["can't be blank"]}}}, modal)
+      failed =
+        DebtFormModal.action(
+          :save_failed,
+          %{error: {:invalid, %{name: ["can't be blank"]}}},
+          modal
+        )
+
       assert failed.state.errors == %{name: ["can't be blank"]}
     end
 
@@ -272,7 +294,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       assert asked.state.confirm_delete
 
       deleting = DebtFormModal.action(:delete, %{}, asked)
-      assert %{params: %{changes: [{:delete_debt, id}], notice: "Visa deleted."}} = deleting.next_command
+
+      assert %{params: %{changes: [{:delete_debt, id}], notice: "Visa deleted."}} =
+               deleting.next_command
+
       assert id == card.id
       refute deleting.state.confirm_delete
 
@@ -288,7 +313,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       card: card,
       today: today
     } do
-      props = %{snapshot: snapshot(workspace), modal: %{type: :log_payment, debt_id: card.id, today: today}}
+      props = %{
+        snapshot: snapshot(workspace),
+        modal: %{type: :log_payment, debt_id: card.id, today: today}
+      }
+
       modal = PaymentModal.init(props, %Component{props: props})
       assert modal.state.form.paid_on == today
       assert modal.state.debt_name == "Visa"
@@ -311,7 +340,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       card: card,
       today: today
     } do
-      props = %{snapshot: snapshot(workspace), modal: %{type: :log_payment, debt_id: card.id, today: today}}
+      props = %{
+        snapshot: snapshot(workspace),
+        modal: %{type: :log_payment, debt_id: card.id, today: today}
+      }
+
       modal = PaymentModal.init(props, %Component{props: props})
       modal = PaymentModal.action(:set_field, %{field: :amount, event: %{value: "9000"}}, modal)
       saved = PaymentModal.action(:save, %{}, modal)
@@ -336,7 +369,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       assert [%{id: id, name: "Visa", value: "4500.00"}] = modal.state.entries
       assert id == card.id
 
-      modal = LogAllBalancesModal.action(:set_balance, %{id: card.id, event: %{value: "4000.00"}}, modal)
+      modal =
+        LogAllBalancesModal.action(
+          :set_balance,
+          %{id: card.id, event: %{value: "4000.00"}},
+          modal
+        )
+
       saved = LogAllBalancesModal.action(:save, %{}, modal)
       assert saved.next_command.params.changes == [{:reconcile_balance, card.id, 400_000}]
 
@@ -346,10 +385,16 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtComponentsTest do
       assert Decimal.equal?(Debts.get_debt!(workspace, card.id).balance, Decimal.new("4000.00"))
     end
 
-    test "an unparsable entry is flagged and nothing is sent", %{workspace: workspace, card: card, today: today} do
+    test "an unparsable entry is flagged and nothing is sent", %{
+      workspace: workspace,
+      card: card,
+      today: today
+    } do
       props = %{snapshot: snapshot(workspace), modal: %{type: :log_all_balances, today: today}}
       modal = LogAllBalancesModal.init(props, %Component{props: props})
-      modal = LogAllBalancesModal.action(:set_balance, %{id: card.id, event: %{value: "abc"}}, modal)
+
+      modal =
+        LogAllBalancesModal.action(:set_balance, %{id: card.id, event: %{value: "abc"}}, modal)
 
       result = LogAllBalancesModal.action(:save, %{}, modal)
       assert result.next_command == nil

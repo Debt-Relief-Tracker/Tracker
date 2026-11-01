@@ -89,3 +89,7 @@ config :phoenix_live_view,
 
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false
+
+# Load every app module at boot, like a release does -- see
+# DebtReliefTracker.Application.preload_modules/0 (Hologram command names).
+config :debt_relief_tracker, preload_modules: true

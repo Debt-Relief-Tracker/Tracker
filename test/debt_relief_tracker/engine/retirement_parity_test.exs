@@ -62,7 +62,10 @@ defmodule DebtReliefTracker.Engine.RetirementParityTest do
   end
 
   defp budget(scenario_name) do
-    @debt_scenarios |> Enum.find(&(&1["name"] == scenario_name)) |> Map.fetch!("budget") |> Convert.to_cents()
+    @debt_scenarios
+    |> Enum.find(&(&1["name"] == scenario_name))
+    |> Map.fetch!("budget")
+    |> Convert.to_cents()
   end
 
   # One cent of drift per month per person, compounded at the fastest rate.
@@ -121,7 +124,12 @@ defmodule DebtReliefTracker.Engine.RetirementParityTest do
           label = "#{case_["debt_scenario"]}/#{name}"
 
           result =
-            Retirement.strategy_projection_with_contributions(debts, ctx.profiles, budget, strategy)
+            Retirement.strategy_projection_with_contributions(
+              debts,
+              ctx.profiles,
+              budget,
+              strategy
+            )
 
           case exp do
             %{"status" => "error", "reason" => reason} ->

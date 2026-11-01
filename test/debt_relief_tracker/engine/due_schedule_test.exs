@@ -14,7 +14,14 @@ defmodule DebtReliefTracker.Engine.DueScheduleTest do
 
   describe "Days" do
     test "matches Date for day counts across leap years and century boundaries" do
-      for date <- [~D[1970-01-01], ~D[1999-12-31], ~D[2000-02-29], ~D[2024-02-29], ~D[2100-03-01], ~D[2026-10-31]] do
+      for date <- [
+            ~D[1970-01-01],
+            ~D[1999-12-31],
+            ~D[2000-02-29],
+            ~D[2024-02-29],
+            ~D[2100-03-01],
+            ~D[2026-10-31]
+          ] do
         assert Days.to_days({date.year, date.month, date.day}) == Date.diff(date, ~D[1970-01-01])
       end
     end
@@ -64,7 +71,8 @@ defmodule DebtReliefTracker.Engine.DueScheduleTest do
     end
 
     test "nothing when up to date, and clamps month-end due days" do
-      assert DueSchedule.missed_cycles(debt(last_due_handled_on: {2026, 10, 15}), {2026, 10, 31}) == []
+      assert DueSchedule.missed_cycles(debt(last_due_handled_on: {2026, 10, 15}), {2026, 10, 31}) ==
+               []
 
       assert DueSchedule.missed_cycles(
                debt(due_day: 31, last_due_handled_on: {2026, 1, 31}),

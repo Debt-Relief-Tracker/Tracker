@@ -58,7 +58,9 @@ defmodule DebtReliefTracker.Engine.Retirement do
 
   @doc "The household horizon: the longest of every profile's own months-to-retirement (`0` for no profiles)."
   def combined_months_to_retirement(profiles) do
-    Enum.reduce(profiles, 0, fn profile, longest -> max(longest, months_to_retirement(profile)) end)
+    Enum.reduce(profiles, 0, fn profile, longest ->
+      max(longest, months_to_retirement(profile))
+    end)
   end
 
   @doc """
