@@ -9,6 +9,8 @@ defmodule DebtReliefTracker.Storage.Plain do
   @behaviour DebtReliefTracker.Storage
 
   alias DebtReliefTracker.Debts
+  alias DebtReliefTracker.Debts.DueSchedule
+  alias DebtReliefTracker.DuePayments
   alias DebtReliefTracker.Engine.Convert
   alias DebtReliefTracker.Payments
   alias DebtReliefTracker.Settings
@@ -62,6 +64,42 @@ defmodule DebtReliefTracker.Storage.Plain do
     end
   end
 
+  defp run(workspace, user, {:reconcile_balance, debt_id, new_balance}) when is_integer(new_balance) do
+    with {:ok, debt} <- fetch_debt(workspace, debt_id) do
+      workspace
+      |> Debts.reconcile_balance(user, debt, Convert.from_cents(new_balance))
+      |> normalize()
+    end
+  end
+
+  defp run(workspace, user, {:handle_due, debt_id, action, cycle_iso})
+       when action in [:post, :skip] do
+    with {:ok, debt} <- fetch_debt(workspace, debt_id),
+         {:ok, cycle} <- due_cycle(debt, cycle_iso) do
+      # DuePayments derives the cycle from "today"; the cycle's own due date
+      # is the one `today` for which that derivation returns it unchanged.
+      result =
+        case action do
+          :post -> DuePayments.post_due_payment(workspace, user, debt, cycle)
+          :skip -> DuePayments.skip_due_payment(workspace, user, debt, cycle)
+        end
+
+      normalize(result)
+    end
+  end
+
+  # The client names the cycle it is answering; accept it only if it is a real
+  # due date of this debt that has already come (never a future/made-up date).
+  defp due_cycle(debt, cycle_iso) do
+    with {:ok, cycle} <- Date.from_iso8601(cycle_iso),
+         true <- Date.compare(cycle, Date.utc_today()) != :gt,
+         true <- DueSchedule.current_cycle_due_date(debt, cycle) == cycle do
+      {:ok, cycle}
+    else
+      _ -> {:error, :not_due}
+    end
+  end
+
   defp fetch_debt(workspace, id) do
     {:ok, Debts.get_debt!(workspace, id)}
   rescue
@@ -71,6 +109,7 @@ defmodule DebtReliefTracker.Storage.Plain do
   end
 
   defp normalize({:ok, _} = ok), do: ok
+  defp normalize({:error, :not_due} = error), do: error
 
   defp normalize({:error, %Ecto.Changeset{} = changeset}),
     do: {:error, {:invalid, errors(changeset)}}

@@ -92,10 +92,15 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   # --- shared actions (children target these with `target: "page"`) -------
 
   # A child (or a command's reply) delivers a fresh snapshot.
-  def action(:snapshot_updated, %{snapshot: snapshot}, component) do
-    component
-    |> put_state(:snapshot, snapshot)
-    |> put_state(:error, nil)
+  # A Server/Component carries one `next_action`, so a reply that must also
+  # close the open modal says so with `close_modal: true`.
+  def action(:snapshot_updated, %{snapshot: snapshot} = params, component) do
+    component =
+      component
+      |> put_state(:snapshot, snapshot)
+      |> put_state(:error, nil)
+
+    if Map.get(params, :close_modal, false), do: put_state(component, :modal, nil), else: component
   end
 
   def action(:change_failed, %{error: error}, component), do: put_state(component, :error, error)

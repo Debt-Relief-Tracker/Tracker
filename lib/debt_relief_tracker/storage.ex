@@ -29,6 +29,15 @@ defmodule DebtReliefTracker.Storage do
     * `{:log_payment, debt_id, attrs}` -- `:amount`, optional
       `:principal_portion`/`:interest_portion`, `:paid_on`, `:note`
     * `{:update_settings, attrs}`
+    * `{:reconcile_balance, debt_id, new_balance_cents}` -- the "log all
+      balances" flow (`Debts.reconcile_balance/5`): logs the gap to the
+      estimated balance as a payment and resets the statement baseline
+    * `{:handle_due, debt_id, :post | :skip, cycle_due_date_iso}` -- confirm-mode
+      due payments (`DuePayments`): `:post` logs the fixed payment (activity
+      `payment_auto_logged`, or `payment_logged` for a signed-in user) and
+      stamps `last_due_handled_on`; `:skip` only stamps it (activity
+      `due_payment_skipped`). `{:error, :not_due}` if that cycle is not
+      actually due.
 
   Every successful change returns the fresh snapshot.
   """
@@ -50,7 +59,9 @@ defmodule DebtReliefTracker.Storage do
           | {:mark_paid_off, id()}
           | {:log_payment, id(), map()}
           | {:update_settings, map()}
-  @type error :: :not_found | {:invalid, %{atom() => [String.t()]}}
+          | {:reconcile_balance, id(), integer()}
+          | {:handle_due, id(), :post | :skip, String.t()}
+  @type error :: :not_found | :not_due | {:invalid, %{atom() => [String.t()]}}
 
   @callback load(Workspace.t()) :: {:ok, snapshot()} | {:error, term()}
   @callback apply_change(Workspace.t(), user :: term(), change()) ::
