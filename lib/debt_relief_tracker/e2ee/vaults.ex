@@ -50,6 +50,9 @@ defmodule DebtReliefTracker.E2EE.Vaults do
     end
   end
 
+  @doc "The workspace's key wraps (oldest first); `[]` without a vault. No blob read."
+  def key_wraps(%Workspace{id: ws}), do: list_wraps(ws)
+
   @doc "Whether the workspace has a vault (no blob read)."
   def exists?(%Workspace{id: ws}),
     do: Repo.exists?(from(v in Vault, where: v.workspace_id == ^ws), @q)

@@ -121,9 +121,20 @@ export function randomUuid() {
   return globalThis.crypto.randomUUID()
 }
 
+// Copies text to the clipboard (the recovery key). Fire and forget.
+export function copyText(text) {
+  try {
+    const p = globalThis.navigator.clipboard.writeText(String(text))
+    if (p && p.catch) p.catch(() => {})
+  } catch {
+    // clipboard unavailable: the user can still select and copy by hand
+  }
+  return "ok"
+}
+
 export function monotonicMs() {
   return Math.floor(Date.now())
 }
 
-const env = { envInit, idleStart, idleStop, setDirty, broadcast, nowIso, todayIso, randomUuid, monotonicMs }
+const env = { envInit, idleStart, idleStop, setDirty, broadcast, nowIso, todayIso, randomUuid, monotonicMs, copyText }
 export default env

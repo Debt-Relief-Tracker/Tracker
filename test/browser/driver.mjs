@@ -37,29 +37,36 @@ const browser = await chromium.launch({
   args: ["--no-sandbox"],
 });
 const context = await browser.newContext();
-const page = await context.newPage();
-page.setDefaultTimeout(TIMEOUT);
 // Console errors / uncaught page errors, readable with the `errors` command.
 const pageErrors = [];
-page.on("pageerror", (e) => pageErrors.push(String(e && e.message ? e.message : e)));
-// Console listeners are costly (Hologram logs every function call it runs),
-// so they are attached only on request.
-if (process.env.BROWSER_LOG_ALL) {
-  page.on("console", (m) => pageErrors.push(m.type() + ": " + m.text().slice(0, 300)));
+
+// Every tab gets the same listeners. Tabs are addressed by name: each request
+// may carry `args.tab` (default "main") and the handlers below act on `page`,
+// which is pointed at that tab before the handler runs. `new_tab`/`close_tab`
+// manage the extra tabs (same browser context, so they share storage and
+// BroadcastChannel like real tabs of one browser).
+function setupPage(p) {
+  p.setDefaultTimeout(TIMEOUT);
+  p.on("pageerror", (e) => pageErrors.push(String(e && e.message ? e.message : e)));
+  // Console listeners are costly (Hologram logs every function call it runs),
+  // so they are attached only on request.
+  if (process.env.BROWSER_LOG_ALL) {
+    p.on("console", (m) => pageErrors.push(m.type() + ": " + m.text().slice(0, 300)));
+  }
+  p.on("response", (r) => {
+    if (r.status() >= 400) pageErrors.push(`HTTP ${r.status()} ${r.url()}`);
+  });
 }
-page.on("response", (r) => {
-  if (r.status() >= 400) pageErrors.push(`HTTP ${r.status()} ${r.url()}`);
-});
 
 // Content-Security-Policy violations (enforced or report-only). Recorded in
 // pageErrors (readable with `errors`) and, when BROWSER_CSP_LOG names a file,
 // appended there as JSON lines so the ExUnit side can fail the test even if
 // the violation happened after the test's last driver call.
-await page.exposeFunction("__reportCspViolation", (v) => {
+await context.exposeFunction("__reportCspViolation", (v) => {
   pageErrors.push("CSP violation: " + JSON.stringify(v));
   if (process.env.BROWSER_CSP_LOG) appendFileSync(process.env.BROWSER_CSP_LOG, JSON.stringify(v) + "\n");
 });
-await page.addInitScript(() => {
+await context.addInitScript(() => {
   document.addEventListener(
     "securitypolicyviolation",
     (e) =>
@@ -76,11 +83,16 @@ await page.addInitScript(() => {
   );
 });
 
+const tabs = new Map();
+let page = await context.newPage();
+setupPage(page);
+tabs.set("main", page);
+
 // BROWSER_TEST_DEBUG=1 mirrors page console/errors/navigations to stderr.
 if (process.env.BROWSER_TEST_DEBUG) {
   const log = (...a) => process.stderr.write("[browser] " + a.join(" ") + "\n");
   page.on("console", (m) => { if (process.env.BROWSER_TEST_DEBUG === "all" || (m.type() !== "log" && m.type() !== "debug")) log("console." + m.type(), m.text()); });
-  page.on("pageerror", (e) => log("pageerror", e.message));
+  page.on("pageerror", (e) => log("pageerror", String(e.message), String(e.stack).slice(0, 1500), JSON.stringify(e)));
   page.on("requestfailed", (r) => log("request-failed", r.method(), r.url(), r.failure()?.errorText));
   page.on("response", (r) => log("response", r.status(), r.url(), r.headers()["content-type"] || ""));
   page.on("framenavigated", (f) => log("navigated", f.url()));
@@ -217,6 +229,73 @@ const handlers = {
     });
     return r.authenticatorId;
   },
+  async new_tab({ name }) {
+    const p = await context.newPage();
+    setupPage(p);
+    tabs.set(name, p);
+  },
+  async close_tab({ name }) {
+    const p = tabs.get(name);
+    if (p) await p.close();
+    tabs.delete(name);
+  },
+  async reload() {
+    await page.reload({ waitUntil: "load" });
+  },
+  // Dispatch a cancelable `beforeunload` and report whether a handler asked
+  // for the "leave site?" prompt (defaultPrevented), without leaving.
+  async beforeunload_prevented() {
+    return await page.evaluate(() => {
+      const e = new Event("beforeunload", { cancelable: true });
+      window.dispatchEvent(e);
+      return e.defaultPrevented;
+    });
+  },
+  // Cookies, localStorage, sessionStorage and every IndexedDB database/store
+  // of the page's origin (keys, and for CryptoKeys only their properties).
+  async storage_dump() {
+    return await page.evaluate(async () => {
+      const out = { cookie: document.cookie, local: {}, session: {}, idb: {} };
+      for (let i = 0; i < localStorage.length; i++) out.local[localStorage.key(i)] = localStorage.getItem(localStorage.key(i));
+      for (let i = 0; i < sessionStorage.length; i++) out.session[sessionStorage.key(i)] = sessionStorage.getItem(sessionStorage.key(i));
+      const dbs = indexedDB.databases ? await indexedDB.databases() : [];
+      for (const { name } of dbs) {
+        const db = await new Promise((res, rej) => {
+          const r = indexedDB.open(name);
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+        out.idb[name] = {};
+        for (const store of Array.from(db.objectStoreNames)) {
+          out.idb[name][store] = await new Promise((res, rej) => {
+            const tx = db.transaction(store, "readonly");
+            const os = tx.objectStore(store);
+            const keysReq = os.getAllKeys();
+            const valsReq = os.getAll();
+            tx.oncomplete = () => {
+              const keys = keysReq.result;
+              res(
+                keys.map((k, i) => {
+                  const v = valsReq.result[i];
+                  const isKey = typeof CryptoKey !== "undefined" && v instanceof CryptoKey;
+                  return {
+                    key: k,
+                    type: isKey ? "CryptoKey" : typeof v,
+                    value: isKey
+                      ? { extractable: v.extractable, usages: v.usages, algorithm: v.algorithm.name }
+                      : v,
+                  };
+                }),
+              );
+            };
+            tx.onerror = () => rej(tx.error);
+          });
+        }
+        db.close();
+      }
+      return out;
+    });
+  },
   async browser_version() {
     return browser.version();
   },
@@ -234,6 +313,9 @@ rl.on("line", async (line) => {
   try {
     req = JSON.parse(line);
     const fn = handlers[req.cmd];
+    const tab = tabs.get((req.args && req.args.tab) || "main");
+    if (!tab) throw new Error(`unknown tab ${req.args && req.args.tab}`);
+    page = tab;
     if (!fn) throw new Error(`unknown cmd ${req.cmd}`);
     send({ id: req.id, ok: true, value: (await fn(req.args || {})) ?? null });
   } catch (e) {

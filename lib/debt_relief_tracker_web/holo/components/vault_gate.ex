@@ -172,6 +172,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
   defp error_code({:invalid, _errors}), do: :invalid
   defp error_code(reason) when is_atom(reason), do: reason
 
+  @doc false
+  def wrap_view(%KeyWrap{} = wrap), do: wrap_map(wrap)
+
   defp wrap_map(%KeyWrap{} = wrap) do
     %{
       id: wrap.id,

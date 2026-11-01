@@ -29,6 +29,8 @@ defmodule DebtReliefTracker.VaultEnv do
   def today_iso, do: call(:todayIso, [])
   @doc "A random UUID v4 (`crypto.randomUUID`)."
   def random_uuid, do: call(:randomUuid, [])
+  @doc "Copies `text` to the clipboard (best effort)."
+  def copy_text(text), do: call(:copyText, [text])
   @doc "Wall clock in milliseconds."
   def now_ms, do: call(:monotonicMs, [])
 
