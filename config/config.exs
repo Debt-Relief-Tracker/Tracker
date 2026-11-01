@@ -11,6 +11,11 @@ config :debt_relief_tracker,
   ecto_repos: [DebtReliefTracker.Repo.Sqlite, DebtReliefTracker.Repo.Postgres],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
+# Content-Security-Policy for the Hologram app (/app) --
+# DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy, docs/architecture/0007-e2ee.md.
+# mode: :enforce | :report_only | :off. Enforced everywhere except dev (see dev.exs).
+config :debt_relief_tracker, :csp, mode: :enforce
+
 # Both repos share one priv/repo/migrations directory (see
 # docs/architecture/0001-dual-database-adapter.md) since only one adapter is
 # ever active at a time and migrations are written adapter-portably.

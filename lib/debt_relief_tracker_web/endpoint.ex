@@ -50,6 +50,7 @@ defmodule DebtReliefTrackerWeb.Endpoint do
   plug Plug.MethodOverride
   plug Plug.Head
   plug Plug.Session, @session_options
+  plug DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy
   plug Hologram.Router
   plug DebtReliefTrackerWeb.Router
 end

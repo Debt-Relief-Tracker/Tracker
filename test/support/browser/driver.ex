@@ -6,7 +6,7 @@ defmodule DebtReliefTracker.BrowserCase.Driver do
   @dir Path.expand("../../browser", __DIR__)
   @call_timeout 30_000
 
-  def start! do
+  def start!(csp_log \\ nil) do
     unless File.dir?(Path.join(@dir, "node_modules/playwright-core")) do
       raise "Playwright is not installed. Run: (cd test/browser && npm install)"
     end
@@ -19,7 +19,8 @@ defmodule DebtReliefTracker.BrowserCase.Driver do
         :exit_status,
         {:line, 1_000_000},
         {:args, [Path.join(@dir, "driver.mjs")]},
-        {:cd, @dir}
+        {:cd, @dir},
+        {:env, if(csp_log, do: [{~c"BROWSER_CSP_LOG", String.to_charlist(csp_log)}], else: [])}
       ])
 
     {:ok, %{"ok" => true}} = read(port, 0)

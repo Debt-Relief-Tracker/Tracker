@@ -2,7 +2,7 @@
 // headless Chromium. One request per stdin line: {id, cmd, args}; one reply per
 // stdout line: {id, ok, value | error}. All app logic stays in Elixir.
 import { createRequire } from "node:module";
-import { existsSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import readline from "node:readline";
@@ -51,11 +51,38 @@ page.on("response", (r) => {
   if (r.status() >= 400) pageErrors.push(`HTTP ${r.status()} ${r.url()}`);
 });
 
+// Content-Security-Policy violations (enforced or report-only). Recorded in
+// pageErrors (readable with `errors`) and, when BROWSER_CSP_LOG names a file,
+// appended there as JSON lines so the ExUnit side can fail the test even if
+// the violation happened after the test's last driver call.
+await page.exposeFunction("__reportCspViolation", (v) => {
+  pageErrors.push("CSP violation: " + JSON.stringify(v));
+  if (process.env.BROWSER_CSP_LOG) appendFileSync(process.env.BROWSER_CSP_LOG, JSON.stringify(v) + "\n");
+});
+await page.addInitScript(() => {
+  document.addEventListener(
+    "securitypolicyviolation",
+    (e) =>
+      window.__reportCspViolation({
+        directive: e.effectiveDirective,
+        blocked: e.blockedURI,
+        document: e.documentURI,
+        source: e.sourceFile,
+        line: e.lineNumber,
+        sample: e.sample,
+        disposition: e.disposition,
+      }),
+    true,
+  );
+});
+
 // BROWSER_TEST_DEBUG=1 mirrors page console/errors/navigations to stderr.
 if (process.env.BROWSER_TEST_DEBUG) {
   const log = (...a) => process.stderr.write("[browser] " + a.join(" ") + "\n");
   page.on("console", (m) => { if (process.env.BROWSER_TEST_DEBUG === "all" || (m.type() !== "log" && m.type() !== "debug")) log("console." + m.type(), m.text()); });
   page.on("pageerror", (e) => log("pageerror", e.message));
+  page.on("requestfailed", (r) => log("request-failed", r.method(), r.url(), r.failure()?.errorText));
+  page.on("response", (r) => log("response", r.status(), r.url(), r.headers()["content-type"] || ""));
   page.on("framenavigated", (f) => log("navigated", f.url()));
   page.on("request", (r) => { if (r.isNavigationRequest()) log("nav-request", r.method(), r.url()); });
   page.addInitScript(() => {
@@ -64,17 +91,37 @@ if (process.env.BROWSER_TEST_DEBUG) {
   });
 }
 
+// page.waitForFunction evaluates its predicate with `eval` inside the page,
+// which the app's strict CSP (no 'unsafe-eval') refuses. page.evaluate goes
+// through the DevTools protocol and is unaffected, so poll with it instead.
+async function waitFor(fn, arg, what) {
+  const deadline = Date.now() + TIMEOUT;
+  let last;
+  for (;;) {
+    try {
+      if (await page.evaluate(fn, arg)) return;
+    } catch (e) {
+      last = e; // e.g. the execution context was destroyed by a navigation
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`timeout ${TIMEOUT}ms waiting for ${what}` + (last ? ` (${last.message})` : ""));
+    }
+    await new Promise((r) => setTimeout(r, 50));
+  }
+}
+
 const handlers = {
   async visit({ url }) {
     await page.goto(url, { waitUntil: "load" });
   },
   async wait_mounted({ page: name }) {
-    await page.waitForFunction(
+    await waitFor(
       (n) => {
         const h = globalThis.Hologram;
         return h && h.mountedPage === n && h["wsConnected?"] && h["sseConnected?"];
       },
       name,
+      `page ${name} mounted`,
     );
   },
   async click({ selector }) {
@@ -90,12 +137,13 @@ const handlers = {
     await page.waitForSelector(selector, { state: state || "visible" });
   },
   async wait_for_text({ selector, text }) {
-    await page.waitForFunction(
+    await waitFor(
       ([s, t]) => {
         const el = document.querySelector(s);
         return !!el && el.innerText.includes(t);
       },
       [selector, text],
+      `${selector} to contain ${text}`,
     );
   },
   async count({ selector }) {
@@ -132,7 +180,7 @@ const handlers = {
     return await page.locator(selector).first().getAttribute(name);
   },
   async wait_for_expr({ expr }) {
-    await page.waitForFunction(expr);
+    await waitFor(expr, undefined, `expression ${expr}`);
   },
   async wait_for_url({ pattern }) {
     await page.waitForURL(new RegExp(pattern));

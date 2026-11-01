@@ -16,6 +16,9 @@ defmodule DebtReliefTracker.BrowserCase do
     * drives a headless Chromium through `test/browser/driver.mjs`
       (Playwright), one browser per test.
 
+  Any Content-Security-Policy violation seen by the page fails the test
+  (opt out per test with `@tag csp: :allow`).
+
   Helpers (all take and return nothing interesting; they raise on failure):
   `visit_page/2`, `visit/2`, `click/2`, `fill/3`, `text/2`,
   `assert_selector/2`, `refute_selector/2`, `assert_text/3`, `current_path/1`.
@@ -59,7 +62,33 @@ defmodule DebtReliefTracker.BrowserCase do
     # One browser per test, opened by the test process: a Port delivers its
     # replies to its owner, so it can't be opened in setup_all. It is closed
     # automatically when the test process exits.
-    {:ok, driver: Driver.start!()}
+    #
+    # Content-Security-Policy: the endpoint enforces the strict /app policy in
+    # tests, and the driver logs every `securitypolicyviolation` event to a
+    # per-test file. Any violation fails the test (checked in on_exit, so even
+    # one after the last driver call counts). Opt out with `@tag csp: :allow`.
+    csp_log =
+      Path.join(
+        System.tmp_dir!(),
+        "csp-violations-#{System.unique_integer([:positive])}.jsonl"
+      )
+
+    ExUnit.Callbacks.on_exit(fn ->
+      violations =
+        case File.read(csp_log) do
+          {:ok, data} -> String.split(data, "\n", trim: true)
+          _ -> []
+        end
+
+      File.rm(csp_log)
+
+      if violations != [] and tags[:csp] != :allow do
+        raise ExUnit.AssertionError,
+          message: "CSP violations in the browser:\n" <> Enum.join(violations, "\n")
+      end
+    end)
+
+    {:ok, driver: Driver.start!(csp_log)}
   end
 
   # The Hologram layout loads /assets/js/holo_account.js and /assets/css/app.css,
