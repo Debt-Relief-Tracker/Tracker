@@ -13,6 +13,7 @@ defmodule DebtReliefTrackerWeb.AdminLive do
 
   alias DebtReliefTracker.{Accounts, Mailer, Settings, Support}
   alias DebtReliefTracker.Accounts.ApiToken
+  alias DebtReliefTracker.E2EE.Migration
   alias DebtReliefTracker.Settings.SiteSetting
 
   @per_page_options [10, 25, 50, 100]
@@ -30,6 +31,8 @@ defmodule DebtReliefTrackerWeb.AdminLive do
      |> assign(:viewing_support_email, nil)
      |> assign(:viewing_user, nil)
      |> assign(:users_page, nil)
+     |> assign(:migration_statuses, %{})
+     |> assign(:migration_counts, Migration.count_statuses(%{}))
      |> assign(:per_page_options, @per_page_options)
      |> stream(:sent_emails, Accounts.list_sent_emails())
      |> stream(:support_emails, Support.list_support_emails())
@@ -63,8 +66,13 @@ defmodule DebtReliefTrackerWeb.AdminLive do
         per_page: parse_per_page(params["per_page"])
       )
 
+    # Counts / labels only -- no financial data (E2EE.Migration never decrypts).
+    statuses = Migration.statuses()
+
     socket
     |> assign(:users_page, users_page)
+    |> assign(:migration_statuses, statuses)
+    |> assign(:migration_counts, Migration.count_statuses(statuses))
     |> stream(:users, users_page.entries, reset: true)
   end
 
@@ -218,6 +226,26 @@ defmodule DebtReliefTrackerWeb.AdminLive do
     end
   end
 
+  # The least-migrated status among the workspaces a user OWNS (shared ones
+  # are their owner's business); nil when they own none.
+  defp encryption_status(user, statuses) do
+    owned =
+      for m <- user.workspace_members, m.role == :owner, do: Map.get(statuses, m.workspace_id)
+
+    Enum.find([:plaintext_only, :both, :vault_only, :empty], &(&1 in owned))
+  end
+
+  defp encryption_label(:plaintext_only), do: "Not migrated"
+  defp encryption_label(:both), do: "In progress"
+  defp encryption_label(:vault_only), do: "Encrypted"
+  defp encryption_label(:empty), do: "No data"
+  defp encryption_label(nil), do: "—"
+
+  defp encryption_badge(:plaintext_only), do: "badge-warning"
+  defp encryption_badge(:both), do: "badge-info"
+  defp encryption_badge(:vault_only), do: "badge-success"
+  defp encryption_badge(_), do: "badge-ghost"
+
   defp workspace_summary(user) do
     owned = Enum.count(user.workspace_members, &(&1.role == :owner))
     shared = length(user.workspace_members) - owned
@@ -288,6 +316,32 @@ defmodule DebtReliefTrackerWeb.AdminLive do
       </div>
 
       <div :if={@tab == :users}>
+        <div id="encryption-counts" class="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <div class="rounded-box border border-base-300 p-3">
+            <div class="text-xs text-base-content/70">Encrypted</div>
+            <div id="encryption-count-encrypted" class="text-xl font-semibold">
+              {@migration_counts.vault_only}
+            </div>
+          </div>
+          <div class="rounded-box border border-base-300 p-3">
+            <div class="text-xs text-base-content/70">Not migrated</div>
+            <div id="encryption-count-unmigrated" class="text-xl font-semibold">
+              {@migration_counts.plaintext_only}
+            </div>
+          </div>
+          <div class="rounded-box border border-base-300 p-3">
+            <div class="text-xs text-base-content/70">In progress</div>
+            <div id="encryption-count-in-progress" class="text-xl font-semibold">
+              {@migration_counts.both}
+            </div>
+          </div>
+          <div class="rounded-box border border-base-300 p-3">
+            <div class="text-xs text-base-content/70">Empty</div>
+            <div id="encryption-count-empty" class="text-xl font-semibold">
+              {@migration_counts.empty}
+            </div>
+          </div>
+        </div>
         <.table id="users" rows={@streams.users} row_item={fn {_id, user} -> user end}>
           <:col :let={user} label="Name">
             <span class="whitespace-nowrap">{user.display_name}</span>
@@ -297,6 +351,15 @@ defmodule DebtReliefTrackerWeb.AdminLive do
           <:col :let={user} label="Provider">{provider_label(user.external_subject)}</:col>
           <:col :let={user} label="Workspaces">
             <span class="whitespace-nowrap">{workspace_summary(user)}</span>
+          </:col>
+          <:col :let={user} label="Encryption">
+            <% status = encryption_status(user, @migration_statuses) %>
+            <span
+              id={"encryption-#{user.id}"}
+              class={["badge badge-sm whitespace-nowrap", encryption_badge(status)]}
+            >
+              {encryption_label(status)}
+            </span>
           </:col>
           <:col :let={user} label="Joined">
             {Calendar.strftime(user.inserted_at, "%b %d, %Y")}

@@ -25,6 +25,7 @@ defmodule DebtReliefTracker.DuePayments.Scheduler do
   require Logger
 
   alias DebtReliefTracker.{Accounts, Debts, DuePayments}
+  alias DebtReliefTracker.E2EE.Migration
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
@@ -46,7 +47,13 @@ defmodule DebtReliefTracker.DuePayments.Scheduler do
 
   @doc "The sweep itself, factored out so tests can call it directly without going through the timer."
   def run_due_checks do
+    # A workspace with a vault is encrypted or mid-migration: its authoritative
+    # data is the vault (plus plaintext being migrated, guarded by a digest),
+    # so the server must never post into it (E2EE.Migration, ADR 0007).
+    encrypted = Migration.encrypted_workspace_ids()
+
     for workspace <- Accounts.list_workspaces(),
+        not MapSet.member?(encrypted, workspace.id),
         debt <- Debts.list_debts(workspace),
         debt.type == :installment,
         debt.status == :active,
