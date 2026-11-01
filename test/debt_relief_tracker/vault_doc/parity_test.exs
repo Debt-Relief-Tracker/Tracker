@@ -39,7 +39,8 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
   }
 
   # Runs steps, returning the parity state; debts are found by name afterwards.
-  defp run(p, changes), do: Enum.reduce(changes, p, fn change, p -> elem(P.step(p, change), 0) end)
+  defp run(p, changes),
+    do: Enum.reduce(changes, p, fn change, p -> elem(P.step(p, change), 0) end)
 
   defp debt_id(p, name) do
     {:ok, snapshot} = DebtReliefTracker.Storage.Plain.load(p.workspace)
@@ -60,8 +61,16 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
         {:add_debt, @loan},
         {:add_debt, %{@card | name: "Zero", balance: 0}},
         {:add_debt, %{@loan | name: "Big", balance: 999_999_999_999_999, fixed_payment: 1}},
-        {:add_debt, Map.merge(@card, %{name: "Zoë's 😀 Karte \"quoted\"", position: 3, original_balance: 5})},
-        {:add_debt, Map.merge(@card, %{name: "Full", exclude_from_plan: true, statement_balance: 400_000, statement_date: "2026-10-01", position: 2})},
+        {:add_debt,
+         Map.merge(@card, %{name: "Zoë's 😀 Karte \"quoted\"", position: 3, original_balance: 5})},
+        {:add_debt,
+         Map.merge(@card, %{
+           name: "Full",
+           exclude_from_plan: true,
+           statement_balance: 400_000,
+           statement_date: "2026-10-01",
+           position: 2
+         })},
         {:add_debt, Map.merge(@loan, %{name: "Auto", auto_log_mode: "confirm", due_day: 31})}
       ])
 
@@ -157,7 +166,13 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
         p
       end)
 
-    p = run(p, [{:mark_paid_off, card}, {:mark_paid_off, card}, {:update_debt, card, %{name: "Paid"}}])
+    p =
+      run(p, [
+        {:mark_paid_off, card},
+        {:mark_paid_off, card},
+        {:update_debt, card, %{name: "Paid"}}
+      ])
+
     {p, {:error, :not_found}} = err(p, {:mark_paid_off, ghost})
     p = run(p, [{:delete_debt, card}])
     {p, {:error, :not_found}} = err(p, {:delete_debt, card})
@@ -173,10 +188,19 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
     p =
       run(p, [
         {:log_payment, card, %{amount: 10_000, paid_on: "2026-10-31"}},
-        {:log_payment, card, %{amount: 10_000, interest_portion: 3_000, principal_portion: 7_000, paid_on: "2026-10-30", note: "wk 1 – ünï \"q\""}},
+        {:log_payment, card,
+         %{
+           amount: 10_000,
+           interest_portion: 3_000,
+           principal_portion: 7_000,
+           paid_on: "2026-10-30",
+           note: "wk 1 – ünï \"q\""
+         }},
         {:log_payment, card, %{amount: 5_000, interest_portion: 1_000, paid_on: "2026-10-30"}},
-        {:log_payment, card, %{amount: 5_000, principal_portion: 0, paid_on: "2026-10-30", note: ""}},
-        {:log_payment, card, %{amount: 5_000, principal_portion: 6_000, paid_on: "2026-10-29", note: nil}},
+        {:log_payment, card,
+         %{amount: 5_000, principal_portion: 0, paid_on: "2026-10-30", note: ""}},
+        {:log_payment, card,
+         %{amount: 5_000, principal_portion: 6_000, paid_on: "2026-10-29", note: nil}},
         {:log_payment, card, %{amount: 1, paid_on: "2026-10-29"}},
         {:log_payment, loan, %{amount: 1_199_999, paid_on: "2026-11-01"}},
         {:log_payment, loan, %{amount: 1, paid_on: "2026-11-01"}}
@@ -208,7 +232,9 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
     p = run(p, [{:log_payment, card, %{amount: balance, paid_on: "2026-11-01"}}])
     {:ok, snap} = DebtReliefTracker.Storage.Plain.load(p.workspace)
     assert Enum.find(snap.debts, &(&1.id == card)).balance == 0
-    {_p, {:error, {:invalid, %{balance: _}}}} = err(p, {:log_payment, card, %{amount: 1, paid_on: "2026-11-01"}})
+
+    {_p, {:error, {:invalid, %{balance: _}}}} =
+      err(p, {:log_payment, card, %{amount: 1, paid_on: "2026-11-01"}})
   end
 
   test "delete cascades to payments and unlinks activity", %{owner: o, workspace: w} do
@@ -233,14 +259,22 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
   test "mark_paid_off then deleted debts keep activity consistent", %{owner: o, workspace: w} do
     p = run(P.new(w, o), [{:add_debt, @card}])
     card = debt_id(p, "Visa")
-    run(p, [{:mark_paid_off, card}, {:log_payment, card, %{amount: 10, paid_on: "2026-11-01"}}, {:delete_debt, card}])
+
+    run(p, [
+      {:mark_paid_off, card},
+      {:log_payment, card, %{amount: 10, paid_on: "2026-11-01"}},
+      {:delete_debt, card}
+    ])
   end
 
   test "actor nil and a signed-in actor produce the same entries", %{workspace: w} do
     p = P.new(w, nil)
     {p, {:ok, _}} = P.step(p, {:add_debt, @card}, actor: nil)
     card = debt_id(p, "Visa")
-    {p, {:ok, _}} = P.step(p, {:log_payment, card, %{amount: 5000, paid_on: "2026-11-01"}}, actor: nil)
+
+    {p, {:ok, _}} =
+      P.step(p, {:log_payment, card, %{amount: 5000, paid_on: "2026-11-01"}}, actor: nil)
+
     {_p, {:ok, snap}} = P.step(p, {:update_debt, card, %{name: "V"}}, actor: nil)
     assert Enum.all?(snap.activity, &is_nil(&1.user_id))
   end
@@ -301,7 +335,8 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
     test "post, skip, not_due and guards", %{owner: o, workspace: w} do
       p =
         run(P.new(w, o), [
-          {:add_debt, Map.merge(@loan, %{name: "Confirm", auto_log_mode: "confirm", due_day: 15})},
+          {:add_debt,
+           Map.merge(@loan, %{name: "Confirm", auto_log_mode: "confirm", due_day: 15})},
           {:add_debt, Map.merge(@loan, %{name: "Auto", auto_log_mode: "automatic", due_day: 1})},
           {:add_debt, Map.merge(@loan, %{name: "Off", auto_log_mode: "off", due_day: 3})},
           {:add_debt, @card}
@@ -337,28 +372,52 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
     end
 
     test "posting without a user logs payment_auto_logged", %{owner: o, workspace: w} do
-      p = run(P.new(w, o), [{:add_debt, Map.merge(@loan, %{auto_log_mode: "confirm", due_day: 10})}])
+      p =
+        run(P.new(w, o), [{:add_debt, Map.merge(@loan, %{auto_log_mode: "confirm", due_day: 10})}])
+
       id = debt_id(p, "Auto loan")
-      {p, {:ok, snap}} = P.step(p, {:handle_due, id, :post, Date.to_iso8601(cycle_for(10))}, actor: nil)
+
+      {p, {:ok, snap}} =
+        P.step(p, {:handle_due, id, :post, Date.to_iso8601(cycle_for(10))}, actor: nil)
+
       assert Enum.any?(snap.activity, &(&1.action == "payment_auto_logged"))
-      assert Enum.find(snap.debts, &(&1.id == id)).last_due_handled_on == Date.to_iso8601(cycle_for(10))
+
+      assert Enum.find(snap.debts, &(&1.id == id)).last_due_handled_on ==
+               Date.to_iso8601(cycle_for(10))
+
       _ = p
     end
 
-    test "a fixed payment larger than the balance is rejected and not stamped", %{owner: o, workspace: w} do
-      p = run(P.new(w, o), [{:add_debt, Map.merge(@loan, %{balance: 100, auto_log_mode: "confirm", due_day: 10})}])
+    test "a fixed payment larger than the balance is rejected and not stamped", %{
+      owner: o,
+      workspace: w
+    } do
+      p =
+        run(P.new(w, o), [
+          {:add_debt, Map.merge(@loan, %{balance: 100, auto_log_mode: "confirm", due_day: 10})}
+        ])
+
       id = debt_id(p, "Auto loan")
       c = Date.to_iso8601(cycle_for(10))
       {p, {:error, {:invalid, %{balance: _}}}} = err(p, {:handle_due, id, :post, c})
       run(p, [{:handle_due, id, :skip, c}])
     end
 
-    test "clamped due days (31st in short months) and older unhandled cycles", %{owner: o, workspace: w} do
-      p = run(P.new(w, o), [{:add_debt, Map.merge(@loan, %{auto_log_mode: "confirm", due_day: 31})}])
+    test "clamped due days (31st in short months) and older unhandled cycles", %{
+      owner: o,
+      workspace: w
+    } do
+      p =
+        run(P.new(w, o), [{:add_debt, Map.merge(@loan, %{auto_log_mode: "confirm", due_day: 31})}])
+
       id = debt_id(p, "Auto loan")
       today = Date.utc_today()
       prev = Date.beginning_of_month(today) |> Date.add(-1)
-      run(p, [{:handle_due, id, :post, Date.to_iso8601(cycle_for(31))}, {:handle_due, id, :post, Date.to_iso8601(prev)}])
+
+      run(p, [
+        {:handle_due, id, :post, Date.to_iso8601(cycle_for(31))},
+        {:handle_due, id, :post, Date.to_iso8601(prev)}
+      ])
     end
   end
 
@@ -408,9 +467,11 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
       p =
         run(p, [
           {:add_member_retirement_profile, o.id, @profile},
-          {:add_manual_retirement_profile, Map.merge(@profile, %{name: "Sam", claim_email: "sam@example.com"})},
+          {:add_manual_retirement_profile,
+           Map.merge(@profile, %{name: "Sam", claim_email: "sam@example.com"})},
           {:add_manual_retirement_profile, Map.merge(@profile, %{name: "Pat 😀"})},
-          {:add_manual_retirement_profile, Map.merge(@profile, %{name: "Pat again", claim_email: nil})}
+          {:add_manual_retirement_profile,
+           Map.merge(@profile, %{name: "Pat again", claim_email: nil})}
         ])
 
       {:ok, snap} = DebtReliefTracker.Storage.Plain.load(p.workspace)
@@ -418,24 +479,35 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
 
       p =
         run(p, [
-          {:update_retirement_profile, member.id, %{current_age: 31, name: "ignored", claim_email: "x@y.z"}},
-          {:update_retirement_profile, sam.id, %{name: "Samantha", claim_email: "samantha@example.com"}},
+          {:update_retirement_profile, member.id,
+           %{current_age: 31, name: "ignored", claim_email: "x@y.z"}},
+          {:update_retirement_profile, sam.id,
+           %{name: "Samantha", claim_email: "samantha@example.com"}},
           {:update_retirement_profile, sam.id, %{claim_email: nil}},
-          {:update_retirement_profile, pat.id, %{retirement_age: 70, expected_annual_return_bp: 3000, post_debt_investment_bp: 10_000}},
+          {:update_retirement_profile, pat.id,
+           %{retirement_age: 70, expected_annual_return_bp: 3000, post_debt_investment_bp: 10_000}},
           {:update_retirement_profile, pat.id, %{}},
           {:update_retirement_profile, pat.id, %{claim_email: "sam@example.com"}},
           {:delete_retirement_profile, sam.id},
-          {:add_manual_retirement_profile, Map.merge(@profile, %{name: "Reuse", claim_email: "sam@example.com"})}
+          {:add_manual_retirement_profile,
+           Map.merge(@profile, %{name: "Reuse", claim_email: "sam@example.com"})}
         ])
 
       {:ok, snap2} = DebtReliefTracker.Storage.Plain.load(p.workspace)
       _ = snap2
-      {p, {:ok, _}} = err(p, {:add_manual_retirement_profile, Map.merge(@profile, %{name: "Dupmail", claim_email: "dup@example.com"})})
+
+      {p, {:ok, _}} =
+        err(
+          p,
+          {:add_manual_retirement_profile,
+           Map.merge(@profile, %{name: "Dupmail", claim_email: "dup@example.com"})}
+        )
 
       for change <- [
             {:add_member_retirement_profile, o.id, @profile},
             {:update_retirement_profile, pat.id, %{claim_email: "dup@example.com"}},
-            {:add_manual_retirement_profile, Map.merge(@profile, %{name: "Dup", claim_email: "sam@example.com"})}
+            {:add_manual_retirement_profile,
+             Map.merge(@profile, %{name: "Dup", claim_email: "sam@example.com"})}
           ] do
         {_p, result} = err(p, change)
         assert match?({:error, {:invalid, _}}, result), "accepted: #{inspect(change)}"
@@ -449,7 +521,9 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
     test "validation errors and a non-member", %{owner: o, stranger: s, workspace: w} do
       p = P.new(w, o)
       {p, {:error, :not_found}} = err(p, {:add_member_retirement_profile, s.id, @profile})
-      {p, {:error, :not_found}} = err(p, {:add_member_retirement_profile, Ecto.UUID.generate(), @profile})
+
+      {p, {:error, :not_found}} =
+        err(p, {:add_member_retirement_profile, Ecto.UUID.generate(), @profile})
 
       bad = [
         %{},
@@ -480,7 +554,9 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
         end)
 
       {p, {:error, {:invalid, %{name: _}}}} = err(p, {:add_manual_retirement_profile, @profile})
-      {_p, {:error, {:invalid, %{name: _}}}} = err(p, {:add_manual_retirement_profile, Map.put(@profile, :name, "  ")})
+
+      {_p, {:error, {:invalid, %{name: _}}}} =
+        err(p, {:add_manual_retirement_profile, Map.put(@profile, :name, "  ")})
     end
   end
 
@@ -489,8 +565,15 @@ defmodule DebtReliefTracker.VaultDoc.ParityTest do
     {:ok, _} = DebtReliefTracker.Storage.Plain.load(w)
 
     for change <- [:nope, {:add_debt, nil}, {:add_debt, "x"}, {}, {:log_payment, 1}, nil, 5] do
-      ctx = %{now: "2026-11-01T12:00:00Z", today: "2026-11-01", new_id: &Ecto.UUID.generate/0, actor: nil}
-      assert {:error, {:invalid, _}} = DebtReliefTracker.VaultDoc.Ledger.apply_change(p.doc, change, ctx)
+      ctx = %{
+        now: "2026-11-01T12:00:00Z",
+        today: "2026-11-01",
+        new_id: &Ecto.UUID.generate/0,
+        actor: nil
+      }
+
+      assert {:error, {:invalid, _}} =
+               DebtReliefTracker.VaultDoc.Ledger.apply_change(p.doc, change, ctx)
     end
   end
 end

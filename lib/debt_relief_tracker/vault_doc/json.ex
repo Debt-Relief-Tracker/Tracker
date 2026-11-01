@@ -1,40 +1,35 @@
 defmodule DebtReliefTracker.VaultDoc.Json do
   @moduledoc """
-  Deterministic JSON for the vault document, in pure Elixir (client-safe).
+  Deterministic JSON for the vault document (client-safe).
 
-  ## Why not Jason or `JS.call(:JSON, ...)`
+  ## Approach: a pure Elixir reference + a JS fast path, proven identical
 
-  Jason is not available in the browser (it is not ported and uses
-  floats/binary matching Hologram has not got). `JSON.parse` /
-  `JSON.stringify` through Hologram's JS interop were rejected because:
+  Jason is not available in the browser, so the codec is written in pure
+  Elixir (`encode_pure/1`, `decode_pure/1`): the reference implementation,
+  used on the server and by ExUnit. It is correct in the browser too (it is
+  compiled by Hologram and the browser test runs it), but Hologram's
+  interpreter makes it unusably slow on a real document: every `[h | t]`
+  match, cons, `Map.put` and most recursive `Enum` functions copy their whole
+  list/map (measured: 1000 cons cells ~35 ms, 1000 `Map.put`s ~350 ms,
+  `Enum.join` of 1000 strings ~220 ms, `String.codepoints` of 4 KB effectively
+  hangs), and each function call costs ~100 us. The pure decoder therefore
+  only uses linear operations (`Enum.map`/`for`, `:lists` folds, `Map.new`,
+  `IO.iodata_to_binary`, `String.split`/`replace`, `elem/2`) and still needed
+  ~13 s per 900 records.
 
-    * the document must be encoded to *the same bytes* on every device and
-      on the server (tests compare browser output with ExUnit output byte for
-      byte); `JSON.stringify` keeps insertion order and renders non-integers
-      and `-0` its own way, and `JSON.parse` turns every number into a double
-      (silently rounding integers above 2^53), while Hologram's interop
-      conversion of a parsed object (plain object <-> map, number <->
-      float/integer) is exactly the kind of boundary this app wants to keep
-      out of its data path;
-    * the decoder has to be bounded (nesting, string size) and must never
-      throw into the UI; doing that by wrapping a throwing native parser
-      still leaves the conversion step unbounded;
-    * it keeps "no application logic in JS" and the CSP (no `eval`) trivially
-      true.
-
-  The price is speed. In Hologram every `[h | t]` match, cons, `Map.put` and
-  most recursive `Enum` functions copy their whole list/map (measured: 1000
-  cons cells ~35 ms, 1000 `Map.put`s ~350 ms, `Enum.join` of 1000 strings
-  ~220 ms, `String.codepoints` of 4 KB effectively hangs), so a conventional
-  recursive-descent or accumulator-based coder is quadratic and unusable on a
-  document of thousands of records. This module therefore only uses
-  operations that are linear in the browser: `Enum.map`/`for`, `:lists`
-  folds, `Map.new`, `IO.iodata_to_binary`, `String.split`/`String.replace`,
-  tuple indexing with `elem/2`. The decoder splits the text on `"` once
-  (after protecting escaped backslashes and quotes), turns the pieces into a
-  token tuple, computes every token's nesting depth with one `mapfoldl`, and
-  then builds each container from index ranges split at its depth-matched
-  commas.
+  So in the browser `encode/1` and `decode/1` call
+  `assets/js/vault_json_facade.mjs` (a ~200-line generic canonical-JSON
+  encoder and strict parser, no application logic; ~70 ms for 5,000 records)
+  through JS interop, and fall back to the pure code when JS interop is a
+  no-op (the server) or throws. `JSON.parse`/`JSON.stringify` are *not* used
+  directly because they cannot give the guarantees below: `stringify` keeps
+  insertion order, `parse` turns every number into a double (silently
+  rounding integers above 2^53), accepts duplicate keys and floats, and is
+  unbounded. The facade is a strict re-implementation of the same grammar and
+  limits, and `test/debt_relief_tracker/vault_doc/vault_doc_browser_test.exs`
+  compares the facade's output with the BEAM's pure output byte for byte on a
+  fixed script (and runs both codecs in the browser on tricky data), which is
+  the proof that the two cannot drift. It needs no `eval`.
 
   ## Format
 
@@ -43,34 +38,51 @@ defmodule DebtReliefTracker.VaultDoc.Json do
   emits floats (floats raise `ArgumentError`). Output has no whitespace, map
   keys are sorted by their UTF-8 bytes, strings are written as UTF-8 with
   only `"`, `\\` and U+0000..U+001F escaped (`\\n \\r \\t \\b \\f`, the rest as
-  `\\u00XX`).
+  `\\u00xx`).
 
   `decode/1` accepts standard JSON without floats (no `.`/exponent numbers)
   and returns `{:ok, term}` with binary keys, or `{:error, :invalid}` for
   anything malformed, a float, a duplicate object key, an unpaired surrogate
   escape, a raw control character in a string, nesting deeper than
   #{64}, a string longer than 1 MiB or input larger than 16 MiB. Integers are
-  limited to 18 digits.
+  limited to +-(2^53 - 1).
   """
+
+  use Hologram.JS
+
+  js_import from: "../../../assets/js/vault_json_facade.mjs", as: :VaultJsonFacade
 
   @max_depth 64
   @max_string_bytes 1_048_576
   @max_input_bytes 16_777_216
-  @max_int_digits 18
+  @max_int 9_007_199_254_740_991
+  @max_int_digits 16
 
   @escapes (for code <- Enum.to_list(0..31), into: %{} do
               {List.to_string([code]),
                case code do
-                 8 -> "\\b"
-                 9 -> "\\t"
-                 10 -> "\\n"
-                 12 -> "\\f"
-                 13 -> "\\r"
-                 _ -> "\\u00" <> String.upcase(String.pad_leading(Integer.to_string(code, 16), 2, "0"))
+                 8 ->
+                   "\\b"
+
+                 9 ->
+                   "\\t"
+
+                 10 ->
+                   "\\n"
+
+                 12 ->
+                   "\\f"
+
+                 13 ->
+                   "\\r"
+
+                 _ ->
+                   "\\u00" <>
+                     String.downcase(String.pad_leading(Integer.to_string(code, 16), 2, "0"))
                end}
             end)
-            |> Map.put("\"", "\\\"")
-            |> Map.put("\\", "\\\\")
+           |> Map.put("\"", "\\\"")
+           |> Map.put("\\", "\\\\")
 
   @escape_triggers Map.keys(@escapes)
   @raw_control_chars Map.keys(@escapes) -- ["\"", "\\"]
@@ -118,9 +130,28 @@ defmodule DebtReliefTracker.VaultDoc.Json do
 
   # --- encode ----------------------------------------------------------------
 
-  @doc "Deterministic JSON text for `term` (see the moduledoc)."
+  @doc """
+  Deterministic JSON text for `term` (see the moduledoc). In the browser this
+  calls the JS facade (same bytes, ~1000x faster); on the server, or if the
+  facade raises, the pure implementation below runs.
+  """
   @spec encode(term()) :: String.t()
-  def encode(term), do: IO.iodata_to_binary(enc(term))
+  def encode(term) do
+    case fast_encode(term) do
+      text when is_binary(text) -> text
+      _ -> encode_pure(term)
+    end
+  end
+
+  defp fast_encode(term) do
+    JS.call(:VaultJsonFacade, :encode, [term])
+  rescue
+    _ -> nil
+  end
+
+  @doc "The pure Elixir encoder (reference implementation; used on the server)."
+  @spec encode_pure(term()) :: String.t()
+  def encode_pure(term), do: IO.iodata_to_binary(enc(term))
 
   defp enc(nil), do: "null"
   defp enc(true), do: "true"
@@ -181,9 +212,30 @@ defmodule DebtReliefTracker.VaultDoc.Json do
 
   # --- decode ----------------------------------------------------------------
 
-  @doc "Parses JSON text without floats; `{:error, :invalid}` for anything else."
+  @doc """
+  Parses JSON text without floats; `{:error, :invalid}` for anything else.
+  Browser: JS facade; server (or facade unavailable): `decode_pure/1`.
+  """
   @spec decode(term()) :: {:ok, term()} | {:error, :invalid}
-  def decode(text) when is_binary(text) do
+  def decode(text) do
+    case fast_decode(text) do
+      [true, value] -> {:ok, value}
+      [false | _] -> {:error, :invalid}
+      _ -> decode_pure(text)
+    end
+  end
+
+  defp fast_decode(text) when is_binary(text) do
+    JS.call(:VaultJsonFacade, :decode, [text])
+  rescue
+    _ -> nil
+  end
+
+  defp fast_decode(_), do: nil
+
+  @doc "The pure Elixir decoder (reference implementation; used on the server)."
+  @spec decode_pure(term()) :: {:ok, term()} | {:error, :invalid}
+  def decode_pure(text) when is_binary(text) do
     cond do
       byte_size(text) > @max_input_bytes or not String.valid?(text) -> {:error, :invalid}
       String.contains?(text, [@bs, @qt]) -> {:error, :invalid}
@@ -191,7 +243,7 @@ defmodule DebtReliefTracker.VaultDoc.Json do
     end
   end
 
-  def decode(_), do: {:error, :invalid}
+  def decode_pure(_), do: {:error, :invalid}
 
   # \\ and \" become single placeholder characters (raw U+0001/U+0002 never
   # occur in valid JSON, rejected above), so every remaining `"` delimits a
@@ -259,13 +311,16 @@ defmodule DebtReliefTracker.VaultDoc.Json do
 
   defp word(run) do
     {sign, digits} =
-      if String.starts_with?(run, "-"), do: {-1, String.slice(run, 1, String.length(run))}, else: {1, run}
+      if String.starts_with?(run, "-"),
+        do: {-1, String.slice(run, 1, String.length(run))},
+        else: {1, run}
 
     if digits != "" and String.length(digits) <= @max_int_digits and
          DebtReliefTracker.VaultDoc.Stamp.digits?(digits) and
          (digits == "0" or not String.starts_with?(digits, "0")) and
          not (sign == -1 and digits == "0") do
-      {:int, sign * String.to_integer(digits)}
+      n = sign * String.to_integer(digits)
+      if abs(n) <= @max_int, do: {:int, n}, else: :bad
     else
       :bad
     end
@@ -365,9 +420,15 @@ defmodule DebtReliefTracker.VaultDoc.Json do
       )
 
     cond do
-      tokens == [] or final != 0 -> {:error, :invalid}
-      :lists.member(:bad, tokens) -> {:error, :invalid}
-      Enum.min(deps) < 0 or Enum.max(deps) > @max_depth -> {:error, :invalid}
+      tokens == [] or final != 0 ->
+        {:error, :invalid}
+
+      :lists.member(:bad, tokens) ->
+        {:error, :invalid}
+
+      Enum.min(deps) < 0 or Enum.max(deps) > @max_depth ->
+        {:error, :invalid}
+
       true ->
         toks = List.to_tuple(tokens)
         ds = List.to_tuple(deps)
@@ -402,17 +463,32 @@ defmodule DebtReliefTracker.VaultDoc.Json do
     level = elem(ds, a)
 
     cond do
-      b <= a or elem(toks, b) != closer or elem(ds, b) != level - 1 -> :error
-      b == a + 1 -> build.(toks, ds, [], level)
+      b <= a or elem(toks, b) != closer or elem(ds, b) != level - 1 ->
+        :error
+
+      b == a + 1 ->
+        build.(toks, ds, [], level)
+
       true ->
         inside = for k <- (a + 1)..(b - 1), do: elem(ds, k)
 
         if Enum.min(inside) < level do
           :error
         else
-          commas = for k <- (a + 1)..(b - 1), elem(ds, k) == level and elem(toks, k) == :comma, do: k
+          commas =
+            for k <- (a + 1)..(b - 1), elem(ds, k) == level and elem(toks, k) == :comma, do: k
+
           bounds = List.to_tuple([a | commas] ++ [b])
-          build.(toks, ds, for(i <- 0..(tuple_size(bounds) - 2), do: {elem(bounds, i) + 1, elem(bounds, i + 1) - 1}), level)
+
+          build.(
+            toks,
+            ds,
+            for(
+              i <- 0..(tuple_size(bounds) - 2),
+              do: {elem(bounds, i) + 1, elem(bounds, i + 1) - 1}
+            ),
+            level
+          )
         end
     end
   end

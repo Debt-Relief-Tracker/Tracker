@@ -44,8 +44,13 @@ defmodule DebtReliefTracker.VaultDocHelpers do
   end
 
   def debt_id(doc, name) do
-    doc |> VaultDoc.view() |> Map.fetch!(:debts) |> Enum.find(&(&1.name == name)) |> Map.fetch!(:id)
+    doc
+    |> VaultDoc.view()
+    |> Map.fetch!(:debts)
+    |> Enum.find(&(&1.name == name))
+    |> Map.fetch!(:id)
   end
 
-  def seconds(n), do: ~U[2026-11-01 12:00:00Z] |> DateTime.add(n, :second) |> DateTime.to_iso8601()
+  def seconds(n),
+    do: ~U[2026-11-01 12:00:00Z] |> DateTime.add(n, :second) |> DateTime.to_iso8601()
 end

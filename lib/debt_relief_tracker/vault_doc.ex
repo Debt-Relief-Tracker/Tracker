@@ -139,7 +139,8 @@ defmodule DebtReliefTracker.VaultDoc do
 
     %{
       schema_version: doc.schema_version,
-      settings: Map.put(doc.settings, :updated_at, doc.settings_updated_at |> Map.values() |> Enum.max()),
+      settings:
+        Map.put(doc.settings, :updated_at, doc.settings_updated_at |> Map.values() |> Enum.max()),
       debts:
         debts
         |> Enum.sort_by(&{&1.position, &1.inserted_at, &1.id})
@@ -253,8 +254,11 @@ defmodule DebtReliefTracker.VaultDoc do
 
   defp inserted_or_synthetic(value, index) do
     case Stamp.normalize(value) do
-      {:ok, stamp} -> stamp
-      :error -> "1970-01-01T00:00:00." <> String.pad_leading(Integer.to_string(index), 6, "0") <> "Z"
+      {:ok, stamp} ->
+        stamp
+
+      :error ->
+        "1970-01-01T00:00:00." <> String.pad_leading(Integer.to_string(index), 6, "0") <> "Z"
     end
   end
 

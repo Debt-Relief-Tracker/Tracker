@@ -17,11 +17,21 @@ defmodule DebtReliefTracker.VaultDoc.ParityRandomTest do
 
   defp debt_attrs do
     type = pick(["revolving", "installment"])
-    base = %{name: pick(["Visa", "Zoë 😀", "Loan \"A\"", "x", String.duplicate("n", 60)]), type: type, balance: pick([0, 100, 5_000, 250_000, 999_999_999]), apr_bp: pick([0, 650, 2499, 9999])}
+
+    base = %{
+      name: pick(["Visa", "Zoë 😀", "Loan \"A\"", "x", String.duplicate("n", 60)]),
+      type: type,
+      balance: pick([0, 100, 5_000, 250_000, 999_999_999]),
+      apr_bp: pick([0, 650, 2499, 9999])
+    }
 
     base =
       if type == "revolving",
-        do: Map.merge(base, %{minimum_payment_floor: 2500, minimum_payment_rate_bp: pick([100, 200, 300])}),
+        do:
+          Map.merge(base, %{
+            minimum_payment_floor: 2500,
+            minimum_payment_rate_bp: pick([100, 200, 300])
+          }),
         else: Map.put(base, :fixed_payment, pick([1, 5_000, 35_000]))
 
     base = if chance(30), do: Map.put(base, :credit_limit, 1_000_000), else: base
@@ -29,15 +39,25 @@ defmodule DebtReliefTracker.VaultDoc.ParityRandomTest do
 
     base =
       if type == "installment" and chance(60),
-        do: Map.merge(base, %{auto_log_mode: pick(["confirm", "automatic", "off"]), due_day: pick([1, 15, 28, 31])}),
+        do:
+          Map.merge(base, %{
+            auto_log_mode: pick(["confirm", "automatic", "off"]),
+            due_day: pick([1, 15, 28, 31])
+          }),
         else: base
 
     base =
       if chance(25),
-        do: Map.merge(base, %{statement_balance: base.balance, statement_date: Date.utc_today() |> Date.add(-:rand.uniform(90)) |> Date.to_iso8601()}),
+        do:
+          Map.merge(base, %{
+            statement_balance: base.balance,
+            statement_date: Date.utc_today() |> Date.add(-:rand.uniform(90)) |> Date.to_iso8601()
+          }),
         else: base
 
-    if chance(10), do: Map.put(base, pick([:balance, :apr_bp, :name]), pick([-1, nil])), else: base
+    if chance(10),
+      do: Map.put(base, pick([:balance, :apr_bp, :name]), pick([-1, nil])),
+      else: base
   end
 
   defp update_attrs do
@@ -46,7 +66,10 @@ defmodule DebtReliefTracker.VaultDoc.ParityRandomTest do
       %{balance: pick([0, 77, 12_345, -5])},
       %{apr_bp: pick([0, 1234, -1])},
       %{exclude_from_plan: pick([true, false])},
-      %{statement_balance: 10_000, statement_date: Date.utc_today() |> Date.add(-:rand.uniform(60)) |> Date.to_iso8601()},
+      %{
+        statement_balance: 10_000,
+        statement_date: Date.utc_today() |> Date.add(-:rand.uniform(60)) |> Date.to_iso8601()
+      },
       %{auto_log_mode: pick(["off", "confirm", "automatic"]), due_day: pick([nil, 10, 31, 0])},
       %{type: pick(["revolving", "installment"])},
       %{fixed_payment: pick([nil, 100])},
@@ -77,37 +100,86 @@ defmodule DebtReliefTracker.VaultDoc.ParityRandomTest do
     did = if d && chance(95), do: d.id, else: ghost
 
     case :rand.uniform(100) do
-      n when n <= 14 or d == nil -> {:add_debt, debt_attrs()}
-      n when n <= 24 -> {:update_debt, did, update_attrs()}
+      n when n <= 14 or d == nil ->
+        {:add_debt, debt_attrs()}
+
+      n when n <= 24 ->
+        {:update_debt, did, update_attrs()}
+
       n when n <= 52 ->
         amount = pick([1, 100, 2_500, 10_000, d.balance, d.balance + 1, 0, -3])
         attrs = %{amount: amount, paid_on: pick(["2026-10-01", "2026-10-31", "2026-11-01"])}
-        attrs = if chance(30), do: Map.merge(attrs, %{interest_portion: div(abs(amount), 5), principal_portion: amount - div(abs(amount), 5)}), else: attrs
-        attrs = if chance(20), do: Map.put(attrs, :note, pick(["", "n", "ünï\n\"q\""])), else: attrs
+
+        attrs =
+          if chance(30),
+            do:
+              Map.merge(attrs, %{
+                interest_portion: div(abs(amount), 5),
+                principal_portion: amount - div(abs(amount), 5)
+              }),
+            else: attrs
+
+        attrs =
+          if chance(20), do: Map.put(attrs, :note, pick(["", "n", "ünï\n\"q\""])), else: attrs
+
         {:log_payment, did, attrs}
-      n when n <= 58 -> {:mark_paid_off, did}
-      n when n <= 63 -> {:delete_debt, did}
-      n when n <= 73 -> {:reconcile_balance, did, pick([100, 5_000, d.balance, d.balance + 500, max(d.balance - 700, 100)])}
+
+      n when n <= 58 ->
+        {:mark_paid_off, did}
+
+      n when n <= 63 ->
+        {:delete_debt, did}
+
+      n when n <= 73 ->
+        {:reconcile_balance, did,
+         pick([100, 5_000, d.balance, d.balance + 500, max(d.balance - 700, 100)])}
+
       n when n <= 82 ->
-        cycle = if d.due_day, do: DueSchedule.current_cycle_due_date(%{due_day: d.due_day}, Date.utc_today()), else: Date.utc_today()
+        cycle =
+          if d.due_day,
+            do: DueSchedule.current_cycle_due_date(%{due_day: d.due_day}, Date.utc_today()),
+            else: Date.utc_today()
+
         cycle = if chance(15), do: Date.add(cycle, -31), else: cycle
         {:handle_due, did, pick([:post, :skip]), Date.to_iso8601(cycle)}
+
       n when n <= 88 ->
-        {:update_settings, pick([%{monthly_budget: pick([nil, 0, 150_000])}, %{currency: pick(["EUR", "", nil, "GBP"])}, %{budget_mode: pick(["total", "margin", "x"])}, %{retirement_onboarding_dismissed: pick([true, false])}])}
+        {:update_settings,
+         pick([
+           %{monthly_budget: pick([nil, 0, 150_000])},
+           %{currency: pick(["EUR", "", nil, "GBP"])},
+           %{budget_mode: pick(["total", "margin", "x"])},
+           %{retirement_onboarding_dismissed: pick([true, false])}
+         ])}
+
       n when n <= 93 ->
         pick([
           {:add_member_retirement_profile, owner.id, profile_attrs()},
-          {:add_manual_retirement_profile, Map.merge(profile_attrs(), %{name: pick(["Sam", "", "Pat 😀"]), claim_email: pick([nil, "a@x.y", "b@x.y"])})}
+          {:add_manual_retirement_profile,
+           Map.merge(profile_attrs(), %{
+             name: pick(["Sam", "", "Pat 😀"]),
+             claim_email: pick([nil, "a@x.y", "b@x.y"])
+           })}
         ])
+
       n when n <= 98 ->
         if profiles == [] do
           {:add_manual_retirement_profile, Map.put(profile_attrs(), :name, "First")}
         else
           pr = pick(profiles)
-          pick([{:update_retirement_profile, pr.id, Map.take(profile_attrs(), [pick(Map.keys(profile_attrs()))])}, {:update_retirement_profile, pr.id, %{claim_email: pick(["a@x.y", "c@x.y", nil]), name: pick(["N", nil])}}])
+
+          pick([
+            {:update_retirement_profile, pr.id,
+             Map.take(profile_attrs(), [pick(Map.keys(profile_attrs()))])},
+            {:update_retirement_profile, pr.id,
+             %{claim_email: pick(["a@x.y", "c@x.y", nil]), name: pick(["N", nil])}}
+          ])
         end
+
       _ ->
-        if profiles == [], do: {:delete_retirement_profile, ghost}, else: {:delete_retirement_profile, pick(profiles).id}
+        if profiles == [],
+          do: {:delete_retirement_profile, ghost},
+          else: {:delete_retirement_profile, pick(profiles).id}
     end
   end
 

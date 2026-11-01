@@ -91,7 +91,8 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
       debts: apply_payments(debts, payments),
       payments: payments,
       activity: union(a.activity, b.activity, &pick_append_only/2),
-      retirement_profiles: merge_records(a.retirement_profiles, b.retirement_profiles, &Json.encode/1)
+      retirement_profiles:
+        merge_records(a.retirement_profiles, b.retirement_profiles, &Json.encode/1)
     }
   end
 
@@ -124,9 +125,14 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
 
   defp pick_append_only(x, y) do
     cond do
-      x == y -> x
-      {x.inserted_at, Json.encode(x)} <= {y.inserted_at, Json.encode(y)} -> %{x | deleted: x.deleted or y.deleted}
-      true -> %{y | deleted: x.deleted or y.deleted}
+      x == y ->
+        x
+
+      {x.inserted_at, Json.encode(x)} <= {y.inserted_at, Json.encode(y)} ->
+        %{x | deleted: x.deleted or y.deleted}
+
+      true ->
+        %{y | deleted: x.deleted or y.deleted}
     end
   end
 
@@ -136,7 +142,10 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
       winner = winner(mine, theirs, content)
 
       if Map.has_key?(winner, :last_due_handled_on),
-        do: %{winner | last_due_handled_on: max_date(mine.last_due_handled_on, theirs.last_due_handled_on)},
+        do: %{
+          winner
+          | last_due_handled_on: max_date(mine.last_due_handled_on, theirs.last_due_handled_on)
+        },
         else: winner
     end)
   end
@@ -157,7 +166,8 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
 
   # --- debts -------------------------------------------------------------------
 
-  defp gross(debt), do: debt.balance + Enum.reduce(debt.applied, 0, fn {_id, n}, acc -> acc + n end)
+  defp gross(debt),
+    do: debt.balance + Enum.reduce(debt.applied, 0, fn {_id, n}, acc -> acc + n end)
 
   # Deliberate content: what a user edit decides (not payment-derived state).
   defp debt_content(debt) do

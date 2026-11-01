@@ -12,7 +12,17 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       assert {:ok, "2026-11-01T12:00:00.120000Z"} = Stamp.normalize("2026-11-01T12:00:00.12Z")
       assert {:ok, "2026-11-01T12:00:00.123456Z"} = Stamp.normalize("2026-11-01T12:00:00.1234567")
       assert {:ok, "2026-11-01T12:00:00.000000Z"} = Stamp.normalize("2026-11-01T12:00:00")
-      for bad <- ["", "2026-11-01", "2026-13-01T00:00:00Z", "2026-02-30T00:00:00Z", "1969-12-31T00:00:00Z", "2026-11-01T24:00:00Z", nil, 5],
+
+      for bad <- [
+            "",
+            "2026-11-01",
+            "2026-13-01T00:00:00Z",
+            "2026-02-30T00:00:00Z",
+            "1969-12-31T00:00:00Z",
+            "2026-11-01T24:00:00Z",
+            nil,
+            5
+          ],
           do: assert(Stamp.normalize(bad) == :error)
     end
 
@@ -23,18 +33,27 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       assert Stamp.bump("2026-11-30T23:59:59.999999Z") == "2026-12-01T00:00:00.000000Z"
       assert Stamp.bump("2024-02-28T23:59:59.999999Z") == "2024-02-29T00:00:00.000000Z"
       assert Stamp.bump("2026-12-31T23:59:59.999999Z") == "2027-01-01T00:00:00.000000Z"
-      assert Stamp.after_("2026-01-01T00:00:00.000000Z", "2026-01-01T00:00:00.000000Z") == "2026-01-01T00:00:00.000001Z"
+
+      assert Stamp.after_("2026-01-01T00:00:00.000000Z", "2026-01-01T00:00:00.000000Z") ==
+               "2026-01-01T00:00:00.000001Z"
     end
 
     test "matches DateTime for random instants" do
       :rand.seed(:exsss, {1, 1, 1})
 
       for _ <- 1..200 do
-        dt = DateTime.from_unix!(:rand.uniform(4_000_000_000), :second) |> DateTime.add(:rand.uniform(999_999), :microsecond)
-        {:ok, s} = Stamp.normalize(DateTime.to_iso8601(%{dt | microsecond: {elem(dt.microsecond, 0), 6}}))
+        dt =
+          DateTime.from_unix!(:rand.uniform(4_000_000_000), :second)
+          |> DateTime.add(:rand.uniform(999_999), :microsecond)
+
+        {:ok, s} =
+          Stamp.normalize(DateTime.to_iso8601(%{dt | microsecond: {elem(dt.microsecond, 0), 6}}))
+
         assert s == DateTime.to_iso8601(%{dt | microsecond: {elem(dt.microsecond, 0), 6}})
         next = DateTime.add(dt, 1, :microsecond)
-        assert Stamp.bump(s) == DateTime.to_iso8601(%{next | microsecond: {elem(next.microsecond, 0), 6}})
+
+        assert Stamp.bump(s) ==
+                 DateTime.to_iso8601(%{next | microsecond: {elem(next.microsecond, 0), 6}})
       end
     end
   end
@@ -44,7 +63,10 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       doc = VaultDoc.new()
       assert {:ok, ^doc} = VaultDoc.decode(VaultDoc.encode(doc))
       view = VaultDoc.view(doc)
-      assert %{debts: [], payments: [], activity: [], retirement_profiles: [], schema_version: 1} = view
+
+      assert %{debts: [], payments: [], activity: [], retirement_profiles: [], schema_version: 1} =
+               view
+
       assert view.settings.currency == "USD"
     end
 
@@ -95,11 +117,12 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
     test "a ~1 MB document encodes and decodes" do
       doc =
         base = VaultDoc.new() |> ok!({:add_debt, card()})
+
       id = debt_id(base, "Visa")
 
       Enum.reduce(1..400, base, fn i, d ->
-          ok!(d, {:update_debt, id, %{name: "Visa #{i}"}}, now: seconds(i))
-        end)
+        ok!(d, {:update_debt, id, %{name: "Visa #{i}"}}, now: seconds(i))
+      end)
 
       text = VaultDoc.encode(doc)
       assert {:ok, ^doc} = VaultDoc.decode(text)
@@ -115,7 +138,13 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       {:ok, s} = Plain.load(ws)
       id = hd(s.debts).id
 
-      {:ok, _} = Plain.apply_change(ws, owner, {:log_payment, id, %{amount: 500, paid_on: "2026-11-01", note: "x"}})
+      {:ok, _} =
+        Plain.apply_change(
+          ws,
+          owner,
+          {:log_payment, id, %{amount: 500, paid_on: "2026-11-01", note: "x"}}
+        )
+
       {:ok, _} = Plain.apply_change(ws, owner, {:update_settings, %{monthly_budget: 5}})
       {:ok, snapshot} = Plain.load(ws)
 
@@ -135,8 +164,35 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
     test "stamps missing timestamps with now" do
       snap = %{
         schema_version: 1,
-        settings: %{monthly_budget: nil, currency: "USD", budget_mode: "total", retirement_onboarding_dismissed: false},
-        debts: [%{id: "d1", name: "x", type: "installment", status: "active", balance: 1, original_balance: nil, apr_bp: 0, fixed_payment: 1, minimum_payment_floor: nil, minimum_payment_rate_bp: nil, credit_limit: nil, exclude_from_plan: false, statement_balance: nil, statement_date: nil, position: 0, due_day: nil, auto_log_mode: "off", last_due_handled_on: nil, paid_off_at: nil}],
+        settings: %{
+          monthly_budget: nil,
+          currency: "USD",
+          budget_mode: "total",
+          retirement_onboarding_dismissed: false
+        },
+        debts: [
+          %{
+            id: "d1",
+            name: "x",
+            type: "installment",
+            status: "active",
+            balance: 1,
+            original_balance: nil,
+            apr_bp: 0,
+            fixed_payment: 1,
+            minimum_payment_floor: nil,
+            minimum_payment_rate_bp: nil,
+            credit_limit: nil,
+            exclude_from_plan: false,
+            statement_balance: nil,
+            statement_date: nil,
+            position: 0,
+            due_day: nil,
+            auto_log_mode: "off",
+            last_due_handled_on: nil,
+            paid_off_at: nil
+          }
+        ],
         payments: [],
         activity: [],
         retirement_profiles: []
@@ -153,19 +209,48 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       doc = VaultDoc.new()
       good = ctx()
 
-      for bad <- [nil, %{}, %{good | now: "x"}, %{good | today: "2026-02-30"}, %{good | new_id: 5}] do
-        assert {:error, {:invalid, %{ctx: _}}} = Ledger.apply_change(doc, {:add_debt, card()}, bad)
+      for bad <- [
+            nil,
+            %{},
+            %{good | now: "x"},
+            %{good | today: "2026-02-30"},
+            %{good | new_id: 5}
+          ] do
+        assert {:error, {:invalid, %{ctx: _}}} =
+                 Ledger.apply_change(doc, {:add_debt, card()}, bad)
       end
 
       assert {:error, {:invalid, _}} = Ledger.apply_change(doc, :nope, good)
-      assert {:error, {:invalid, _}} = Ledger.apply_change(doc, {:add_debt, card()}, %{good | new_id: fn -> raise "boom" end})
+
+      assert {:error, {:invalid, _}} =
+               Ledger.apply_change(doc, {:add_debt, card()}, %{
+                 good
+                 | new_id: fn -> raise "boom" end
+               })
     end
 
     test "fuzz: random garbage changes never raise and leave the doc untouched" do
       :rand.seed(:exsss, {4, 4, 4})
       doc = VaultDoc.new() |> ok!({:add_debt, card()})
       id = debt_id(doc, "Visa")
-      junk = [nil, 1, -1, "x", "", :a, %{}, %{a: 1}, [], [1], {}, {1}, 1.5, %{amount: "x", paid_on: 3}, %{name: <<255>>}]
+
+      junk = [
+        nil,
+        1,
+        -1,
+        "x",
+        "",
+        :a,
+        %{},
+        %{a: 1},
+        [],
+        [1],
+        {},
+        {1},
+        1.5,
+        %{amount: "x", paid_on: 3},
+        %{name: <<255>>}
+      ]
 
       for _ <- 1..400 do
         change =
@@ -174,7 +259,8 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
             {:update_debt, Enum.random([id, Enum.random(junk)]), Enum.random(junk)},
             {:log_payment, Enum.random([id, Enum.random(junk)]), Enum.random(junk)},
             {:reconcile_balance, Enum.random([id, Enum.random(junk)]), Enum.random(junk)},
-            {:handle_due, Enum.random([id, Enum.random(junk)]), Enum.random([:post, :skip, Enum.random(junk)]), Enum.random(junk)},
+            {:handle_due, Enum.random([id, Enum.random(junk)]),
+             Enum.random([:post, :skip, Enum.random(junk)]), Enum.random(junk)},
             {:update_settings, Enum.random(junk)},
             {:add_member_retirement_profile, Enum.random(junk), Enum.random(junk)},
             {:add_manual_retirement_profile, Enum.random(junk)},
@@ -202,10 +288,18 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
     end
 
     test "activity of one change is ordered newest first like insertion order" do
-      doc = VaultDoc.new() |> ok!({:add_debt, card(%{statement_balance: 1, statement_date: "2026-10-01"})})
+      doc =
+        VaultDoc.new()
+        |> ok!({:add_debt, card(%{statement_balance: 1, statement_date: "2026-10-01"})})
+
       id = debt_id(doc, "Visa")
       doc = ok!(doc, {:reconcile_balance, id, 50_000})
-      assert Enum.map(VaultDoc.view(doc).activity, & &1.action) == ["debt_updated", "payment_logged", "debt_added"]
+
+      assert Enum.map(VaultDoc.view(doc).activity, & &1.action) == [
+               "debt_updated",
+               "payment_logged",
+               "debt_added"
+             ]
     end
 
     test "a no-op update keeps updated_at but still logs activity" do
@@ -221,7 +315,16 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
     test "posts missed cycles for automatic debts, reports confirm debts, is idempotent" do
       doc =
         VaultDoc.new()
-        |> ok!({:add_debt, loan(%{name: "Auto", auto_log_mode: "automatic", due_day: 5, last_due_handled_on: "2026-08-05", balance: 100_000})})
+        |> ok!(
+          {:add_debt,
+           loan(%{
+             name: "Auto",
+             auto_log_mode: "automatic",
+             due_day: 5,
+             last_due_handled_on: "2026-08-05",
+             balance: 100_000
+           })}
+        )
         |> ok!({:add_debt, loan(%{name: "Confirm", auto_log_mode: "confirm", due_day: 7})})
         |> ok!({:add_debt, loan(%{name: "Off"})})
         |> ok!({:add_debt, card()})
@@ -230,7 +333,10 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       auto = debt_id(doc, "Auto")
 
       assert Enum.map(r.posted, & &1.cycle) == ["2026-09-05", "2026-10-05", "2026-11-05"]
-      assert Enum.map(r.posted, & &1.payment_id) == for(c <- ["2026-09-05", "2026-10-05", "2026-11-05"], do: "#{auto}:#{c}")
+
+      assert Enum.map(r.posted, & &1.payment_id) ==
+               for(c <- ["2026-09-05", "2026-10-05", "2026-11-05"], do: "#{auto}:#{c}")
+
       assert [%{cycles: ["2026-11-07"]}] = r.pending_confirm
       assert r.failed == [] and r.stamped == []
       view = VaultDoc.view(d1)
@@ -246,7 +352,10 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
     end
 
     test "a payment larger than the balance is reported failed and not stamped" do
-      doc = VaultDoc.new() |> ok!({:add_debt, loan(%{auto_log_mode: "automatic", due_day: 5, balance: 100})})
+      doc =
+        VaultDoc.new()
+        |> ok!({:add_debt, loan(%{auto_log_mode: "automatic", due_day: 5, balance: 100})})
+
       {:ok, d, r} = Ledger.catch_up(doc, ctx(today: "2026-11-10"))
       assert [%{cycle: "2026-11-05", error: {:invalid, %{balance: _}}}] = r.failed
       assert d.debts == doc.debts
@@ -258,9 +367,27 @@ defmodule DebtReliefTracker.VaultDoc.DocTest do
       d = ok!(doc, {:handle_due, id, :post, "2026-11-05"}, today: "2026-11-10", actor: "u1")
       assert Map.has_key?(d.payments, "#{id}:2026-11-05")
       assert d.activity["#{id}:2026-11-05:logged"].action == "payment_logged"
-      assert {:error, :not_due} = Ledger.apply_change(d, {:handle_due, id, :post, "2026-11-05"}, ctx(today: "2026-11-10"))
-      assert {:error, :not_due} = Ledger.apply_change(doc, {:handle_due, id, :post, "2026-11-06"}, ctx(today: "2026-11-10"))
-      assert {:error, :not_due} = Ledger.apply_change(doc, {:handle_due, id, :post, "2026-12-05"}, ctx(today: "2026-11-10"))
+
+      assert {:error, :not_due} =
+               Ledger.apply_change(
+                 d,
+                 {:handle_due, id, :post, "2026-11-05"},
+                 ctx(today: "2026-11-10")
+               )
+
+      assert {:error, :not_due} =
+               Ledger.apply_change(
+                 doc,
+                 {:handle_due, id, :post, "2026-11-06"},
+                 ctx(today: "2026-11-10")
+               )
+
+      assert {:error, :not_due} =
+               Ledger.apply_change(
+                 doc,
+                 {:handle_due, id, :post, "2026-12-05"},
+                 ctx(today: "2026-11-10")
+               )
 
       # payment known (from a merge) but the cycle not stamped here: only stamps
       stale = %{d | debts: Map.put(d.debts, id, %{d.debts[id] | last_due_handled_on: nil})}

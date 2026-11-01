@@ -24,9 +24,15 @@ defmodule DebtReliefTracker.VaultDoc.Stamp do
 
   @doc "Canonical stamp for `str`, or `:error`."
   def normalize(str) when is_binary(str) do
-    case parse(str) do
-      {:ok, {days, secs, micros}} -> {:ok, format(days, secs, micros)}
-      :error -> :error
+    # Canonical input (every stamp read back from a document) takes a cheap
+    # path: String.length/slice are slow in the browser.
+    if canonical?(str) do
+      {:ok, str}
+    else
+      case parse(str) do
+        {:ok, {days, secs, micros}} -> {:ok, format(days, secs, micros)}
+        :error -> :error
+      end
     end
   end
 
@@ -41,12 +47,7 @@ defmodule DebtReliefTracker.VaultDoc.Stamp do
   end
 
   @doc "True for a canonical stamp."
-  def valid?(str) do
-    case normalize(str) do
-      {:ok, ^str} -> true
-      _ -> false
-    end
-  end
+  def valid?(str), do: is_binary(str) and canonical?(str)
 
   @doc "One microsecond later."
   def bump(stamp) do
@@ -75,7 +76,27 @@ defmodule DebtReliefTracker.VaultDoc.Stamp do
   # --- ISO dates -----------------------------------------------------------
 
   @doc "`\"2026-11-01\"` -> `{:ok, {2026, 11, 1}}` (strict `YYYY-MM-DD`), else `:error`."
-  def parse_date(str) when is_binary(str) do
+  def parse_date(str) when is_binary(str) and byte_size(str) == 10 do
+    with "-" <- binary_part(str, 4, 1),
+         "-" <- binary_part(str, 7, 1),
+         {:ok, year} <- uint(binary_part(str, 0, 4)),
+         {:ok, month} <- uint(binary_part(str, 5, 2)),
+         {:ok, day} <- uint(binary_part(str, 8, 2)),
+         true <- year >= 1 and month >= 1 and month <= 12,
+         true <- day >= 1 and day <= Days.days_in_month(year, month) do
+      {:ok, {year, month, day}}
+    else
+      _ -> :error
+    end
+  end
+
+  def parse_date(str) when is_binary(str) and byte_size(str) != 10 do
+    parse_date_slow(str)
+  end
+
+  def parse_date(_), do: :error
+
+  defp parse_date_slow(str) do
     with [y, m, d] <- String.split(str, "-"),
          true <- String.length(y) == 4 and String.length(m) == 2 and String.length(d) == 2,
          true <- digits?(y) and digits?(m) and digits?(d),
@@ -90,7 +111,42 @@ defmodule DebtReliefTracker.VaultDoc.Stamp do
     end
   end
 
-  def parse_date(_), do: :error
+  # Unsigned decimal digits only.
+  defp uint(s) do
+    case binary_part(s, 0, 1) do
+      c when c == "+" or c == "-" ->
+        :error
+
+      _ ->
+        case Integer.parse(s) do
+          {n, ""} -> {:ok, n}
+          _ -> :error
+        end
+    end
+  end
+
+  # YYYY-MM-DDTHH:MM:SS.ffffffZ (27 bytes), fields in range.
+  defp canonical?(str) when byte_size(str) == 27 do
+    with "-" <- binary_part(str, 4, 1),
+         "-" <- binary_part(str, 7, 1),
+         "T" <- binary_part(str, 10, 1),
+         ":" <- binary_part(str, 13, 1),
+         ":" <- binary_part(str, 16, 1),
+         "." <- binary_part(str, 19, 1),
+         "Z" <- binary_part(str, 26, 1),
+         {:ok, {y, _, _}} <- parse_date(binary_part(str, 0, 10)),
+         true <- y >= 1970,
+         {:ok, h} <- uint(binary_part(str, 11, 2)),
+         {:ok, mi} <- uint(binary_part(str, 14, 2)),
+         {:ok, sec} <- uint(binary_part(str, 17, 2)),
+         {:ok, _} <- uint(binary_part(str, 20, 6)) do
+      h <= 23 and mi <= 59 and sec <= 59
+    else
+      _ -> false
+    end
+  end
+
+  defp canonical?(_), do: false
 
   def format_date({y, m, d}), do: pad(y, 4) <> "-" <> pad(m, 2) <> "-" <> pad(d, 2)
 
@@ -102,7 +158,8 @@ defmodule DebtReliefTracker.VaultDoc.Stamp do
 
   # -> {:ok, {epoch_days, second_of_day, micros}} | :error
   defp parse(str) do
-    str = if String.ends_with?(str, "Z"), do: String.slice(str, 0, String.length(str) - 1), else: str
+    str =
+      if String.ends_with?(str, "Z"), do: String.slice(str, 0, String.length(str) - 1), else: str
 
     with [date, time] <- String.split(str, "T"),
          {:ok, {y, _, _} = ymd} <- parse_date(date),

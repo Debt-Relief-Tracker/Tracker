@@ -13,7 +13,11 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
   end
 
   defp bal(doc, name) do
-    doc |> VaultDoc.view() |> Map.fetch!(:debts) |> Enum.find(&(&1.name == name)) |> Map.fetch!(:balance)
+    doc
+    |> VaultDoc.view()
+    |> Map.fetch!(:debts)
+    |> Enum.find(&(&1.name == name))
+    |> Map.fetch!(:balance)
   end
 
   describe "concurrent payments" do
@@ -60,14 +64,20 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
       b = base()
       id = debt_id(b, "Visa")
       edit = ok!(b, {:update_debt, id, %{balance: 70_000}}, now: seconds(20))
-      then_pay = ok!(edit, {:log_payment, id, %{amount: 1_000, paid_on: "2026-11-03"}}, now: seconds(30))
+
+      then_pay =
+        ok!(edit, {:log_payment, id, %{amount: 1_000, paid_on: "2026-11-03"}}, now: seconds(30))
+
       assert bal(Merge.merge(then_pay, edit), "Visa") == 69_000
       assert bal(Merge.merge(edit, then_pay), "Visa") == 69_000
       assert bal(Merge.merge(then_pay, b), "Visa") == 69_000
     end
 
     test "same deterministic auto payment on two devices is one payment applied once" do
-      b = VaultDoc.new() |> ok!({:add_debt, loan(%{auto_log_mode: "automatic", due_day: 5})}, now: seconds(0))
+      b =
+        VaultDoc.new()
+        |> ok!({:add_debt, loan(%{auto_log_mode: "automatic", due_day: 5})}, now: seconds(0))
+
       c1 = ctx(today: "2026-11-10", now: seconds(100))
       c2 = ctx(today: "2026-11-10", now: seconds(200))
       {:ok, d1, r1} = Ledger.catch_up(b, c1)
@@ -83,7 +93,10 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
     end
 
     test "concurrent differing principals for the same payment id converge" do
-      b = VaultDoc.new() |> ok!({:add_debt, loan(%{auto_log_mode: "automatic", due_day: 5})}, now: seconds(0))
+      b =
+        VaultDoc.new()
+        |> ok!({:add_debt, loan(%{auto_log_mode: "automatic", due_day: 5})}, now: seconds(0))
+
       id = debt_id(b, "Loan")
       a = ok!(b, {:update_debt, id, %{fixed_payment: 20_000}}, now: seconds(5))
       {:ok, d1, _} = Ledger.catch_up(a, ctx(today: "2026-11-10", now: seconds(100)))
@@ -153,8 +166,21 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
     end
 
     test "profiles: per-record LWW with tombstones" do
-      attrs = %{current_age: 30, retirement_age: 65, current_retirement_savings: 0, monthly_retirement_contribution: 0, monthly_gross_income: 0, post_debt_investment_bp: 1500, expected_annual_return_bp: 700}
-      b = ok!(base(), {:add_manual_retirement_profile, Map.put(attrs, :name, "Sam")}, now: seconds(2))
+      attrs = %{
+        current_age: 30,
+        retirement_age: 65,
+        current_retirement_savings: 0,
+        monthly_retirement_contribution: 0,
+        monthly_gross_income: 0,
+        post_debt_investment_bp: 1500,
+        expected_annual_return_bp: 700
+      }
+
+      b =
+        ok!(base(), {:add_manual_retirement_profile, Map.put(attrs, :name, "Sam")},
+          now: seconds(2)
+        )
+
       id = hd(VaultDoc.view(b).retirement_profiles).id
       e1 = ok!(b, {:update_retirement_profile, id, %{current_age: 31}}, now: seconds(10))
       e2 = ok!(b, {:update_retirement_profile, id, %{current_age: 32}}, now: seconds(20))
@@ -185,15 +211,40 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
 
     change =
       case :rand.uniform(12) do
-        1 -> {:add_debt, Enum.random([card(%{name: "c#{rep}#{step}"}), loan(%{name: "l#{rep}#{step}", auto_log_mode: "automatic", due_day: 5})])}
-        2 -> {:update_debt, id, %{name: "r#{rep}#{step}"}}
-        3 -> {:update_debt, id, %{balance: :rand.uniform(200_000)}}
-        n when n in [4, 5, 6, 7] -> {:log_payment, id, %{amount: :rand.uniform(3_000), paid_on: "2026-11-02"}}
-        8 -> {:delete_debt, id}
-        9 -> {:mark_paid_off, id}
-        10 -> {:update_settings, Enum.random([%{monthly_budget: :rand.uniform(9_999)}, %{currency: Enum.random(["USD", "EUR"])}])}
-        11 -> {:handle_due, id, Enum.random([:post, :skip]), "2026-11-05"}
-        12 -> {:reconcile_balance, id, :rand.uniform(150_000)}
+        1 ->
+          {:add_debt,
+           Enum.random([
+             card(%{name: "c#{rep}#{step}"}),
+             loan(%{name: "l#{rep}#{step}", auto_log_mode: "automatic", due_day: 5})
+           ])}
+
+        2 ->
+          {:update_debt, id, %{name: "r#{rep}#{step}"}}
+
+        3 ->
+          {:update_debt, id, %{balance: :rand.uniform(200_000)}}
+
+        n when n in [4, 5, 6, 7] ->
+          {:log_payment, id, %{amount: :rand.uniform(3_000), paid_on: "2026-11-02"}}
+
+        8 ->
+          {:delete_debt, id}
+
+        9 ->
+          {:mark_paid_off, id}
+
+        10 ->
+          {:update_settings,
+           Enum.random([
+             %{monthly_budget: :rand.uniform(9_999)},
+             %{currency: Enum.random(["USD", "EUR"])}
+           ])}
+
+        11 ->
+          {:handle_due, id, Enum.random([:post, :skip]), "2026-11-05"}
+
+        12 ->
+          {:reconcile_balance, id, :rand.uniform(150_000)}
       end
 
     case Ledger.apply_change(doc, change, ctx(now: now, today: "2026-11-10", actor: nil)) do
@@ -208,7 +259,18 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
   for seed <- 1..60 do
     test "merge is commutative, associative and idempotent (seed #{seed})" do
       :rand.seed(:exsss, {unquote(seed), 3, 9})
-      b = Enum.reduce(1..3, VaultDoc.new(), fn i, d -> ok!(d, {:add_debt, Enum.random([card(%{name: "b#{i}"}), loan(%{name: "bl#{i}", auto_log_mode: "automatic", due_day: 5})])}, now: seconds(i)) end)
+
+      b =
+        Enum.reduce(1..3, VaultDoc.new(), fn i, d ->
+          ok!(
+            d,
+            {:add_debt,
+             Enum.random([
+               card(%{name: "b#{i}"}),
+               loan(%{name: "bl#{i}", auto_log_mode: "automatic", due_day: 5})
+             ])}, now: seconds(i))
+        end)
+
       a = replica(b, "a", 10)
       c = replica(b, "c", 10)
       d = replica(Merge.merge(b, a), "d", 6)
@@ -230,12 +292,22 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
   for seed <- 1..40 do
     test "payments-only replicas: no payment lost or double applied (seed #{seed})" do
       :rand.seed(:exsss, {unquote(seed), 5, 1})
-      b = Enum.reduce(1..2, VaultDoc.new(), fn i, d -> ok!(d, {:add_debt, card(%{name: "b#{i}", balance: 10_000_000})}, now: seconds(i)) end)
+
+      b =
+        Enum.reduce(1..2, VaultDoc.new(), fn i, d ->
+          ok!(d, {:add_debt, card(%{name: "b#{i}", balance: 10_000_000})}, now: seconds(i))
+        end)
+
       ids = VaultDoc.view(b).debts |> Enum.map(& &1.id)
 
       pay = fn doc, n ->
         Enum.reduce(1..n, doc, fn k, d ->
-          ok!(d, {:log_payment, Enum.random(ids), %{amount: :rand.uniform(5_000), paid_on: "2026-11-02"}}, now: seconds(:rand.uniform(100) + k))
+          ok!(
+            d,
+            {:log_payment, Enum.random(ids),
+             %{amount: :rand.uniform(5_000), paid_on: "2026-11-02"}},
+            now: seconds(:rand.uniform(100) + k)
+          )
         end)
       end
 
@@ -249,8 +321,14 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
 
       view = VaultDoc.view(all)
       assert length(view.payments) == 6 + 5 + 4 + 3
+
       for debt <- view.debts do
-        spent = view.payments |> Enum.filter(&(&1.debt_id == debt.id)) |> Enum.map(& &1.principal_portion) |> Enum.sum()
+        spent =
+          view.payments
+          |> Enum.filter(&(&1.debt_id == debt.id))
+          |> Enum.map(& &1.principal_portion)
+          |> Enum.sum()
+
         assert debt.balance == 10_000_000 - spent
       end
     end

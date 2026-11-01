@@ -26,7 +26,7 @@ defmodule DebtReliefTracker.VaultDoc.JsonTest do
   end
 
   test "escapes control characters and leaves unicode raw" do
-    assert Json.encode("a\u0001\u001f\b\f\"") == ~s("a\\u0001\\u001F\\b\\f\\"")
+    assert Json.encode("a\u0001\u001f\b\f\"") == ~s("a\\u0001\\u001f\\b\\f\\"")
     assert Json.encode("é😀") == ~s("é😀")
   end
 

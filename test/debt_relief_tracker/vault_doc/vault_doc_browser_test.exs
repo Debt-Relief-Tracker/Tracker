@@ -31,8 +31,6 @@ defmodule DebtReliefTracker.VaultDoc.BrowserTest do
     IO.puts("[vault_doc] compiled script took #{System.monotonic_time(:millisecond) - t0} ms")
 
     actual = eval(ctx, "document.getElementById('script-out').textContent")
-    File.write!("/tmp/claude-1000/probe/actual.json", actual)
-    File.write!("/tmp/claude-1000/probe/expected.json", expected)
     assert byte_size(actual) == byte_size(expected)
     assert actual == expected
   end

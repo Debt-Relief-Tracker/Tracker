@@ -153,11 +153,20 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
         Enum.reduce_while(cycles, {st, report}, fn cycle, {st, report} ->
           rec = Map.fetch!(st.doc.debts, debt.id)
           iso = Stamp.format_date(cycle)
-          info = %{debt_id: debt.id, cycle: iso, payment_id: DueSchedule.payment_id(debt.id, cycle)}
+
+          info = %{
+            debt_id: debt.id,
+            cycle: iso,
+            payment_id: DueSchedule.payment_id(debt.id, cycle)
+          }
 
           case post_due(st, rec, cycle) do
-            {:ok, st, :posted} -> {:cont, {st, %{report | posted: [info | report.posted]}}}
-            {:ok, st, :stamped} -> {:cont, {st, %{report | stamped: [info | report.stamped]}}}
+            {:ok, st, :posted} ->
+              {:cont, {st, %{report | posted: [info | report.posted]}}}
+
+            {:ok, st, :stamped} ->
+              {:cont, {st, %{report | stamped: [info | report.stamped]}}}
+
             {:error, error} ->
               failure = %{debt_id: debt.id, cycle: iso, error: error}
               {:halt, {st, %{report | failed: [failure | report.failed]}}}
@@ -174,7 +183,9 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
          true <- is_map(doc) and doc.schema_version == VaultDoc.schema_version() do
       # New records must sort after everything already logged, even if the
       # device clock stands still or went backwards.
-      latest = doc.activity |> Map.values() |> Enum.reduce(nil, &Stamp.max_stamp(&2, &1.inserted_at))
+      latest =
+        doc.activity |> Map.values() |> Enum.reduce(nil, &Stamp.max_stamp(&2, &1.inserted_at))
+
       clock = if latest != nil and now <= latest, do: Stamp.bump(latest), else: now
 
       {:ok,
@@ -280,14 +291,17 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
           updated_at: Stamp.after_(stamp, rec.updated_at)
       }
 
-      {:ok, st |> put(:debts, rec) |> activity("debt_paid_off", id, st.actor, %{"name" => rec.name})}
+      {:ok,
+       st |> put(:debts, rec) |> activity("debt_paid_off", id, st.actor, %{"name" => rec.name})}
     end
   end
 
   defp run(st, {:delete_debt, id}) do
     with {:ok, rec} <- live_debt(st, id) do
       {stamp, st} = tick(st)
-      st = put(st, :debts, %{rec | deleted: true, updated_at: Stamp.after_(stamp, rec.updated_at)})
+
+      st =
+        put(st, :debts, %{rec | deleted: true, updated_at: Stamp.after_(stamp, rec.updated_at)})
 
       payments =
         Map.new(st.doc.payments, fn {pid, p} ->
@@ -313,15 +327,19 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
       {stamp, st} = tick(st)
 
       {settings, stamps} =
-        Enum.reduce(DebtReliefTracker.VaultDoc.Shape.settings_keys(), {st.doc.settings, st.doc.settings_updated_at}, fn
-          key, {settings, stamps} ->
-            if Map.fetch!(values, key) == Map.fetch!(settings, key) do
-              {settings, stamps}
-            else
-              {Map.put(settings, key, Map.fetch!(values, key)),
-               Map.put(stamps, key, Stamp.after_(stamp, Map.fetch!(stamps, key)))}
-            end
-        end)
+        Enum.reduce(
+          DebtReliefTracker.VaultDoc.Shape.settings_keys(),
+          {st.doc.settings, st.doc.settings_updated_at},
+          fn
+            key, {settings, stamps} ->
+              if Map.fetch!(values, key) == Map.fetch!(settings, key) do
+                {settings, stamps}
+              else
+                {Map.put(settings, key, Map.fetch!(values, key)),
+                 Map.put(stamps, key, Stamp.after_(stamp, Map.fetch!(stamps, key)))}
+              end
+          end
+        )
 
       {:ok, %{st | doc: %{st.doc | settings: settings, settings_updated_at: stamps}}}
     end
@@ -367,7 +385,17 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
 
         :skip ->
           iso = Stamp.format_date(cycle)
-          st = activity(st, "due_payment_skipped", id, st.actor, %{"cycle_due_date" => iso}, "#{id}:#{iso}:skipped")
+
+          st =
+            activity(
+              st,
+              "due_payment_skipped",
+              id,
+              st.actor,
+              %{"cycle_due_date" => iso},
+              "#{id}:#{iso}:skipped"
+            )
+
           {:ok, put(st, :debts, %{rec | last_due_handled_on: iso})}
       end
     end
@@ -422,14 +450,17 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
       kind = if rec.user_id == nil, do: :update_manual, else: :update_linked
 
       with {:ok, values} <- invalid(Check.profile(kind, Check.profile_fields(rec), attrs)),
-           :ok <- if(kind == :update_manual, do: unique_email(st, values.claim_email, id), else: :ok) do
+           :ok <-
+             if(kind == :update_manual, do: unique_email(st, values.claim_email, id), else: :ok) do
         if values == Check.profile_fields(rec) do
           {:ok, st}
         else
           {stamp, st} = tick(st)
           new = Map.merge(rec, values)
           new = if kind == :update_manual, do: %{new | display_name: values.name}, else: new
-          {:ok, put(st, :retirement_profiles, %{new | updated_at: Stamp.after_(stamp, rec.updated_at)})}
+
+          {:ok,
+           put(st, :retirement_profiles, %{new | updated_at: Stamp.after_(stamp, rec.updated_at)})}
         end
       end
     end
@@ -438,7 +469,13 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
   defp run(st, {:delete_retirement_profile, id}) do
     with {:ok, rec} <- live_profile(st, id) do
       {stamp, st} = tick(st)
-      {:ok, put(st, :retirement_profiles, %{rec | deleted: true, updated_at: Stamp.after_(stamp, rec.updated_at)})}
+
+      {:ok,
+       put(st, :retirement_profiles, %{
+         rec
+         | deleted: true,
+           updated_at: Stamp.after_(stamp, rec.updated_at)
+       })}
     end
   end
 
@@ -583,9 +620,12 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
   defp member(_st, _user_id), do: {:error, :not_found}
 
   defp unique_member(st, user_id) do
-    if Enum.any?(Map.values(st.doc.retirement_profiles), &(not &1.deleted and &1.user_id == user_id)),
-      do: {:error, {:invalid, %{user_id: ["has already been taken"]}}},
-      else: :ok
+    if Enum.any?(
+         Map.values(st.doc.retirement_profiles),
+         &(not &1.deleted and &1.user_id == user_id)
+       ),
+       do: {:error, {:invalid, %{user_id: ["has already been taken"]}}},
+       else: :ok
   end
 
   defp unique_email(_st, nil, _self), do: :ok
@@ -608,6 +648,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
   def cents_string(cents) when cents < 0, do: "-" <> cents_string(-cents)
 
   def cents_string(cents) do
-    Integer.to_string(div(cents, 100)) <> "." <> String.pad_leading(Integer.to_string(rem(cents, 100)), 2, "0")
+    Integer.to_string(div(cents, 100)) <>
+      "." <> String.pad_leading(Integer.to_string(rem(cents, 100)), 2, "0")
   end
 end

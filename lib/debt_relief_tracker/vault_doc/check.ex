@@ -193,10 +193,13 @@ defmodule DebtReliefTracker.VaultDoc.Check do
   """
   def profile(kind, current, attrs) do
     attrs =
-      if kind == :member and is_map(attrs), do: Map.drop(attrs, [:name, :claim_email]), else: attrs
+      if kind == :member and is_map(attrs),
+        do: Map.drop(attrs, [:name, :claim_email]),
+        else: attrs
 
     with {:ok, attrs} <- attrs_map(attrs, @profile_spec),
-         attrs = if(kind == :update_linked, do: Map.drop(attrs, [:name, :claim_email]), else: attrs),
+         attrs =
+           if(kind == :update_linked, do: Map.drop(attrs, [:name, :claim_email]), else: attrs),
          {values, errors} <- cast(current, attrs, @profile_spec) do
       errors =
         errors

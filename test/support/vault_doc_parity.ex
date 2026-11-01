@@ -48,15 +48,10 @@ defmodule DebtReliefTracker.VaultDocParity do
     {:ok, after_} = Plain.load(p.workspace)
 
     new_ids =
-      Enum.map(after_.debts -- before.debts, & &1.id) --
-        Enum.map(before.debts, & &1.id)
-
-    new_ids =
       ids_of(after_.debts, before.debts) ++
         ids_of(after_.payments, before.payments) ++
         ids_of(after_.retirement_profiles, before.retirement_profiles)
 
-    _ = new_ids
     {:ok, queue} = Agent.start_link(fn -> new_ids end)
 
     ctx = %{
@@ -82,7 +77,9 @@ defmodule DebtReliefTracker.VaultDocParity do
           {doc, {:ok, snapshot}}
 
         {{:error, e}, {:error, e2}} ->
-          assert e == e2, "error mismatch for #{inspect(change)}:\nplain:  #{inspect(e)}\nledger: #{inspect(e2)}"
+          assert e == e2,
+                 "error mismatch for #{inspect(change)}:\nplain:  #{inspect(e)}\nledger: #{inspect(e2)}"
+
           assert_same(after_, VaultDoc.view(p.doc), change)
           {p.doc, {:error, e}}
 
