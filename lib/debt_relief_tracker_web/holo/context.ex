@@ -19,7 +19,17 @@ defmodule DebtReliefTrackerWeb.Holo.Context do
   def workspace(server) do
     case user(server) do
       nil -> Accounts.ensure_default_workspace!()
-      user -> Accounts.current_workspace_for_user(user)
+      # The header's workspace switcher stores its choice in the session;
+      # `current_workspace_for_user/2` ignores a workspace the user doesn't
+      # belong to, so a stale or forged id falls back to their first one.
+      user -> Accounts.current_workspace_for_user(user, preferred_workspace_id(server))
+    end
+  end
+
+  defp preferred_workspace_id(server) do
+    case Hologram.Server.get_session(server, :workspace_id) do
+      id when is_binary(id) -> id
+      _ -> nil
     end
   end
 
@@ -50,7 +60,7 @@ defmodule DebtReliefTrackerWeb.Holo.Context do
         display_name: profile_user.display_name,
         email: profile_user.email,
         tutorial_seen: profile_user.tutorial_seen,
-        theme: Map.get(profile_user, :theme),
+        theme: to_string(profile_user.preferences.theme),
         is_admin: profile_user.is_admin
       },
       workspace: %{id: workspace.id, name: workspace.name},
