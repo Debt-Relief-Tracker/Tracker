@@ -195,7 +195,9 @@ defmodule DebtReliefTrackerWeb.Holo.DebtLogicTest do
       assert {:error, %{fixed_payment: ["can't be blank"]}} = DebtLogic.debt_change(form)
 
       revolving = %{form | type: "revolving"}
-      assert {:error, %{minimum_payment_rate: ["can't be blank"]}} = DebtLogic.debt_change(revolving)
+
+      assert {:error, %{minimum_payment_rate: ["can't be blank"]}} =
+               DebtLogic.debt_change(revolving)
     end
 
     test "requires name, type, balance and apr; rejects junk and negatives" do
@@ -234,7 +236,8 @@ defmodule DebtReliefTrackerWeb.Holo.DebtLogicTest do
     end
 
     test "requires a positive amount and a real date" do
-      assert {:error, %{amount: ["can't be blank"]}} = DebtLogic.payment_attrs(DebtLogic.payment_form(@today))
+      assert {:error, %{amount: ["can't be blank"]}} =
+               DebtLogic.payment_attrs(DebtLogic.payment_form(@today))
 
       form = %{DebtLogic.payment_form(@today) | amount: "0"}
       assert {:error, %{amount: ["must be greater than 0"]}} = DebtLogic.payment_attrs(form)
@@ -257,7 +260,12 @@ defmodule DebtReliefTrackerWeb.Holo.DebtLogicTest do
 
   describe "log all balances" do
     test "pre-fills active debts and builds a reconcile change per non-blank entry" do
-      snap = snapshot([debt(%{id: "a"}), debt(%{id: "b", status: "paid_off"}), debt(%{id: "c", balance: 1000})])
+      snap =
+        snapshot([
+          debt(%{id: "a"}),
+          debt(%{id: "b", status: "paid_off"}),
+          debt(%{id: "c", balance: 1000})
+        ])
 
       assert DebtLogic.balances_form(snap, @today) == %{"a" => "4500.00", "c" => "10.00"}
 

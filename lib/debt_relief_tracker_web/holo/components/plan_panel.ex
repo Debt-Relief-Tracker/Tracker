@@ -37,6 +37,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   alias DebtReliefTrackerWeb.Holo.Context
   alias DebtReliefTrackerWeb.Holo.Format
   alias DebtReliefTrackerWeb.Holo.Plan
+  alias DebtReliefTrackerWeb.Holo.QuietJS
 
   middleware DebtReliefTrackerWeb.Holo.Auth
 
@@ -244,6 +245,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   # Only the chart changes: reuses the cached simulations.
   def action(:select_chart_type, %{chart_type: chart_type}, component) do
     if chart_type in Charts.chart_types() do
+      QuietJS.quiet()
       component = put_state(component, :chart_type, chart_type)
 
       derived =
@@ -353,6 +355,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   # An input changed (snapshot, strategy, budget, mode): re-run the
   # simulations once, cache them, re-derive the cards and redraw.
   defp refresh(component) do
+    QuietJS.quiet()
     derived = derive(component, component.props.snapshot, component.props.strategy)
 
     component

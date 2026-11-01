@@ -95,7 +95,14 @@ defmodule DebtReliefTrackerWeb.Holo.TutorialTest do
       assert c.state.step == 0
       assert c.next_command.params == %{seen: false}
       assert c.state.view.title == "Welcome to your debt tracker"
-      assert [%{name: :select_chart_type, target: "plan_panel", params: %{chart_type: :comparison}}] =
+
+      assert [
+               %{
+                 name: :select_chart_type,
+                 target: "plan_panel",
+                 params: %{chart_type: :comparison}
+               }
+             ] =
                actions(c)
     end
 

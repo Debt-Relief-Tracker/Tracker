@@ -37,6 +37,7 @@ defmodule DebtReliefTracker.BrowserCase do
     # Normally a no-op (`mix test` sets HOLOGRAM_START=1 and compiles the
     # runtime bundle); makes `mix test` invoked some other way work too.
     ensure_hologram!()
+    load_app_modules!()
 
     {:ok, bandit} =
       Bandit.start_link(
@@ -58,6 +59,15 @@ defmodule DebtReliefTracker.BrowserCase do
     # replies to its owner, so it can't be opened in setup_all. It is closed
     # automatically when the test process exits.
     {:ok, driver: Driver.start!()}
+  end
+
+  # Hologram decodes a command's name with `binary_to_existing_atom/1`, so a
+  # component module that hasn't been loaded yet (e.g. a modal that the
+  # server never rendered) makes its first command fail with "not an already
+  # existing atom". Releases load every module at boot; do the same here.
+  defp load_app_modules! do
+    {:ok, modules} = :application.get_key(:debt_relief_tracker, :modules)
+    Enum.each(modules, &Code.ensure_loaded/1)
   end
 
   defp ensure_hologram! do

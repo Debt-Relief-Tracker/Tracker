@@ -53,7 +53,9 @@ defmodule DebtReliefTrackerWeb.Holo.ActivityTest do
     end
 
     test "unknown actor reads as Someone; deleted debt falls back to the recorded name, then a generic one" do
-      deleted = entry("debt_deleted", %{debt_id: nil, user_id: "gone", metadata: %{"name" => "Old Card"}})
+      deleted =
+        entry("debt_deleted", %{debt_id: nil, user_id: "gone", metadata: %{"name" => "Old Card"}})
+
       assert Activity.description(deleted, @debts, @actors, "USD") == "Someone deleted Old Card"
 
       nameless = entry("debt_deleted", %{debt_id: nil})
