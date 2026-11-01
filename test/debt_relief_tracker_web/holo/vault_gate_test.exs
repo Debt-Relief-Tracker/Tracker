@@ -100,11 +100,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGateTest do
 
   describe "rate limiting" do
     test "commands are limited per workspace", %{a: a, b: b} do
-      limited =
-        for _ <- 1..40, do: run(a, :fetch_vault, %{})
+      started = System.monotonic_time(:millisecond)
+      results = for _ <- 1..60, do: run(a, :fetch_vault, %{})
+      elapsed_s = div(System.monotonic_time(:millisecond) - started, 1000) + 1
 
-      assert Enum.any?(limited, &(&1[:error] == :rate_limited))
-      assert Enum.count(limited, & &1.ok) == 30
+      assert Enum.any?(results, &(&1[:error] == :rate_limited))
+      # capacity 30 plus whatever refilled (1/s) while the loop ran
+      assert Enum.count(results, & &1.ok) in 30..(30 + elapsed_s)
       # another workspace is unaffected
       assert %{ok: true} = run(b, :fetch_vault, %{})
     end
