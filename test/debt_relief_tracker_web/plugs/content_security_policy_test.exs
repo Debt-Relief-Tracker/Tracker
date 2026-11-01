@@ -103,9 +103,101 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
   end
 
   test "other paths are not touched" do
-    conn = run("/", @page)
+    conn = run("/dev/dashboard", @page)
     assert get_resp_header(conn, "content-security-policy") == []
     assert conn.resp_body == @page
+  end
+
+  describe "LiveView pages (static policy, no nonce)" do
+    test "/, /admin and /auth/* get the strict nonce-less policy" do
+      for path <- ["/", "/admin", "/auth/login"] do
+        conn = run(path, @page)
+        [csp] = get_resp_header(conn, "content-security-policy")
+        directives = String.split(csp, "; ")
+
+        assert "default-src 'none'" in directives
+        assert "script-src 'self'" in directives
+        assert "style-src 'self'" in directives
+        assert "connect-src 'self'" in directives
+        assert "img-src 'self' data:" in directives
+        assert "font-src 'self'" in directives
+        assert "object-src 'none'" in directives
+        assert "base-uri 'none'" in directives
+        assert "frame-ancestors 'none'" in directives
+        assert "form-action 'self'" in directives
+        refute csp =~ "unsafe-inline"
+        refute csp =~ "nonce"
+        refute csp =~ "unsafe-eval"
+        assert get_resp_header(conn, "referrer-policy") == ["no-referrer"]
+        assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+        # the body is never rewritten
+        assert conn.resp_body == @page
+      end
+    end
+
+    test "dev-only, api and export paths are untouched" do
+      for path <- ["/dev/dashboard", "/dev/mailbox", "/api/swaggerui", "/export/debts.csv"] do
+        assert get_resp_header(run(path, @page), "content-security-policy") == []
+      end
+    end
+
+    test "report_only and off modes" do
+      old = Application.get_env(:debt_relief_tracker, :csp)
+
+      on_exit(fn ->
+        if old,
+          do: Application.put_env(:debt_relief_tracker, :csp, old),
+          else: Application.delete_env(:debt_relief_tracker, :csp)
+      end)
+
+      Application.put_env(:debt_relief_tracker, :csp, mode: :report_only)
+      conn = run("/admin", @page)
+      assert get_resp_header(conn, "content-security-policy") == []
+      assert [_] = get_resp_header(conn, "content-security-policy-report-only")
+
+      Application.put_env(:debt_relief_tracker, :csp, mode: :off)
+      conn = run("/admin", @page)
+      assert get_resp_header(conn, "content-security-policy-report-only") == []
+      assert get_resp_header(conn, "referrer-policy") == []
+    end
+
+    test "the Umami origin is allowed in script-src and connect-src only when configured" do
+      old = Application.get_env(:debt_relief_tracker, :umami)
+      on_exit(fn -> Application.put_env(:debt_relief_tracker, :umami, old) end)
+
+      Application.put_env(:debt_relief_tracker, :umami,
+        script_url: "https://stats.example.com/script.js",
+        website_id: "x"
+      )
+
+      directives = CSP.liveview_policy() |> String.split("; ")
+      assert "script-src 'self' https://stats.example.com" in directives
+      assert "connect-src 'self' https://stats.example.com" in directives
+    end
+
+    test "real endpoint: / and /admin carry the header and contain no inline <script>", %{
+      conn: conn
+    } do
+      for path <- ["/", "/admin"] do
+        conn = get(conn, path)
+        assert [_] = get_resp_header(conn, "content-security-policy")
+
+        scripts = Regex.scan(~r/<script\b([^>]*)>(.*?)<\/script>/s, html_response(conn, 200))
+        assert scripts != []
+
+        for [_, attrs, body] <- scripts do
+          assert attrs =~ "src=", "inline <script> on #{path}: #{inspect(body)}"
+          assert String.trim(body) == ""
+        end
+      end
+    end
+
+    test "real endpoint: theme boot is an external file that exists", %{conn: conn} do
+      html = html_response(get(conn, "/"), 200)
+      assert html =~ ~r/<script[^>]*src="\/assets\/js\/theme_boot\.js[^"]*"/
+      refute html =~ ~r/<script[^>]*src="\/assets\/js\/theme_boot\.js[^>]*defer/
+      assert File.exists?("assets/js/theme_boot.js")
+    end
   end
 
   describe "form-action and the OIDC logout redirect" do

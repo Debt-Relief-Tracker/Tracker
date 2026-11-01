@@ -26,7 +26,12 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   (the browser blocks them; a warning is logged), so a script injected into
   the page can never inherit the nonce.
 
-  The LiveView pages (`/`, `/admin`) are not touched: they use inline scripts.
+  The LiveView pages (`/`, `/admin`, `/auth/*`) get a sibling, nonce-less
+  policy (`liveview_policy/0`): they have no inline scripts (the theme boot
+  lives in `assets/js/theme_boot.js`), so `script-src 'self'` suffices. They
+  share an origin -- and so IndexedDB with the remembered vault key -- with
+  `/app`, hence an XSS there must not be possible. Dev-only routes (`/dev/*`,
+  LiveDashboard), `/api/*` (Swagger UI) and CSV exports are not touched.
 
   Mode: `config :debt_relief_tracker, :csp, mode: :enforce | :report_only | :off`
   (read per request; default `:enforce`).
@@ -45,21 +50,73 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
     "globalThis.Hologram.pageMountData = "
   ]
 
-  @doc "True for the request paths this policy applies to."
+  @doc "True for the Hologram request paths (nonce policy)."
   def applies_to?(path), do: path == "/app" or String.starts_with?(path, ["/app/", "/hologram/"])
+
+  @doc "True for the LiveView / browser-pipeline HTML paths (static policy)."
+  def liveview_applies?(path), do: path in ["/", "/admin"] or String.starts_with?(path, "/auth/")
 
   @impl Plug
   def init(opts), do: opts
 
   @impl Plug
   def call(conn, _opts) do
-    if applies_to?(conn.request_path) do
-      case mode() do
-        :off -> conn
-        mode -> apply_policy(conn, mode)
-      end
+    path = conn.request_path
+
+    cond do
+      mode() == :off -> conn
+      applies_to?(path) -> apply_policy(conn, mode())
+      liveview_applies?(path) -> apply_liveview_policy(conn, mode())
+      true -> conn
+    end
+  end
+
+  defp header_name(:report_only), do: "content-security-policy-report-only"
+  defp header_name(_), do: "content-security-policy"
+
+  defp apply_liveview_policy(conn, mode) do
+    conn
+    |> put_resp_header(header_name(mode), liveview_policy())
+    |> put_resp_header("referrer-policy", "no-referrer")
+    |> put_resp_header("x-content-type-options", "nosniff")
+  end
+
+  @doc """
+  The policy for the LiveView pages. No nonce, no `'unsafe-inline'` for
+  scripts. `connect-src 'self'` covers the same-origin LiveView WebSocket
+  (CSP3: `'self'` matches ws/wss on the same host; verified in the browser
+  test), so no `ws:`/`wss:` wildcard is listed. When Umami analytics is
+  configured its origin is added to `script-src` and `connect-src`.
+  """
+  def liveview_policy do
+    umami = umami_origin()
+
+    Enum.join(
+      [
+        "default-src 'none'",
+        "script-src 'self'" <> umami,
+        "style-src 'self'",
+        "connect-src 'self'" <> umami,
+        "img-src 'self' data:",
+        "font-src 'self'",
+        "object-src 'none'",
+        "base-uri 'none'",
+        "frame-ancestors 'none'",
+        "form-action #{form_action_sources()}"
+      ],
+      "; "
+    )
+  end
+
+  defp umami_origin do
+    with cfg when is_list(cfg) <- Application.get_env(:debt_relief_tracker, :umami),
+         url when is_binary(url) <- cfg[:script_url],
+         %URI{scheme: scheme, host: host, port: port} when is_binary(host) <- URI.parse(url) do
+      if port in [nil, URI.default_port(scheme)],
+        do: " #{scheme}://#{host}",
+        else: " #{scheme}://#{host}:#{port}"
     else
-      conn
+      _ -> ""
     end
   end
 
@@ -108,13 +165,8 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   defp apply_policy(conn, mode) do
     nonce = Base.url_encode64(:crypto.strong_rand_bytes(16), padding: false)
 
-    header =
-      if mode == :report_only,
-        do: "content-security-policy-report-only",
-        else: "content-security-policy"
-
     conn
-    |> put_resp_header(header, policy(nonce))
+    |> put_resp_header(header_name(mode), policy(nonce))
     |> put_resp_header("referrer-policy", "no-referrer")
     |> put_resp_header("x-content-type-options", "nosniff")
     |> register_before_send(&finish(&1, nonce))
