@@ -54,6 +54,48 @@ defmodule DebtReliefTracker.E2EE.VaultsTest do
     end
   end
 
+  describe "create/3 with several wraps" do
+    test "stores all of them atomically", %{a: a} do
+      w1 = passphrase_wrap()
+      w2 = passphrase_wrap(%{kind: "recovery", label: nil, kdf_params: nil, salt: nil})
+      assert {:ok, %{rev: 1}} = Vaults.create(a, "v1.iv.ct", [w1, w2])
+      assert {:ok, %{key_wraps: wraps}} = Vaults.fetch(a)
+      assert Enum.sort(Enum.map(wraps, & &1.id)) == Enum.sort([w1.id, w2.id])
+    end
+
+    test "one invalid wrap rolls everything back", %{a: a} do
+      assert {:error, {:invalid, _}} =
+               Vaults.create(a, "v1.iv.ct", [passphrase_wrap(), passphrase_wrap(%{kind: "x"})])
+
+      assert Vaults.fetch(a) == :none
+      assert {:error, {:invalid, _}} = Vaults.create(a, "v1.iv.ct", [])
+    end
+  end
+
+  describe "rename_key_wrap/3" do
+    test "changes only the label", %{a: a} do
+      w = passphrase_wrap()
+      {:ok, _} = Vaults.create(a, "b", w)
+      assert {:ok, renamed} = Vaults.rename_key_wrap(a, w.id, "Laptop")
+      assert renamed.label == "Laptop"
+      assert renamed.wrapped_key == w.wrapped_key
+      assert {:ok, %{key_wraps: [%{label: "Laptop"}]}} = Vaults.fetch(a)
+    end
+
+    test "unknown ids, other workspaces and long labels are refused", %{a: a, b: b} do
+      w = passphrase_wrap()
+      {:ok, _} = Vaults.create(a, "b", w)
+      assert {:error, :not_found} = Vaults.rename_key_wrap(a, Ecto.UUID.generate(), "x")
+      assert {:error, :not_found} = Vaults.rename_key_wrap(a, "nope", "x")
+      assert {:error, :not_found} = Vaults.rename_key_wrap(b, w.id, "stolen")
+
+      assert {:error, {:invalid, %{label: _}}} =
+               Vaults.rename_key_wrap(a, w.id, String.duplicate("x", 101))
+
+      assert {:ok, %{key_wraps: [%{label: "pass"}]}} = Vaults.fetch(a)
+    end
+  end
+
   describe "size limits and shape" do
     test "blob over 5 MB is :too_large", %{a: a} do
       big = :binary.copy("x", Vaults.max_blob_bytes() + 1)
