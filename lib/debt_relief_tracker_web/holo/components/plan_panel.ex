@@ -34,7 +34,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
 
   alias DebtReliefTracker.Engine.Charts
   alias DebtReliefTrackerWeb.Holo.Components.Chart
+  alias DebtReliefTracker.VaultEnv
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.DataPath
   alias DebtReliefTrackerWeb.Holo.Format
   alias DebtReliefTrackerWeb.Holo.Plan
   alias DebtReliefTrackerWeb.Holo.QuietJS
@@ -44,6 +46,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   prop :snapshot, :map
   prop :account, :map
   prop :strategy, :atom
+  prop :e2ee, :boolean, from_context: :e2ee
 
   @save_error "Couldn't save your budget settings -- please try again."
 
@@ -54,7 +57,23 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   # is not shipped in the page.
   def init(props, component, _server) do
     %Date{year: year, month: month, day: day} = Date.utc_today()
+    init_state(props, component, {year, month, day}, props.snapshot)
+  end
 
+  # E2EE: mounted in the browser after unlock. The page queues
+  # `:plan_inputs_changed` right after unlocking, so only a cheap empty plan
+  # is computed here (the real one would otherwise run twice).
+  def init(props, component) do
+    today = VaultEnv.today_iso()
+
+    ymd =
+      {String.to_integer(String.slice(today, 0, 4)), String.to_integer(String.slice(today, 5, 2)),
+       String.to_integer(String.slice(today, 8, 2))}
+
+    init_state(props, component, ymd, %{props.snapshot | debts: [], payments: []})
+  end
+
+  defp init_state(props, component, today, snapshot) do
     component =
       put_state(component,
         chart_type: :comparison,
@@ -62,10 +81,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
         budget_focused?: false,
         mode_pending: nil,
         save_error: nil,
-        today: {year, month, day}
+        today: today
       )
 
-    derived = derive(component, props.snapshot, props.strategy)
+    derived = derive(component, snapshot, props.strategy)
 
     component
     |> put_state(view: Plan.view(derived), derived: nil)
@@ -292,7 +311,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
 
     case Plan.draft_total(snapshot, component.state.budget_draft, mode) do
       {:ok, cents} when cents != saved ->
-        put_command(component, :save_settings, attrs: %{monthly_budget: cents})
+        save_settings(component, %{monthly_budget: cents})
 
       _unchanged_or_invalid ->
         component
@@ -313,10 +332,14 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
   end
 
   def action(:select_budget_mode, %{mode: mode}, component) when mode in [:total, :margin] do
-    component
-    |> put_state(mode_pending: mode, budget_draft: nil)
-    |> put_command(:save_settings, attrs: %{budget_mode: Atom.to_string(mode)})
-    |> refresh()
+    component =
+      component
+      |> put_state(mode_pending: mode, budget_draft: nil)
+      |> save_settings(%{budget_mode: Atom.to_string(mode)})
+
+    # E2EE: the ledger reply (`:settings_saved` -> page -> `:plan_inputs_changed`)
+    # is this handler's one follow-up and re-plans anyway; `refresh/1` would take its slot.
+    if DataPath.e2ee?(component), do: component, else: refresh(component)
   end
 
   def action(:settings_saved, %{snapshot: snapshot}, component) do
@@ -329,6 +352,15 @@ defmodule DebtReliefTrackerWeb.Holo.Components.PlanPanel do
     component
     |> put_state(mode_pending: nil, save_error: @save_error)
     |> refresh()
+  end
+
+  # Plaintext: the `:save_settings` command; E2EE: the page's ledger path.
+  defp save_settings(component, attrs) do
+    DataPath.save(component, :save_settings, %{attrs: attrs},
+      changes: [{:update_settings, settings_attrs(attrs)}],
+      ok: DataPath.ok(:settings_saved, "plan_panel"),
+      error: DataPath.error(:save_failed, "plan_panel")
+    )
   end
 
   # --- commands (server) -------------------------------------------------------

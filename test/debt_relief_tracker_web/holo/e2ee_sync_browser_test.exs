@@ -325,36 +325,4 @@ defmodule DebtReliefTrackerWeb.Holo.E2EESyncBrowserTest do
     assert_selector(ctx, "#vault-home")
     assert_text(ctx, "#vault-debts", marker)
   end
-
-  defp all_rows do
-    repo = DebtReliefTracker.Repo.active_repo()
-
-    tables =
-      case repo.__adapter__() do
-        Ecto.Adapters.Postgres ->
-          %{rows: rows} =
-            Ecto.Adapters.SQL.query!(
-              repo,
-              "SELECT tablename FROM pg_tables WHERE schemaname = current_schema()",
-              []
-            )
-
-          List.flatten(rows)
-
-        _ ->
-          %{rows: rows} =
-            Ecto.Adapters.SQL.query!(
-              repo,
-              "SELECT name FROM sqlite_master WHERE type = 'table'",
-              []
-            )
-
-          List.flatten(rows)
-      end
-
-    for table <- tables, table != "schema_migrations" do
-      %{rows: rows} = Ecto.Adapters.SQL.query!(repo, ~s(SELECT * FROM "#{table}"), [])
-      {table, rows}
-    end
-  end
 end

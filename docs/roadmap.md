@@ -402,9 +402,14 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
       detection) on opaque crypto handles. ADR 0007 "Client vault flows".
       Open: real authenticators / Safari / Firefox.
 - [x] 8. Sync (CAS merge with retry/backoff, debounced save, visibility refetch,
-      unload warning, catch-up of auto-logged installments on open). Feature
-      components still save through `Context.apply_change`; routing them to the
-      page's `:vault_apply_change` is the next task.
+      unload warning, catch-up of auto-logged installments on open).
+- [x] 8b. Data path: the full dashboard in E2EE mode. `Holo.DataPath` routes
+      every component save through the page's ledger path
+      (`:vault_apply_request`) with the same replies/errors as plaintext mode;
+      client-side CSV export (`Holo.CsvExport`); `DualModeFlowsBrowserTest`
+      runs the debt/plan/retirement/settings flows in both modes and scans the
+      server DB for plaintext. Sharing and the workspace switcher are hidden in
+      E2EE v1. ADR 0007 "Data path".
 - [ ] 9. Plaintext -> vault migration with verification and confirmed delete.
       Decided: owner of a shared workspace migrates and other members lose
       access (explicit confirmation listing them); unmigrated users keep

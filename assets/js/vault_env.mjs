@@ -81,6 +81,23 @@ export function envInit(ws) {
   return "ok"
 }
 
+// Debounce timer for the save loop: after `ms`, dispatch the page action
+// `vault_flush %{token}`. It is a plain JS timer (not a delayed `put_action`)
+// so that a Hologram handler's ONE follow-up action stays free for the
+// component reply of an edit (ADR 0007, "Data path"). The token travels as a
+// string; `VaultFlow.flush/2` compares it with the save loop's sequence.
+export function flushLater(token, ms) {
+  const t = String(token)
+  setTimeout(
+    () => {
+      const h = globalThis.Hologram
+      if (h && typeof h.dispatchAction === "function") h.dispatchAction("vault_flush", "page", { token: t })
+    },
+    Math.max(Number(ms) || 0, 0),
+  )
+  return "ok"
+}
+
 // Start the idle timer (ms; 0 disables).
 export function idleStart(ms) {
   idleMs = Number(ms) || 0
@@ -136,5 +153,5 @@ export function monotonicMs() {
   return Math.floor(Date.now())
 }
 
-const env = { envInit, idleStart, idleStop, setDirty, broadcast, nowIso, todayIso, randomUuid, monotonicMs, copyText }
+const env = { flushLater, envInit, idleStart, idleStop, setDirty, broadcast, nowIso, todayIso, randomUuid, monotonicMs, copyText }
 export default env

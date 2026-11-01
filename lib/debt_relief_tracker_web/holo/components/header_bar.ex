@@ -27,6 +27,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
 
   prop :snapshot, :map
   prop :account, :map
+  prop :e2ee, :boolean, from_context: :e2ee
 
   def template do
     ~HOLO"""
@@ -39,7 +40,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
         <span id="workspace-name" class="font-semibold truncate min-w-0 sm:overflow-visible sm:text-clip sm:whitespace-normal">{@account.workspace.name}</span>
 
         {%if @account.oidc_enabled}
-          {%if length(@account.workspaces) > 1}
+          {%if length(@account.workspaces) > 1 and not @e2ee}
             <select
               id="workspace-switcher"
               name="workspace_id"

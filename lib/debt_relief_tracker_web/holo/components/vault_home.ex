@@ -1,11 +1,14 @@
 defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
   @moduledoc """
-  The unlocked E2EE screen (stateless): header with the sync status, "Unlock
-  methods" and "Lock", a plain list of the decrypted debts, and -- only when
-  `config :debt_relief_tracker, :e2ee_test_hook` is on -- a tiny form/buttons
-  that change the document through the ledger (the minimal hook that proves
-  the save/sync loop until the feature components route their saves through
-  `Ledger`; roadmap Phase 8/10).
+  The E2EE bar above the dashboard (stateless): sync status, "Unlock
+  methods", "Lock", the created / lock-blocked / remembered-device notices.
+  The dashboard itself (header, sidebar, plan panel, modals) renders below it
+  from `snapshot = VaultDoc.view(doc)`, exactly as in plaintext mode.
+
+  Only when `config :debt_relief_tracker, :e2ee_test_hook` is on, it also
+  shows a plain debt list with pay/delete buttons and a tiny add form that
+  change the document through the ledger -- the hook the save/sync browser
+  tests drive without the full UI.
 
   All events target the page (`VaultFlow`).
   """
@@ -21,9 +24,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
 
   def template do
     ~HOLO"""
-    <main id="vault-home" class="flex-1 flex flex-col gap-4 p-4 w-full max-w-3xl mx-auto">
-      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-        <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
+    <div id="vault-home" class="flex flex-col gap-2 px-4 py-2 border-b border-base-300">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-sm font-medium">Encrypted vault</span>
         <div class="flex flex-wrap items-center gap-2">
           <span id="vault-sync-status" role="status" data-status={@sync.status} class={status_class(@sync.status)}>{status_text(@sync.status)}</span>
           {%if @sync.status == :failed}
@@ -53,36 +56,30 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
         </p>
       {/if}
 
-      <section class="flex flex-col gap-2">
-        <h2 class="font-semibold text-lg">Debts</h2>
-        <p class="vault-debts-empty text-base-content/60 only:block hidden">No debts yet.</p>
-        <ul id="vault-debts" class="flex flex-col gap-2">
-          {%for debt <- @snapshot.debts}
-            <li id={"vault-debt-" <> debt.id} class="vault-debt flex flex-wrap items-center gap-2 border border-base-300 rounded p-2">
-              <span class="vault-debt-name flex-1 font-medium break-words">{debt.name}</span>
-              <span class="vault-debt-balance">{Format.money(debt.balance, @snapshot.settings.currency)}</span>
-              {%if @vault.test_hook}
+      {%if @vault.test_hook}
+        <section class="flex flex-col gap-2">
+          <ul id="vault-debts" class="flex flex-col gap-2">
+            {%for debt <- @snapshot.debts}
+              <li id={"vault-debt-" <> debt.id} class="vault-debt flex flex-wrap items-center gap-2 border border-base-300 rounded p-2">
+                <span class="vault-debt-name flex-1 font-medium break-words">{debt.name}</span>
+                <span class="vault-debt-balance">{Format.money(debt.balance, @snapshot.settings.currency)}</span>
                 <button id={"vault-pay-" <> debt.id} type="button" class="btn btn-xs btn-outline" $click={action: :vault_hook_pay, target: "page", params: %{id: debt.id}}>Pay $10</button>
                 <button id={"vault-delete-" <> debt.id} type="button" class="btn btn-xs btn-ghost text-error" $click={action: :vault_hook_delete, target: "page", params: %{id: debt.id}}>Delete</button>
-              {/if}
-            </li>
-          {/for}
-        </ul>
-        <p id="vault-payments-count" class="text-sm text-base-content/60">{length(@snapshot.payments)} payments</p>
-      </section>
-
-      {%if @vault.test_hook}
-        <form id="test-hook-form" class="flex gap-2" $submit={action: :vault_hook_add, target: "page"}>
-          <input id="test-hook-name" name="name" type="text" class="input input-sm flex-1" placeholder="Debt name" />
-          <button id="test-hook-add" type="submit" class="btn btn-sm btn-outline">Add debt</button>
-          <button id="test-hook-add-auto" type="button" class="btn btn-sm btn-outline" $click={action: :vault_hook_add_auto, target: "page"}>Add auto loan</button>
-        </form>
+              </li>
+            {/for}
+          </ul>
+          <p id="vault-payments-count" class="text-sm text-base-content/60">{length(@snapshot.payments)} payments</p>
+          {%if @vault.perf}
+            <p id="vault-perf" class="hidden" data-apply-ms={@vault.perf.apply_ms} data-view-ms={@vault.perf.view_ms}></p>
+          {/if}
+          <form id="test-hook-form" class="flex gap-2" $submit={action: :vault_hook_add, target: "page"}>
+            <input id="test-hook-name" name="name" type="text" class="input input-sm flex-1" placeholder="Debt name" />
+            <button id="test-hook-add" type="submit" class="btn btn-sm btn-outline">Add debt</button>
+            <button id="test-hook-add-auto" type="button" class="btn btn-sm btn-outline" $click={action: :vault_hook_add_auto, target: "page"}>Add auto loan</button>
+          </form>
+        </section>
       {/if}
-
-      <p class="text-xs text-base-content/50">
-        Everything on this screen is decrypted in this browser. Editing screens for the encrypted vault are coming in a later release.
-      </p>
-    </main>
+    </div>
     """
   end
 

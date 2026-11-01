@@ -21,7 +21,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.TutorialOverlay do
   prop :snapshot, :map
   prop :account, :map
 
-  def init(props, component, _server) do
+  # Plaintext: server first render. E2EE: mounted in the browser after unlock.
+  def init(props, component, _server), do: init(props, component)
+
+  def init(props, component) do
     component =
       component
       |> put_state(:step, nil)

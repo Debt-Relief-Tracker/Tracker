@@ -17,6 +17,14 @@ defmodule DebtReliefTracker.VaultEnv do
   js_import from: "../../assets/js/vault_env.mjs", as: :VaultEnv
 
   def init(workspace_id), do: call(:envInit, [workspace_id])
+
+  @doc """
+  After `ms`, dispatches the page action `:vault_flush %{token: <string>}`
+  (the save loop's debounce). A JS timer, so the calling Hologram handler's
+  single follow-up action stays available.
+  """
+  def flush_later(token, ms), do: call(:flushLater, [Integer.to_string(token), ms])
+
   def idle_start(ms), do: call(:idleStart, [ms])
   def idle_stop, do: call(:idleStop, [])
   def set_dirty(flag), do: call(:setDirty, [flag])

@@ -13,6 +13,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtFormModal do
 
   alias DebtReliefTrackerWeb.Holo.Auth
   alias DebtReliefTrackerWeb.Holo.Components.DebtModalFrame
+  alias DebtReliefTrackerWeb.Holo.DataPath
   alias DebtReliefTrackerWeb.Holo.DebtCommands
   alias DebtReliefTrackerWeb.Holo.DebtLogic
 
@@ -21,6 +22,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtFormModal do
   prop :snapshot, :map
   prop :account, :map
   prop :modal, :map, default: nil
+  prop :e2ee, :boolean, from_context: :e2ee
 
   def init(props, component), do: init_state(props, component)
   def init(props, component, _server), do: init_state(props, component)
@@ -194,9 +196,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtFormModal do
             do: {:update_debt, modal.debt_id, attrs},
             else: {:add_debt, attrs}
 
+        notice = "Saved #{attrs.name}."
+
         component
         |> put_state(:errors, %{})
-        |> put_command(:save, changes: [change], notice: "Saved #{attrs.name}.")
+        |> save([change], notice)
 
       {:error, errors} ->
         put_state(component, :errors, errors)
@@ -212,11 +216,21 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtFormModal do
 
     component
     |> put_state(:confirm_delete, false)
-    |> put_command(:save, changes: [{:delete_debt, modal.debt_id}], notice: "#{name} deleted.")
+    |> save([{:delete_debt, modal.debt_id}], "#{name} deleted.")
   end
 
   def action(:save_failed, %{error: error}, component),
     do: put_state(component, :errors, DebtLogic.error_map(error))
+
+  # Plaintext: the `:save` command; E2EE: the page's ledger path. Either way
+  # the reply is the sidebar's `:synced` (closing this modal) or `:save_failed`.
+  defp save(component, changes, notice) do
+    DataPath.save(component, :save, %{changes: changes, notice: notice},
+      changes: changes,
+      ok: DataPath.synced(notice, true),
+      error: DataPath.error(:save_failed, "debt_form_modal")
+    )
+  end
 
   def command(:save, %{changes: changes, notice: notice}, server),
     do: DebtCommands.run(server, changes, notice, close_modal: true)

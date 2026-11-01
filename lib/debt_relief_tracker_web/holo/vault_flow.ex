@@ -76,7 +76,8 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       notice: nil,
       other_tab: nil,
       idle_ms: Keyword.fetch!(opts, :idle_ms),
-      test_hook: Keyword.fetch!(opts, :test_hook)
+      test_hook: Keyword.fetch!(opts, :test_hook),
+      perf: nil
     }
   end
 
@@ -260,7 +261,10 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     VaultEnv.idle_start(vault.idle_ms)
     VaultEnv.broadcast("unlocked")
     sync_flag(c)
-    schedule(c, token, SaveLoop.debounce_ms())
+
+    c
+    |> schedule(token, SaveLoop.debounce_ms())
+    |> plan_changed()
   end
 
   defp adopt(c, :refresh, rev, remote) do
@@ -336,12 +340,17 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
 
       VaultEnv.idle_start(c.state.vault.idle_ms)
       VaultEnv.broadcast("unlocked")
-      c
+      plan_changed(c)
     else
       if creating, do: Crypto.lock(creating.handle)
       merge(c, %{busy: nil, error: :create_failed, creating: nil})
     end
   end
+
+  # The dashboard components mount (or, after a lock, remount with their old
+  # state) when the vault opens: have the plan panel derive from the document.
+  defp plan_changed(c),
+    do: put_action(c, name: :plan_inputs_changed, target: "plan_panel", delay: 50)
 
   defp wrap_with_defaults(w, now) do
     Map.merge(%{salt: nil, kdf_params: nil, credential_id: nil, inserted_at: now}, w)
@@ -356,13 +365,19 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
         c
 
       true ->
+        t0 = VaultEnv.now_ms()
+
         case Ledger.apply_change(c.state.doc, change, ctx(c)) do
           {:ok, doc} ->
+            t1 = VaultEnv.now_ms()
             {sync, token} = SaveLoop.changed(c.state.sync)
+            snapshot = VaultDoc.view(doc)
+            t2 = VaultEnv.now_ms()
 
             c
+            |> merge(%{perf: %{apply_ms: t1 - t0, view_ms: t2 - t1}})
             |> put_state(:doc, doc)
-            |> put_state(:snapshot, VaultDoc.view(doc))
+            |> put_state(:snapshot, snapshot)
             |> put_state(:sync, sync)
             |> put_state(:error, nil)
             |> tap_flag()
@@ -374,8 +389,78 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     end
   end
 
+  @doc """
+  The one way the dashboard changes vault data (ADR 0007, "Data path"):
+  applies `request.changes` (a list, all-or-nothing) through the ledger and
+  schedules the debounced encrypted save. Feature components send this through
+  `Holo.DataPath.save/4`; `request`:
+
+      %{
+        changes: [Storage change],
+        ok:    %{target: cid | "page", name: action, params: map},
+        error: %{target: cid | "page", name: action},
+        members: nil | %{user_id => display_name}   # retirement member picker
+      }
+
+  The handler's single follow-up action is the reply: `ok` gets
+  `params` plus `snapshot` (the new view) and `today` (the client's date);
+  `error` gets `%{error: error}` (`Storage.error`, same shapes as the server
+  path so components render it with the same code).
+  """
+  def apply_request(c, %{changes: changes, ok: ok, error: error} = req) do
+    cond do
+      changes == [] and c.state.doc != nil ->
+        put_action(c,
+          name: ok.name,
+          target: ok.target,
+          params: Map.merge(ok.params, %{snapshot: c.state.snapshot, today: VaultEnv.today_iso()})
+        )
+
+      c.state.vault.phase != :unlocked or c.state.doc == nil ->
+        c
+
+      true ->
+        t0 = VaultEnv.now_ms()
+
+        case apply_all(c.state.doc, changes, ctx(c, Map.get(req, :members))) do
+          {:ok, doc} ->
+            t1 = VaultEnv.now_ms()
+            {sync, token} = SaveLoop.changed(c.state.sync)
+            snapshot = VaultDoc.view(doc)
+            t2 = VaultEnv.now_ms()
+            c = merge(c, %{perf: %{apply_ms: t1 - t0, view_ms: t2 - t1}})
+
+            c
+            |> put_state(:doc, doc)
+            |> put_state(:snapshot, snapshot)
+            |> put_state(:sync, sync)
+            |> put_state(:error, nil)
+            |> tap_flag()
+            |> schedule(token, SaveLoop.debounce_ms())
+            |> put_action(
+              name: ok.name,
+              target: ok.target,
+              params: Map.merge(ok.params, %{snapshot: snapshot, today: VaultEnv.today_iso()})
+            )
+
+          {:error, e} ->
+            put_action(c, name: error.name, target: error.target, params: %{error: e})
+        end
+    end
+  end
+
+  defp apply_all(doc, [], _ctx), do: {:ok, doc}
+
+  defp apply_all(doc, [change | rest], ctx) do
+    case Ledger.apply_change(doc, change, ctx) do
+      {:ok, doc} -> apply_all(doc, rest, ctx)
+      {:error, _} = error -> error
+    end
+  end
+
   @doc "A debounce timer fired: save if it is still the latest edit and nothing is in flight."
   def flush(c, %{token: token}) do
+    token = token_int(token)
     sync = c.state.sync
 
     if c.state.vault.phase == :unlocked and sync != nil and SaveLoop.flush_due?(sync, token) do
@@ -462,10 +547,19 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     end
   end
 
+  # The debounce is a JS timer (`VaultEnv.flush_later/2`), not a delayed
+  # `put_action`, so a handler's single follow-up action stays free for the
+  # component reply of an edit (`apply_request/2`).
   defp schedule(c, nil, _delay), do: c
 
-  defp schedule(c, token, delay),
-    do: put_action(c, name: :vault_flush, params: %{token: token}, delay: delay)
+  defp schedule(c, token, delay) do
+    VaultEnv.flush_later(token, delay)
+    c
+  end
+
+  # The timer delivers the token as a string.
+  defp token_int(t) when is_binary(t), do: String.to_integer(t)
+  defp token_int(t), do: t
 
   # --- locking ------------------------------------------------------------------------------
 
@@ -703,13 +797,13 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
 
   defp ws(c), do: c.state.account.workspace.id
 
-  defp ctx(c) do
+  defp ctx(c, members \\ nil) do
     %{
       now: VaultEnv.now_iso(),
       today: VaultEnv.today_iso(),
       new_id: fn -> VaultEnv.random_uuid() end,
       actor: c.state.account.user.id,
-      members: nil
+      members: members
     }
   end
 
