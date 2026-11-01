@@ -65,6 +65,13 @@ defmodule DebtReliefTracker.BrowserCase do
   # which are build outputs (gitignored). Build them (~1s) so the pages work.
   defp ensure_assets! do
     Mix.Task.run("assets.build")
+
+    # A past `mix assets.deploy` (phx.digest) leaves `.gz` siblings that
+    # Plug.Static serves in preference to the fresh files when gzip is on
+    # (it is, outside code reloading), so the browser would get a stale
+    # stylesheet -- e.g. missing newer `sm:flex` classes, which hides the debt
+    # list. They are gitignored build output; drop them so tests see the build.
+    for gz <- Path.wildcard(Path.expand("priv/static/assets/**/*.gz")), do: File.rm(gz)
   end
 
   defp ensure_hologram! do
