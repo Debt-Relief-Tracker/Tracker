@@ -10,6 +10,7 @@ defmodule DebtReliefTracker.VaultDocHelpers do
       today: Keyword.get(opts, :today, "2026-11-01"),
       new_id: Keyword.get(opts, :new_id, &Ecto.UUID.generate/0),
       actor: Keyword.get(opts, :actor, nil),
+      server_now: Keyword.get(opts, :server_now),
       members: Keyword.get(opts, :members)
     }
   end

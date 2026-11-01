@@ -90,6 +90,15 @@ defmodule DebtReliefTracker.VaultClient.SaveLoop do
       else: {%{s | status: status}, {:retry, backoff_ms(s.retries)}}
   end
 
+  @doc """
+  The server's copy could not be read (undecryptable or undecodable conflict
+  reply). Nothing more can be done automatically: leave the in-flight state,
+  keep the local doc dirty and stop at `:failed` so the user can retry (the
+  retry saves again, which conflicts again and so re-fetches the server copy).
+  """
+  def stalled(s),
+    do: %{s | inflight?: false, dirty?: s.dirty? or s.inflight?, retries: 0, status: :failed}
+
   @doc "Manual retry after `:failed`: resets the budget."
   def reset_retries(s), do: %{s | retries: 0, status: if(s.dirty?, do: :dirty, else: :idle)}
 

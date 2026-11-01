@@ -464,7 +464,10 @@ test("rollback detection: first / ok / lower rev / same rev different blob", asy
   assert.equal(await holo.seenCheck(WS, 4, "blobB"), "ok:ok")
   assert.equal(await holo.seenCheck(WS, 2, "blobZ"), "ok:rollback")
   assert.equal(await holo.seenCheck(WS, 3, "blobEVIL"), "ok:rollback")
-  assert.equal(await holo.seenRecord(WS, 3, "blobEVIL"), "ok:recorded") // explicit acknowledgment
+  assert.equal(await holo.seenRecord(WS, 3, "blobEVIL"), "ok:kept") // monotonic: no silent reset
+  assert.equal(await holo.seenCheck(WS, 3, "blobEVIL"), "ok:rollback")
+  assert.equal(await holo.seenRecord(WS, 2, "blobZ"), "ok:kept") // never lowered by a stale write
+  assert.equal(await holo.seenAcknowledge(WS, 3, "blobEVIL"), "ok:acknowledged") // explicit user ack
   assert.equal(await holo.seenCheck(WS, 3, "blobEVIL"), "ok:ok")
   // only a hash is stored, never the blob
   assert.equal(JSON.stringify(mem.get("seen/" + WS)).includes("blobEVIL"), false)

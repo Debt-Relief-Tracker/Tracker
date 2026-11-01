@@ -67,13 +67,26 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
   """
 
   alias DebtReliefTracker.VaultDoc
-  alias DebtReliefTracker.VaultDoc.{Json, Shape}
+  alias DebtReliefTracker.VaultDoc.{Json, Shape, Stamp}
 
-  @spec merge(map(), map()) :: map()
-  def merge(a, b) do
-    {settings, stamps} = merge_settings(a, b)
+  @doc """
+  Merge two documents. `opts[:server_now]` (an estimate of the server clock,
+  canonical stamp) enables the clock-skew guard: a record or setting stamp more
+  than #{86_400 * 1} s (24 h) ahead of `server_now` is *suspect* and is compared
+  as if it were `server_now` (so a device with a far-future clock cannot beat
+  later edits from correct devices). The stored stamps are not rewritten.
+  """
+  @spec merge(map(), map(), keyword()) :: map()
+  def merge(a, b, opts \\ []) do
+    sn =
+      case Stamp.normalize(Keyword.get(opts, :server_now)) do
+        {:ok, stamp} -> stamp
+        :error -> nil
+      end
 
-    debts = merge_records(a.debts, b.debts, &debt_content/1)
+    {settings, stamps} = merge_settings(a, b, sn)
+
+    debts = merge_records(a.debts, b.debts, &debt_content/1, sn)
     payments = union(a.payments, b.payments, &pick_append_only/2)
 
     payments =
@@ -92,13 +105,13 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
       payments: payments,
       activity: union(a.activity, b.activity, &pick_append_only/2),
       retirement_profiles:
-        merge_records(a.retirement_profiles, b.retirement_profiles, &Json.encode/1)
+        merge_records(a.retirement_profiles, b.retirement_profiles, &Json.encode/1, sn)
     }
   end
 
   # --- settings ----------------------------------------------------------------
 
-  defp merge_settings(a, b) do
+  defp merge_settings(a, b, sn) do
     Enum.reduce(Shape.settings_keys(), {%{}, %{}}, fn key, {settings, stamps} ->
       sa = Map.fetch!(a.settings_updated_at, key)
       sb = Map.fetch!(b.settings_updated_at, key)
@@ -107,8 +120,8 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
 
       value =
         cond do
-          sa > sb -> va
-          sa < sb -> vb
+          eff(sa, sn) > eff(sb, sn) -> va
+          eff(sa, sn) < eff(sb, sn) -> vb
           Json.encode(va) >= Json.encode(vb) -> va
           true -> vb
         end
@@ -137,9 +150,9 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
   end
 
   # Per-record LWW over debts / profiles. `content` is the tie-break text.
-  defp merge_records(x, y, content) do
+  defp merge_records(x, y, content, sn) do
     union(x, y, fn mine, theirs ->
-      winner = winner(mine, theirs, content)
+      winner = winner(mine, theirs, content, sn)
 
       if Map.has_key?(winner, :last_due_handled_on),
         do: %{
@@ -150,15 +163,25 @@ defmodule DebtReliefTracker.VaultDoc.Merge do
     end)
   end
 
-  defp winner(x, y, content) do
+  defp winner(x, y, content, sn) do
+    ex = eff(x.updated_at, sn)
+    ey = eff(y.updated_at, sn)
+
     cond do
-      x.updated_at > y.updated_at -> x
-      x.updated_at < y.updated_at -> y
+      ex > ey -> x
+      ex < ey -> y
       x.deleted != y.deleted -> if(x.deleted, do: x, else: y)
       content.(x) >= content.(y) -> x
       true -> y
     end
   end
+
+  # The stamp used for comparison: suspect future stamps count as `server_now`.
+  # A suspect stamp loses a tie against a genuine one at the same instant.
+  defp eff(stamp, nil), do: {stamp, 1}
+
+  defp eff(stamp, sn),
+    do: if(stamp > Stamp.add_seconds(sn, 86_400), do: {sn, 0}, else: {stamp, 1})
 
   defp max_date(nil, b), do: b
   defp max_date(a, nil), do: a
