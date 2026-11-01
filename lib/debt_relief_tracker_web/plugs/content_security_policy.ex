@@ -109,7 +109,8 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   end
 
   defp umami_origin do
-    with cfg when is_list(cfg) <- Application.get_env(:debt_relief_tracker, :umami),
+    with false <- DebtReliefTracker.E2EE.enabled?(),
+         cfg when is_list(cfg) <- Application.get_env(:debt_relief_tracker, :umami),
          url when is_binary(url) <- cfg[:script_url],
          %URI{scheme: scheme, host: host, port: port} when is_binary(host) <- URI.parse(url) do
       if port in [nil, URI.default_port(scheme)],
