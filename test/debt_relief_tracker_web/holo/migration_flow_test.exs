@@ -582,4 +582,28 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       assert :counters.get(reached, 1) > 0
     end
   end
+
+  describe "vault creation failure" do
+    test "a failed vault creation can be retried, and verification still gates finalize" do
+      s = to_needs_migration([])
+      {s, [{:build_vault, snap}]} = Flow.apply(s, :begin)
+      assert s.step == :setting_up
+
+      {s, []} = Flow.apply(s, :vault_failed)
+      assert s.step == :failed
+      assert s.reason == :vault_failed
+      refute Flow.terminal?(s)
+
+      # :retry rebuilds the vault from the same export (nothing was deleted).
+      {s, effects} = Flow.apply(s, :retry)
+      assert s.step == :setting_up
+      assert effects == [{:build_vault, snap}]
+
+      # It still must go through download + verify before any finalize effect.
+      {s, effects} = Flow.apply(s, :vault_created)
+      assert s.step == :verifying
+      assert effects == [{:redownload_vault}]
+      refute Enum.any?(effects, &match?({:command, :migration_finalize, _}, &1))
+    end
+  end
 end

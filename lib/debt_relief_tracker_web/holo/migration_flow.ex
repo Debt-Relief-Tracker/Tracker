@@ -189,6 +189,11 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
   def apply(%{step: :setting_up} = s, :vault_created),
     do: {%{s | step: :verifying}, [{:redownload_vault}]}
 
+  # Vault creation failed (network, server refusal): `:retry` rebuilds it from
+  # the exported snapshot. Nothing is deleted at this point, so retrying is safe.
+  def apply(%{step: :setting_up, export: %{snapshot: snapshot}} = s, :vault_failed),
+    do: {fail(s, :vault_failed, {:build_vault, snapshot}), []}
+
   def apply(%{step: :setting_up} = s, :vault_failed),
     do: {fail(s, :vault_failed), []}
 
@@ -265,6 +270,9 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
 
   defp retry(%{retry_effect: {:command, :migration_status}} = s),
     do: {%{s | step: :checking, reason: nil, retry_effect: nil}, [{:command, :migration_status}]}
+
+  defp retry(%{retry_effect: {:build_vault, snapshot}} = s),
+    do: {%{s | step: :setting_up, reason: nil, retry_effect: nil}, [{:build_vault, snapshot}]}
 
   defp retry(s), do: {s, []}
 
