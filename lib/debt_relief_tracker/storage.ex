@@ -17,9 +17,17 @@ defmodule DebtReliefTracker.Storage do
 
   Money is integer cents, rates are basis points (`apr_bp`,
   `minimum_payment_rate_bp`), dates are ISO 8601 strings, enums are strings.
+  `settings`, `debts`, `payments` and `retirement_profiles` rows carry
+  `updated_at` (ISO 8601 UTC; `settings` and `retirement_profiles` are stored
+  as naive timestamps so theirs has no `Z`, like their `inserted_at`) so a future sync can tell which copy
+  of a row is newer; `activity` rows are append-only and carry only
+  `inserted_at`. These are additive: no key was renamed or removed and
+  `schema_version` stays `1`.
+
   Conversion from the stored Decimals rounds to those units (cents; 0.01% for
   APR; 0.01% for minimum-payment rate), so a stored value with finer
-  precision is rounded in the snapshot.
+  precision is rounded in the snapshot. `mix drt.audit_snapshot` lists every
+  stored value that would be (docs/architecture/0007-e2ee.md).
 
   ## Changes
 
