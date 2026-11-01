@@ -122,6 +122,35 @@ defmodule DebtReliefTrackerWeb.Holo.Format do
     end
   end
 
+  @doc """
+  Cents as plain input text, no symbol or grouping: `123456` -> `"1234.56"`,
+  `-5` -> `"-0.05"` (what a `type="number"` money input holds).
+  """
+  def plain_amount(cents) when is_integer(cents) do
+    sign = if cents < 0, do: "-", else: ""
+    abs_cents = abs(cents)
+    "#{sign}#{div(abs_cents, 100)}.#{pad2(rem(abs_cents, 100))}"
+  end
+
+  @doc """
+  Like `parse_cents/1`, but for inputs that must hold a plain number: blank
+  text, `nil`, `$` and grouping commas are all `:error` (no `{:ok, nil}`).
+  """
+  def parse_cents_strict(text) when is_binary(text) do
+    trimmed = String.trim(text)
+
+    if String.contains?(trimmed, ",") or String.contains?(trimmed, "$") do
+      :error
+    else
+      case parse_cents(trimmed) do
+        {:ok, nil} -> :error
+        other -> other
+      end
+    end
+  end
+
+  def parse_cents_strict(_not_text), do: :error
+
   defp pad2(n) when n < 10, do: "0#{n}"
   defp pad2(n), do: Integer.to_string(n)
 

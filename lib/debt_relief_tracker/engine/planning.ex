@@ -161,18 +161,25 @@ defmodule DebtReliefTracker.Engine.Planning do
 
   def freed_cashflow_over_time(debts, monthly_budget, strategy) do
     with {:ok, %{months: months}} <- simulate(debts, monthly_budget, strategy) do
-      original_total = total_minimum_payments(debts)
-
-      {:ok,
-       Enum.map(months, fn month ->
-         remaining_minimums =
-           month.lines
-           |> Enum.filter(&(&1.ending_balance > 0))
-           |> Enum.reduce(0, &(&1.minimum_payment + &2))
-
-         %{index: month.index, freed: original_total - remaining_minimums}
-       end)}
+      {:ok, freed_cashflow_from_months(debts, months)}
     end
+  end
+
+  @doc """
+  `freed_cashflow_over_time/3` over the months of a simulation already run
+  for `debts` (lets callers holding a `simulate/4` result skip re-running it).
+  """
+  def freed_cashflow_from_months(debts, months) do
+    original_total = total_minimum_payments(debts)
+
+    Enum.map(months, fn month ->
+      remaining_minimums =
+        month.lines
+        |> Enum.filter(&(&1.ending_balance > 0))
+        |> Enum.reduce(0, &(&1.minimum_payment + &2))
+
+      %{index: month.index, freed: original_total - remaining_minimums}
+    end)
   end
 
   def windfall_cascade(debts, monthly_budget, strategy, lump_sum) do

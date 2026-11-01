@@ -60,13 +60,16 @@ COPY priv priv
 
 COPY lib lib
 
-# Compile the release
-RUN mix compile
-
+# npm deps before `mix compile`: Hologram's compiler bundles its pages there
+# and resolves their js_imports (e.g. chart.js for the charts facade) from
+# assets/node_modules.
 COPY assets assets
 
 # build non-included assets
 RUN npm install --prefix assets
+
+# Compile the release
+RUN mix compile
 
 # compile assets
 RUN mix assets.deploy

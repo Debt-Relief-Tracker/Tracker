@@ -87,7 +87,9 @@ defmodule DebtReliefTrackerWeb.Holo.AccountOps do
     workspace_name = if owner?, do: params["workspace_name"]
     currency = if owner? and params["currency"] in Format.currency_codes(), do: params["currency"]
 
-    user_cs = display_name && User.display_name_changeset(profile, %{"display_name" => display_name})
+    user_cs =
+      display_name && User.display_name_changeset(profile, %{"display_name" => display_name})
+
     ws_cs = workspace_name && Workspace.rename_changeset(workspace, %{"name" => workspace_name})
 
     case validation_errors(user_cs, ws_cs) do

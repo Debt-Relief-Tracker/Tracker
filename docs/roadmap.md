@@ -372,10 +372,17 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 - [x] 1. ADR + JSON fixtures from the Decimal engine.
 - [x] 2. Client-safe integer engine (`Engine.*`) with parity tests. The
       Decimal engine is untouched and remains the app's live engine until
-      Phase 4. Retirement projection and `Charts` are not yet ported.
+      Phase 4. Retirement projection and `Charts` are now ported too (see 4).
 - [x] 3. `Storage` behaviour + `Storage.Plain` (snapshot in cents/bp + change
       vocabulary; plaintext adapter runs changes through the existing contexts).
 - [ ] 4. Port UI to Hologram (plaintext mode).
+  - [x] Plan panel + charts: `Engine.Charts` (integer port of `Charts`,
+        parity-tested against it), Chart.js behind
+        `assets/js/chart_facade.mjs` / `Holo.ChartJS` / `Holo.Components.Chart`
+        (bundled by Hologram from `assets/node_modules`, so the Dockerfile
+        now runs `npm install` before `mix compile`). The retirement roadmap
+        chart runs on `Engine.Retirement` via
+        `Engine.Charts.retirement_projections/3`.
 - [ ] 5. Crypto facade.
 - [ ] 6. Server vault (`E2EE` config, migration, commands, hardening).
 - [ ] 7. Client vault flows (setup wizard, unlock, remember device).

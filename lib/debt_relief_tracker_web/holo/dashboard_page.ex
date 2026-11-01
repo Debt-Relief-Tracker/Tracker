@@ -97,11 +97,14 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   # Pass `close_modal: true` to also close the open modal -- a handler can
   # queue only ONE follow-up action (a second `put_action` overwrites the
   # first), so "update the snapshot and close" has to be a single action.
+  # Its one follow-up tells the plan panel to recompute its derived numbers
+  # and JS-drawn chart (it runs after this render, so it reads new props).
   def action(:snapshot_updated, %{snapshot: snapshot} = params, component) do
     component
     |> put_state(:snapshot, snapshot)
     |> put_state(:error, nil)
     |> put_state(:modal, if(Map.get(params, :close_modal), do: nil, else: component.state.modal))
+    |> put_action(name: :plan_inputs_changed, target: "plan_panel")
   end
 
   def action(:change_failed, %{error: error}, component), do: put_state(component, :error, error)
@@ -131,6 +134,9 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     |> put_action(name: :restart, target: "tutorial_overlay")
   end
 
-  def action(:select_strategy, %{strategy: strategy}, component),
-    do: put_state(component, :strategy, strategy)
+  def action(:select_strategy, %{strategy: strategy}, component) do
+    component
+    |> put_state(:strategy, strategy)
+    |> put_action(name: :plan_inputs_changed, target: "plan_panel")
+  end
 end
