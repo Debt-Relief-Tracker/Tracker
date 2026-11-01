@@ -55,8 +55,8 @@ retirement info) -- not seed/fixture data. There is no staging environment.
 - **Never log, parse, index, or decrypt vault data server-side.** With
   `E2EE=true` the server stores ciphertext blobs and key wraps only; it must
   never see a key, passphrase, or plaintext. No `inspect`/`Logger` of vault
-  request bodies, and the vault columns (`blob`, `wrapped_key`, `salt`, `iv`)
-  stay in `:filter_parameters`. A new feature that needs to read financial
+  request bodies, and the vault columns (`blob`, `wrapped_key`, `salt`, `credential_id`,
+  `kdf_params`) stay in `:filter_parameters`. A new feature that needs to read financial
   data must do it in the browser (shared `Engine.*`), not on the server.
 - `/app` (`Holo.DashboardPage`) is a **Hologram** page, not a LiveView; the
   `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` stays the

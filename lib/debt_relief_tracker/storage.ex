@@ -8,7 +8,8 @@ defmodule DebtReliefTracker.Storage do
     * `Storage.Plain` -- today's tables, written through the existing
       `Debts`/`Payments`/`Settings` contexts (validation and activity
       logging stay in one place).
-    * `Storage.Vault` (E2EE, not built yet) -- ciphertext only. The browser
+    * `Storage.Vault` (E2EE) -- ciphertext only; load/apply_change return
+      `{:error, :e2ee_locked}`. The browser
       holds the decrypted snapshot, applies the same changes locally and
       uploads the re-encrypted document; the server never calls
       `apply_change/3` for it.
@@ -93,8 +94,14 @@ defmodule DebtReliefTracker.Storage do
   @callback apply_change(Workspace.t(), user :: term(), change()) ::
               {:ok, snapshot()} | {:error, error()}
 
-  @doc "The configured adapter (`Storage.Plain` unless overridden)."
-  def adapter, do: Application.get_env(:debt_relief_tracker, :storage, __MODULE__.Plain)
+  @doc """
+  The configured adapter: an explicit `:storage` override wins; otherwise
+  `Storage.Vault` when E2EE is on and `Storage.Plain` when it is off.
+  """
+  def adapter do
+    Application.get_env(:debt_relief_tracker, :storage) ||
+      if DebtReliefTracker.E2EE.enabled?(), do: __MODULE__.Vault, else: __MODULE__.Plain
+  end
 
   def load(workspace), do: adapter().load(workspace)
   def apply_change(workspace, user, change), do: adapter().apply_change(workspace, user, change)

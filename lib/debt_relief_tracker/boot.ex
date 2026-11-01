@@ -10,6 +10,9 @@ defmodule DebtReliefTracker.Boot do
   alias DebtReliefTracker.{Accounts, Debts}
 
   def run do
+    # First: refuse to start in an unsafe E2EE configuration (ADR 0007).
+    DebtReliefTracker.E2EE.check_boot!()
+
     workspace = Accounts.ensure_default_workspace!()
     Debts.seed_placeholders_if_empty!(workspace)
     :ok

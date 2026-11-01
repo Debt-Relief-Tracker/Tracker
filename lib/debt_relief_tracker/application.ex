@@ -23,6 +23,7 @@ defmodule DebtReliefTracker.Application do
       {DNSCluster,
        query: Application.get_env(:debt_relief_tracker, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: DebtReliefTracker.PubSub},
+      DebtReliefTracker.E2EE.RateLimiter,
       DebtReliefTracker.DuePayments.Scheduler,
       # Start to serve requests, typically the last entry
       DebtReliefTrackerWeb.Endpoint

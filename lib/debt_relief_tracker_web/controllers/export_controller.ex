@@ -11,7 +11,26 @@ defmodule DebtReliefTrackerWeb.ExportController do
   alias DebtReliefTracker.{Accounts, CSVExport, Debts, Payments}
   alias DebtReliefTrackerWeb.OIDC
 
-  def debts(conn, _params) do
+  def debts(conn, params) do
+    if DebtReliefTracker.E2EE.enabled?(), do: e2ee_gone(conn), else: do_debts(conn, params)
+  end
+
+  def payments(conn, params) do
+    if DebtReliefTracker.E2EE.enabled?(), do: e2ee_gone(conn), else: do_payments(conn, params)
+  end
+
+  # E2EE mode: the server cannot read the data, so it cannot build a CSV.
+  defp e2ee_gone(conn) do
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(
+      410,
+      "Export is not available on the server in end-to-end encrypted mode; " <>
+        "exporting happens in your browser."
+    )
+  end
+
+  defp do_debts(conn, _params) do
     with {:ok, workspace} <- resolve_workspace(conn) do
       csv = workspace |> Debts.list_debts() |> CSVExport.debts_csv()
       send_download(conn, {:binary, IO.iodata_to_binary(csv)}, filename: "debts.csv")
@@ -20,7 +39,7 @@ defmodule DebtReliefTrackerWeb.ExportController do
     end
   end
 
-  def payments(conn, _params) do
+  defp do_payments(conn, _params) do
     with {:ok, workspace} <- resolve_workspace(conn) do
       csv = workspace |> Payments.list_payments_for_workspace() |> CSVExport.payments_csv()
       send_download(conn, {:binary, IO.iodata_to_binary(csv)}, filename: "payments.csv")

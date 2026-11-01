@@ -392,7 +392,11 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
       recovery key with checksum; floor on new-wrap Argon2 params. CSP needs
       `'wasm-unsafe-eval'` (no `unsafe-eval`). Real-device passkey PRF,
       Safari/Firefox and phone Argon2 speed are still unverified.
-- [ ] 6. Server vault (`E2EE` config, migration, commands, hardening).
+- [x] 6. Server vault: `E2EE` flag, `e2ee_vaults`/`e2ee_key_wraps` tables
+      (migration `20261031120000`), blind CAS store `E2EE.Vaults`,
+      `Holo.Components.VaultGate` commands (rate limited, log-redacted),
+      `Storage.Vault`, locked-shell `/app`, `/` -> `/app` redirect, CSV export
+      410, boot checks. Setup/unlock UI is Phase 7.
 - [ ] 7. Client vault flows (setup wizard, unlock, remember device).
 - [ ] 8. Sync (CAS merge, catch-up of auto-logged installments).
 - [ ] 9. Plaintext -> vault migration with verification and confirmed delete.

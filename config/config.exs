@@ -72,6 +72,13 @@ config :logger, :default_formatter,
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
 
+# E2EE vault payloads must never reach the logs (docs/architecture/0007-e2ee.md).
+# Phoenix filters these keys at any depth of the logged params; this replaces
+# the default (["password"]), so keep that here too.
+config :phoenix,
+       :filter_parameters,
+       ["password", "blob", "wrapped_key", "salt", "credential_id", "kdf_params"]
+
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.
 import_config "#{config_env()}.exs"
