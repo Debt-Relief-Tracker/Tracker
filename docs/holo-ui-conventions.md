@@ -96,3 +96,42 @@ math (no Decimal/float). Put reusable parse/format helpers in
   `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Final report:
   <=200 words -- branch, files, what works, what you could not verify, any
   decision the owner must make.
+
+## Browser tests
+
+Real-Chromium tests of the Hologram UI. They are tagged `:browser`, excluded
+from plain `mix test` (see `test/test_helper.exs`), and run with:
+
+    (cd test/browser && npm install)     # once; Playwright lives here, not in assets/
+    mix test --include browser           # or: mix test --include browser path/to_test.exs
+
+How it works: `DebtReliefTracker.BrowserCase` (`test/support/browser_case.ex`)
+starts a second Bandit listener on a free loopback port in front of the
+supervised endpoint (config keeps `server: false`; never `mix phx.server` /
+`mix holo`), checks out the Ecto sandbox in shared mode so the server sees
+what the test seeded (so browser tests are never `async`), and drives headless
+Chromium through `test/browser/driver.mjs` (playwright-core over a Port).
+The driver uses the Chromium already cached in `~/.cache/ms-playwright`
+(override with `CHROMIUM_PATH`), so no download is needed. The test DB is the
+SQLite test database only.
+
+Writing one:
+
+    use DebtReliefTracker.BrowserCase      # tags the module :browser
+
+    test "...", ctx do
+      # seed with Debts/Accounts exactly like ConnCase tests do, then:
+      ctx
+      |> visit_page(DebtReliefTrackerWeb.Holo.DashboardPage)  # waits for mount + WS + SSE
+      |> click("#some-button")
+      |> fill("#some-input", "12.50")
+      |> assert_selector("#some-modal")
+      |> assert_text("#this-month-card", "Visa")
+    end
+
+Helpers: `visit_page/2`, `visit/2` (raw path), `click/2`, `fill/3`, `text/2`,
+`current_path/1`, `assert_selector/2`, `refute_selector/2`, `assert_text/3`.
+All pipe the context; assertions wait (default 10s, `BROWSER_TEST_TIMEOUT_MS`)
+and raise on timeout. Select on the element `id`s your component defines.
+`test/support/browser/counter_page.ex` is a test-only page for exercising
+client-side actions when the real dashboard has no suitable control yet.

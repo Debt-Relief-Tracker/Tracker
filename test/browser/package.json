@@ -1,0 +1,6 @@
+{
+  "name": "browser-tests",
+  "private": true,
+  "description": "Playwright driver for the ExUnit :browser tests. Not part of assets/.",
+  "dependencies": { "playwright-core": "1.48.2" }
+}

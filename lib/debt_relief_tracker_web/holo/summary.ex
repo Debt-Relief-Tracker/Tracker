@@ -40,7 +40,10 @@ defmodule DebtReliefTrackerWeb.Holo.Summary do
   def this_month(snapshot, strategy) do
     debts = FromSnapshot.debts(snapshot)
 
-    with {:ok, month} <- Planning.this_month_action(debts, monthly_budget(snapshot), strategy) do
+    # With no eligible debts `this_month_action/3` falls through `{:ok, plan}`
+    # with an empty plan instead of a month, so catch that shape explicitly.
+    with {:ok, %{lines: _} = month} <-
+           Planning.this_month_action(debts, monthly_budget(snapshot), strategy) do
       names = Map.new(debts, &{&1.id, &1.name})
       target_line = Enum.find(month.lines, &(&1.debt_id == month.target_debt_id))
 
@@ -50,6 +53,9 @@ defmodule DebtReliefTrackerWeb.Holo.Summary do
          payment: target_line && target_line.payment,
          lines: Enum.map(month.lines, &Map.put(&1, :name, Map.get(names, &1.debt_id)))
        }}
+    else
+      {:ok, _empty_plan} -> {:error, :no_debts}
+      {:error, _} = error -> error
     end
   end
 end
