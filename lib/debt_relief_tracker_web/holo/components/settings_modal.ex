@@ -285,7 +285,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
   # through the ledger.
   def action(:save, _params, component) do
     state = component.state
-    component = put_state(component, display_name_error: nil, ws_name_error: nil, general_error: nil)
+
+    component =
+      put_state(component, display_name_error: nil, ws_name_error: nil, general_error: nil)
 
     if DataPath.e2ee?(component) do
       put_command(component, :save_account,
@@ -308,7 +310,12 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
          currency != component.props.snapshot.settings.currency do
       DataPath.save(component, :unused, %{},
         changes: [{:update_settings, %{currency: currency}}],
-        ok: DataPath.ok(:account_changed, "page", %{account: account, modal: nil, notice: "Settings saved."}),
+        ok:
+          DataPath.ok(:account_changed, "page", %{
+            account: account,
+            modal: nil,
+            notice: "Settings saved."
+          }),
         error: DataPath.error(:save_failed, "settings_modal")
       )
     else

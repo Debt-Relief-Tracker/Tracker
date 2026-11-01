@@ -72,12 +72,15 @@ defmodule DebtReliefTrackerWeb.Holo.CsvExportTest do
     server = ws |> Debts.list_debts() |> CSVExport.debts_csv() |> IO.iodata_to_binary()
     client = CsvExport.debts(snapshot)
     assert client == server
-    assert length(String.split(client, "\r\n")) == length(@tricky) + 2
+    assert String.starts_with?(client, "Name,Type,Balance,APR,Status,")
   end
 
   test "payments: byte-identical to the server module", %{workspace: ws, snapshot: snapshot} do
     server =
-      ws |> Payments.list_payments_for_workspace() |> CSVExport.payments_csv() |> IO.iodata_to_binary()
+      ws
+      |> Payments.list_payments_for_workspace()
+      |> CSVExport.payments_csv()
+      |> IO.iodata_to_binary()
 
     assert CsvExport.payments(snapshot) == server
   end

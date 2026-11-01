@@ -31,7 +31,7 @@ defmodule DebtReliefTrackerWeb.Holo.DataPath do
   import Hologram.Component, only: [put_command: 3, put_action: 2]
 
   @doc "True when the component runs in E2EE mode (its `:e2ee` context prop)."
-  def e2ee?(component), do: component.props.e2ee == true
+  def e2ee?(component), do: Map.get(component.props, :e2ee) == true
 
   @doc """
   Sends `command`/`command_params` to the server in plaintext mode; in E2EE
@@ -48,7 +48,8 @@ defmodule DebtReliefTrackerWeb.Holo.DataPath do
         params: %{
           changes: Keyword.fetch!(request, :changes),
           ok: Keyword.get(request, :ok, ok(:snapshot_updated, "page")),
-          error: Keyword.get(request, :error, error(:save_failed, component.props.cid)),
+          error:
+            Keyword.get(request, :error, error(:save_failed, Map.get(component.props, :cid))),
           members: Keyword.get(request, :members)
         }
       )

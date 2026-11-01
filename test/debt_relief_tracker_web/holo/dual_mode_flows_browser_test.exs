@@ -664,6 +664,31 @@ defmodule DebtReliefTrackerWeb.Holo.DualModeFlowsBrowserTest do
       finish(ctx, :e2ee, ["ZQXCsv"])
     end
 
+    test "a full flow leaves no marker in the server log, DB, cookies or browser storage",
+         ctx do
+      markers = ["ZQXLogDebt", "ZQXLogNote"]
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :debug], fn ->
+          ctx = start(ctx, :e2ee)
+          id = add_visa(ctx, "ZQXLogDebt")
+
+          ctx
+          |> click("#log-payment-#{id}")
+          |> fill("#payment-amount", "10")
+          |> fill("#payment-note", "ZQXLogNote")
+          |> click("#payment-save")
+          |> refute_selector("#payment-modal")
+
+          persist(ctx, :e2ee)
+          finish(ctx, :e2ee, markers)
+          dump = JSON.encode!(storage_dump(ctx)) <> JSON.encode!(cookies(ctx))
+          for m <- markers, do: refute(dump =~ m, "#{m} in browser storage or cookies")
+        end)
+
+      for m <- markers, do: refute(log =~ m, "#{m} in the server log")
+    end
+
     test "settings: sharing is replaced by an explanation", ctx do
       ctx = start(ctx, :e2ee)
       ctx |> click("#settings-button") |> assert_selector("#settings-modal")
@@ -725,6 +750,7 @@ defmodule DebtReliefTrackerWeb.Holo.DualModeFlowsBrowserTest do
       :ok
     end
 
+    @tag :perf
     @tag timeout: 900_000
     @tag ownership_timeout: 900_000
     test "a workspace with 500 payments: timings of an ordinary action", ctx do
