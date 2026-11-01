@@ -193,7 +193,7 @@ defmodule DebtReliefTrackerWeb.Holo.E2EESyncBrowserTest do
     Logger.configure(level: :debug)
     on_exit(fn -> Logger.configure(level: old_level) end)
 
-    {log, {ctx, recovery}} =
+    {{ctx, recovery}, log} =
       with_log([level: :debug], fn ->
         ctx = open_app(ctx)
         {ctx, recovery} = create_vault(ctx, pass, remember: true)
@@ -269,7 +269,7 @@ defmodule DebtReliefTrackerWeb.Holo.E2EESyncBrowserTest do
   end
 
   defp all_rows do
-    repo = DebtReliefTracker.Repo
+    repo = DebtReliefTracker.Repo.active_repo()
 
     tables =
       case repo.__adapter__() do
