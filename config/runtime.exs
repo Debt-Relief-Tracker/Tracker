@@ -31,8 +31,18 @@ if database_url do
 
   config :debt_relief_tracker, DebtReliefTracker.Repo.Postgres,
     url: database_url,
-    ssl: System.get_env("DATABASE_USE_SSL") || true,
+    # SSL on unless DATABASE_USE_SSL is explicitly "false"/"0" (local throwaway
+    # clusters, scripts/pg_test.sh). Render's managed Postgres needs it on.
+    ssl: System.get_env("DATABASE_USE_SSL") not in ["false", "0"],
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+
+  # `DATABASE_URL=... mix test` runs the suite against Postgres (see
+  # scripts/pg_test.sh). The Sandbox pool is test-only.
+  if config_env() == :test do
+    config :debt_relief_tracker, DebtReliefTracker.Repo.Postgres,
+      pool: Ecto.Adapters.SQL.Sandbox,
+      pool_size: 10
+  end
 else
   config :debt_relief_tracker, :ecto_adapter, :sqlite
 

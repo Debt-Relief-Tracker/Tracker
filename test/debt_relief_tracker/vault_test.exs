@@ -86,12 +86,19 @@ defmodule DebtReliefTracker.VaultTest do
           "minimum_payment_rate" => "0.02"
         })
 
+      # Raw SQL, so placeholder syntax and id encoding are adapter-specific:
+      # SQLite stores binary_id as text, Postgres as a native uuid.
+      {sql, id} =
+        case Repo.active_repo() do
+          DebtReliefTracker.Repo.Postgres ->
+            {"SELECT name_enc, balance_enc FROM debts WHERE id = $1", Ecto.UUID.dump!(debt.id)}
+
+          _sqlite ->
+            {"SELECT name_enc, balance_enc FROM debts WHERE id = ?", debt.id}
+        end
+
       %{rows: [[name_enc, balance_enc]]} =
-        Ecto.Adapters.SQL.query!(
-          Repo.active_repo(),
-          "SELECT name_enc, balance_enc FROM debts WHERE id = ?",
-          [debt.id]
-        )
+        Ecto.Adapters.SQL.query!(Repo.active_repo(), sql, [id])
 
       refute name_enc =~ "Chase Sapphire Reserve"
       refute balance_enc =~ "12345.67"

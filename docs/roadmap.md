@@ -408,9 +408,10 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 - [x] `mix precommit` passing (130 tests; compile --warning-as-errors,
       deps.unlock --unused, format, test)
 - [x] Manual pass against SQLite (`mix phx.server` + a real prod release run)
-- [ ] Manual pass against Postgres (`DATABASE_URL` set) -- adapter switch
-      itself verified (Phase 2), but no local Postgres instance was
-      available in this environment to run the app against one live
+- [x] Postgres pass: full suite (incl. browser), migrations and boot path
+      verified against a throwaway local cluster -- `scripts/pg_test.sh`,
+      ADR 0001 "Testing on Postgres". Open: `activity_logs.inserted_at` is
+      `timestamp(0)` on Postgres (needs a migration).
 - [ ] Docker build/run verified on a machine with Docker -- the
       release/migration path it depends on is verified (Phase 6), Docker
       itself is not

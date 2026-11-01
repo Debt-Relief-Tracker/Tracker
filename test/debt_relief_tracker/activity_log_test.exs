@@ -57,6 +57,8 @@ defmodule DebtReliefTracker.ActivityLogTest do
           "minimum_payment_rate" => "0.01"
         })
 
+      backdate_activity(workspace)
+
       {:ok, _second} = Debts.update_debt(workspace, nil, first, %{"name" => "First (renamed)"})
 
       entries = ActivityLog.list_recent(workspace)

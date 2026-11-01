@@ -28,6 +28,7 @@ defmodule DebtReliefTracker.DuePayments.SchedulerTest do
 
     Phoenix.PubSub.subscribe(DebtReliefTracker.PubSub, "workspace:#{workspace.id}")
 
+    backdate_activity(workspace)
     assert Scheduler.run_due_checks() == :ok
 
     reloaded = Debts.get_debt!(workspace, debt.id)

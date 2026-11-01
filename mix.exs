@@ -88,6 +88,14 @@ defmodule DebtReliefTracker.MixProject do
   #     $ mix setup
   #
   # See the documentation for `Mix` for more info on aliases.
+  # `mix test` targets Sqlite unless DATABASE_URL is set (scripts/pg_test.sh),
+  # in which case config/runtime.exs activates Repo.Postgres.
+  defp test_repo do
+    if System.get_env("DATABASE_URL"),
+      do: "DebtReliefTracker.Repo.Postgres",
+      else: "DebtReliefTracker.Repo.Sqlite"
+  end
+
   defp aliases do
     [
       setup: [
@@ -111,8 +119,8 @@ defmodule DebtReliefTracker.MixProject do
         # /app page tests need it, and it is read at compile time, so this
         # must run before anything compiles.
         fn _ -> System.put_env("HOLOGRAM_START", "1") end,
-        "ecto.create --quiet -r DebtReliefTracker.Repo.Sqlite",
-        "ecto.migrate --quiet -r DebtReliefTracker.Repo.Sqlite",
+        "ecto.create --quiet -r #{test_repo()}",
+        "ecto.migrate --quiet -r #{test_repo()}",
         "test"
       ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],

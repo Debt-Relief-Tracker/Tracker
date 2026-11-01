@@ -102,3 +102,49 @@ active at boot:
 - Migrations must avoid adapter-specific SQL/types for the life of the
   project; this is a standing constraint on every future migration, not a
   one-time cost.
+
+## Testing on Postgres
+
+Production (Render) most likely runs Postgres, so the suite must pass there
+too, not just on SQLite. `scripts/pg_test.sh` makes that a one-liner:
+
+    scripts/pg_test.sh                              # create db, migrate, mix test
+    scripts/pg_test.sh test --include browser       # incl. real-Chromium tests
+    scripts/pg_test.sh migrate-check                # up, rollback the reversible tail, up again
+    scripts/pg_test.sh run mix run --no-start scripts/pg_boot_check.exs
+                                                    # boot path + encrypted round-trips
+
+It `initdb`s a throwaway cluster in a `mktemp` dir (127.0.0.1 only, port 54329
+or `PG_TEST_PORT`, trust auth, `fsync=off`), exports `DATABASE_URL` and
+`DATABASE_USE_SSL=false`, and always stops and deletes the cluster on exit
+(trap). Binaries come from `/usr/lib/postgresql/*/bin` (override with
+`PG_BIN`). It never touches any other database. For ad hoc use, set
+`DATABASE_URL` yourself and run plain `mix test`: setting it in `:test`
+selects `Repo.Postgres` with the Sandbox pool (`config/runtime.exs`), and the
+`test` alias, `DataCase` and `test_helper.exs` follow via
+`Repo.configured_repo/0`. Without `DATABASE_URL`, `mix test` is unchanged
+(SQLite). `DATABASE_USE_SSL` is now `false`/`0` to disable; anything else
+(including unset) keeps SSL on.
+
+Findings from the first full Postgres run:
+
+- All migrations run forward on an empty database. Everything after
+  `20260920130200` (`DropPlaintextColumns`) rolls back and re-applies;
+  `DropPlaintextColumns` itself is irreversible by design (raises on `down`,
+  same on SQLite), so `rollback --all` stops there.
+- Column types (`information_schema`): ids are native `uuid`; every
+  `Encrypted.*` field (`*_enc`) is `bytea` (SQLite: BLOB); `users.preferences`
+  and `sent_emails.metadata` are `jsonb` (SQLite: JSON text).
+- **Known defect, needs a new migration:** the migrations use plain
+  `timestamps()` (`:naive_datetime`), which Postgres creates as
+  `timestamp(0)` -- whole seconds. `ActivityLog.Entry` declares
+  `:utc_datetime_usec` and its comments claim Postgres stores microseconds
+  anyway; that is false for `activity_logs.inserted_at` (only `api_tokens`
+  and `support_emails` were created with usec precision). On Postgres,
+  activity entries from the same second order by random UUID in
+  `ActivityLog.list_recent/2`. Fix: a migration altering
+  `activity_logs.inserted_at` to `timestamp(6)` (not done here by design).
+  Tests that assert "most recent first" call `backdate_activity/2`
+  (`DataCase`) to be deterministic on both adapters.
+- Raw SQL in tests must use `$1` placeholders and `Ecto.UUID.dump!/1` ids on
+  Postgres (see `vault_test.exs`).
