@@ -14,17 +14,6 @@ defmodule DebtReliefTracker.BrowserExtras do
   @doc "Console errors / page errors / 5xx responses seen so far."
   def errors(%{driver: d}), do: Driver.call(d, "errors", %{})
 
-  @doc "Clicks `selector` at an offset (px) from its top-left corner."
-  def click_at(%{driver: d} = ctx, selector, x, y) do
-    Driver.call(d, "click_at", %{selector: selector, x: x, y: y})
-    ctx
-  end
-
-  def press(%{driver: d} = ctx, key) do
-    Driver.call(d, "press", %{key: key})
-    ctx
-  end
-
   def select_option(%{driver: d} = ctx, selector, value) do
     Driver.call(d, "select_option", %{selector: selector, value: value})
     ctx
@@ -32,8 +21,6 @@ defmodule DebtReliefTracker.BrowserExtras do
 
   @doc "Evaluates a JS expression in the page and returns its JSON-decoded value."
   def js(%{driver: d}, expr), do: Driver.call(d, "eval", %{expr: expr})
-
-  def count(%{driver: d}, selector), do: Driver.call(d, "count", %{selector: selector})
 
   @doc "Value of an input/select, or nil when absent."
   def value(ctx, selector),
