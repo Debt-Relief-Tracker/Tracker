@@ -77,6 +77,33 @@ const handlers = {
   async count({ selector }) {
     return await page.locator(selector).count();
   },
+  async select({ selector, value }) {
+    await page.selectOption(selector, value);
+  },
+  async press({ key }) {
+    await page.keyboard.press(key);
+  },
+  async click_at({ selector, x, y }) {
+    await page.click(selector, { position: { x, y } });
+  },
+  async add_cookie({ name, value, url }) {
+    await context.addCookies([{ name, value, url }]);
+  },
+  async cookies() {
+    return await context.cookies();
+  },
+  async eval({ expr }) {
+    return await page.evaluate(expr);
+  },
+  async attr({ selector, name }) {
+    return await page.locator(selector).first().getAttribute(name);
+  },
+  async wait_for_expr({ expr }) {
+    await page.waitForFunction(expr);
+  },
+  async wait_for_url({ pattern }) {
+    await page.waitForURL(new RegExp(pattern));
+  },
   async path() {
     return new URL(page.url()).pathname;
   },

@@ -37,6 +37,7 @@ defmodule DebtReliefTracker.BrowserCase do
     # Normally a no-op (`mix test` sets HOLOGRAM_START=1 and compiles the
     # runtime bundle); makes `mix test` invoked some other way work too.
     ensure_hologram!()
+    ensure_assets!()
 
     {:ok, bandit} =
       Bandit.start_link(
@@ -58,6 +59,12 @@ defmodule DebtReliefTracker.BrowserCase do
     # replies to its owner, so it can't be opened in setup_all. It is closed
     # automatically when the test process exits.
     {:ok, driver: Driver.start!()}
+  end
+
+  # The Hologram layout loads /assets/js/holo_account.js and /assets/css/app.css,
+  # which are build outputs (gitignored). Build them (~1s) so the pages work.
+  defp ensure_assets! do
+    Mix.Task.run("assets.build")
   end
 
   defp ensure_hologram! do
@@ -93,9 +100,74 @@ defmodule DebtReliefTracker.BrowserCase do
     ctx
   end
 
+  @doc "Chooses the `<option>` with `value` in the `<select>` at `selector`."
+  def select(%{driver: d} = ctx, selector, value) do
+    Driver.call(d, "select", %{selector: selector, value: value})
+    ctx
+  end
+
+  @doc "Presses a key on the page (e.g. \"Escape\")."
+  def press(%{driver: d} = ctx, key) do
+    Driver.call(d, "press", %{key: key})
+    ctx
+  end
+
+  @doc "Clicks `selector` at pixel offset (x, y) from its top-left corner."
+  def click_at(%{driver: d} = ctx, selector, x, y) do
+    Driver.call(d, "click_at", %{selector: selector, x: x, y: y})
+    ctx
+  end
+
   def text(%{driver: d}, selector), do: Driver.call(d, "text", %{selector: selector})
 
   def current_path(%{driver: d}), do: Driver.call(d, "path", %{})
+
+  @doc "Number of elements matching `selector` right now (no waiting)."
+  def count(%{driver: d}, selector), do: Driver.call(d, "count", %{selector: selector})
+
+  @doc "Attribute `name` of the first element matching `selector`."
+  def attr(%{driver: d}, selector, name),
+    do: Driver.call(d, "attr", %{selector: selector, name: name})
+
+  @doc "Evaluates a JS expression in the page and returns its JSON value."
+  def eval(%{driver: d}, expr), do: Driver.call(d, "eval", %{expr: expr})
+
+  @doc "Waits until the JS expression is truthy; raises on timeout."
+  def wait_for_expr(%{driver: d} = ctx, expr) do
+    Driver.call(d, "wait_for_expr", %{expr: expr})
+    ctx
+  end
+
+  @doc "Waits until the page URL path matches the regex `pattern`."
+  def wait_for_url(%{driver: d} = ctx, pattern) do
+    Driver.call(d, "wait_for_url", %{pattern: pattern})
+    ctx
+  end
+
+  @doc "Sets a cookie in the browser for this test's server."
+  def add_cookie(%{driver: d, base_url: base} = ctx, name, value) do
+    Driver.call(d, "add_cookie", %{name: name, value: value, url: base})
+    ctx
+  end
+
+  @doc "All cookies in the browser, as maps with `\"name\"`/`\"value\"`."
+  def cookies(%{driver: d}), do: Driver.call(d, "cookies", %{})
+
+  @doc """
+  Signs the browser in as `user` by planting a real Phoenix session cookie
+  (needs OIDC enabled in app env). The cookie is produced by running a
+  request through the endpoint with a test session, so it is signed exactly
+  like production's.
+  """
+  def sign_in(ctx, user) do
+    conn =
+      Phoenix.ConnTest.build_conn()
+      |> Plug.Test.init_test_session(user_id: user.id)
+      |> Phoenix.ConnTest.dispatch(DebtReliefTrackerWeb.Endpoint, :get, "/")
+
+    %{value: value} = conn.resp_cookies["_debt_relief_tracker_key"]
+    add_cookie(ctx, "_debt_relief_tracker_key", value)
+  end
 
   @doc "Waits until `selector` is visible; raises on timeout."
   def assert_selector(%{driver: d} = ctx, selector) do

@@ -75,7 +75,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
     test "loads the theme facade script, not app.js, and no inline script of ours", %{conn: conn} do
       doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
 
-      assert LazyHTML.query(doc, ~s(script[src="/assets/js/holo_account.js"])) |> Enum.count() == 1
+      assert LazyHTML.query(doc, ~s(script[src="/assets/js/holo_account.js"])) |> Enum.count() ==
+               1
+
       assert LazyHTML.query(doc, ~s(script[src="/assets/js/app.js"])) |> Enum.count() == 0
     end
 
@@ -171,7 +173,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       {:ok, _} = Accounts.share_workspace_with_email(owner_workspace, "member@example.com", owner)
 
       server =
-        HeaderBar.command(:switch_workspace, %{workspace_id: owner_workspace.id}, server_for(member))
+        HeaderBar.command(
+          :switch_workspace,
+          %{workspace_id: owner_workspace.id},
+          server_for(member)
+        )
 
       assert Server.get_session(server, :workspace_id) == owner_workspace.id
 
@@ -187,7 +193,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       other_workspace = Accounts.current_workspace_for_user(oidc_user("other", "Other"))
 
       server =
-        HeaderBar.command(:switch_workspace, %{workspace_id: other_workspace.id}, server_for(member))
+        HeaderBar.command(
+          :switch_workspace,
+          %{workspace_id: other_workspace.id},
+          server_for(member)
+        )
 
       assert server.next_action == nil
       assert Server.get_session(server, :workspace_id) == nil
@@ -291,16 +301,6 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       assert component.state.display_name_error == nil
     end
 
-    test "restart_tutorial resets the flag and closes the modal" do
-      {:ok, _} = Accounts.set_tutorial_seen(Accounts.get_default_user!(), true)
-
-      server = SettingsModal.command(:restart_tutorial, %{}, server_for(nil))
-
-      refute Accounts.get_default_user!().tutorial_seen
-      assert %Action{name: :account_changed, params: %{modal: nil, account: account}} = server.next_action
-      refute account.user.tutorial_seen
-    end
-
     test "sharing commands refresh the modal with a notice and the pending list" do
       enable_oidc()
       owner = oidc_user("owner", "Owner")
@@ -308,7 +308,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
 
       server = SettingsModal.command(:share_workspace, %{email: "new@example.com"}, server)
 
-      assert %Action{name: :open_modal, target: "page", params: %{modal: modal}} = server.next_action
+      assert %Action{name: :open_modal, target: "page", params: %{modal: modal}} =
+               server.next_action
+
       assert modal.notice =~ "Invited new@example.com"
       assert [%{email: "new@example.com", id: id}] = modal.pending_invitations
 
@@ -333,7 +335,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       owner = oidc_user("owner", "Owner")
       _member = oidc_user("member", "Member")
       SettingsModal.command(:share_workspace, %{email: "member@example.com"}, server_for(owner))
-      [%{id: row_id}] = Accounts.list_workspace_members(Accounts.current_workspace_for_user(owner))
+
+      [%{id: row_id}] =
+        Accounts.list_workspace_members(Accounts.current_workspace_for_user(owner))
 
       server = SettingsModal.command(:remove_member, %{id: row_id}, server_for(owner))
 
@@ -346,7 +350,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
         |> then(&SettingsModal.action(:share, %{}, &1))
 
       assert component.state.share_email == ""
-      assert %Command{name: :share_workspace, params: %{email: "a@example.com"}} = component.next_command
+
+      assert %Command{name: :share_workspace, params: %{email: "a@example.com"}} =
+               component.next_command
     end
   end
 

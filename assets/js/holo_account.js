@@ -16,7 +16,20 @@
     }
   };
 
+  let current = "system";
+
+  const apply = (theme) => {
+    if (theme === "system") {
+      if (document.documentElement.hasAttribute("data-theme"))
+        document.documentElement.removeAttribute("data-theme");
+    } else if (document.documentElement.getAttribute("data-theme") !== theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+    }
+  };
+
   const setTheme = (theme) => {
+    current = theme;
+
     try {
       if (theme === "system") localStorage.removeItem(KEY);
       else localStorage.setItem(KEY, theme);
@@ -24,9 +37,16 @@
       // storage blocked: the theme still applies for this page view
     }
 
-    if (theme === "system") document.documentElement.removeAttribute("data-theme");
-    else document.documentElement.setAttribute("data-theme", theme);
+    apply(theme);
   };
+
+  // Hologram's runtime re-renders the whole document (including <html>) when
+  // it mounts and on later patches, and its virtual DOM has no data-theme, so
+  // it strips the attribute. Put it back whenever that happens.
+  new MutationObserver(() => apply(current)).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
 
   // Before first paint: this device's choice.
   setTheme(read() || "system");

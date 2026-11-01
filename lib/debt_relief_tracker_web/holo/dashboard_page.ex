@@ -46,6 +46,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     |> put_state(:strategy, :cash_flow)
     |> put_state(:modal, nil)
     |> put_state(:error, nil)
+    |> put_state(:notice, nil)
   end
 
   def template do
@@ -63,6 +64,17 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
           <PlanPanel cid="plan_panel" snapshot={@snapshot} account={@account} strategy={@strategy} />
         </main>
       </div>
+
+      {%if @notice}
+        <div id="page-notice" role="status" class="toast toast-top toast-end z-50">
+          <div class="alert alert-info">
+            <span id="page-notice-text">{@notice}</span>
+            <button id="page-notice-dismiss" type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss" $click={:dismiss_notice}>
+              <span class="hero-x-mark w-4 h-4"></span>
+            </button>
+          </div>
+        </div>
+      {/if}
 
       <Footer cid="footer" account={@account} />
       <TutorialOverlay cid="tutorial_overlay" snapshot={@snapshot} account={@account} />
@@ -115,15 +127,25 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   # Account-level changes (settings saved, workspace switched, sharing
   # changed) update account, snapshot and modal in one step: a command can
   # return only ONE next action, so these can't be chained.
-  def action(:account_changed, %{account: account, snapshot: snapshot, modal: modal}, component) do
+  def action(
+        :account_changed,
+        %{account: account, snapshot: snapshot, modal: modal} = params,
+        component
+      ) do
     component
     |> put_state(:account, account)
     |> put_state(:snapshot, snapshot)
     |> put_state(:modal, modal)
     |> put_state(:error, nil)
+    |> put_state(:notice, Map.get(params, :notice))
   end
 
-  def action(:open_modal, %{modal: modal}, component), do: put_state(component, :modal, modal)
+  def action(:dismiss_notice, _params, component), do: put_state(component, :notice, nil)
+
+  def action(:open_modal, %{modal: modal}, component) do
+    component |> put_state(:modal, modal) |> put_state(:notice, nil)
+  end
+
   def action(:close_modal, _params, component), do: put_state(component, :modal, nil)
 
   # Settings modal's "View tutorial again": close the modal and hand off to

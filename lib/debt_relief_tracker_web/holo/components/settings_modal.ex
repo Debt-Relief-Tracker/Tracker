@@ -146,7 +146,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
             id="restart-tutorial"
             type="button"
             class="btn btn-soft btn-sm"
-            $click={command: :restart_tutorial}
+            $click={action: :restart_tutorial, target: "page"}
           >
             View tutorial again
           </button>
@@ -302,7 +302,12 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
         put_action(server,
           name: :account_changed,
           target: "page",
-          params: %{account: Context.account(server), snapshot: snapshot, modal: nil}
+          params: %{
+            account: Context.account(server),
+            snapshot: snapshot,
+            modal: nil,
+            notice: "Settings saved."
+          }
         )
 
       {:error, errors} ->
@@ -335,17 +340,6 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
     workspace = Context.workspace(server)
     AccountOps.remove_member(user, workspace, id)
     refresh_modal(server, user, workspace, %{})
-  end
-
-  def command(:restart_tutorial, _params, server) do
-    AccountOps.restart_tutorial(Context.user(server))
-    {:ok, snapshot} = Context.load(server)
-
-    put_action(server,
-      name: :account_changed,
-      target: "page",
-      params: %{account: Context.account(server), snapshot: snapshot, modal: nil}
-    )
   end
 
   defp refresh_modal(server, user, workspace, extra) do
