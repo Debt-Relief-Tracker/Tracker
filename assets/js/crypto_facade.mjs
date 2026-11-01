@@ -367,7 +367,15 @@ export async function derivePassphraseKek(passphrase, saltB64u, memoryKiB, itera
 // passphrase never leaves the browser).
 export const ARGON2_FLOOR = { memoryKiB: 65536, iterations: 3, saltBytes: 16 }
 
+// Minimum passphrase length in Unicode code points (mirrors
+// DebtReliefTracker.VaultClient.Strength.min_length/0). Enforced HERE, on the
+// wrap-creation path, not only in the UI.
+export const PASSPHRASE_MIN_LENGTH = 12
+
 export async function deriveNewPassphraseKek(passphrase, saltB64u, memoryKiB, iterations, parallelism) {
+  if (typeof passphrase !== "string" || Array.from(passphrase).length < PASSPHRASE_MIN_LENGTH) {
+    throw new CryptoError("passphrase_too_short")
+  }
   const salt = b64uToBytes(saltB64u)
   if (
     Number(memoryKiB) < ARGON2_FLOOR.memoryKiB ||
@@ -505,6 +513,9 @@ function mapPasskeyError(e) {
   if (e instanceof CryptoError) return e
   const name = e && e.name
   if (name === "NotAllowedError" || name === "AbortError") return new CryptoError("passkey_cancelled")
+  // userVerification "required" on an authenticator that cannot verify the
+  // user (no PIN / biometric / screen lock) surfaces as ConstraintError.
+  if (name === "ConstraintError") return new CryptoError("passkey_uv_unsupported")
   if (name === "NotSupportedError") return new CryptoError("passkey_unsupported")
   return new CryptoError("passkey_failed")
 }
@@ -517,18 +528,28 @@ function prfFirst(credential) {
   return bytes.length === 32 ? bytes : null
 }
 
+// authenticatorData flags byte (offset 32): 0x04 = UV (user verified). A
+// browser/authenticator that ignored userVerification "required" is refused.
+function assertUserVerified(credential) {
+  const ad = credential && credential.response && credential.response.authenticatorData
+  if (!ad) return // nothing to inspect (e.g. test doubles); real WebAuthn always has it on get()
+  const bytes = new Uint8Array(ad instanceof ArrayBuffer ? ad : ad.buffer.slice(ad.byteOffset, ad.byteOffset + ad.byteLength))
+  if (bytes.length < 33 || (bytes[32] & 0x04) === 0) throw new CryptoError("passkey_uv_unsupported")
+}
+
 async function prfGet(credIdBytes, rpId) {
   const cred = await navigator.credentials.get({
     publicKey: {
       challenge: crypto.getRandomValues(new Uint8Array(32)),
       rpId,
       allowCredentials: [{ type: "public-key", id: credIdBytes }],
-      userVerification: "preferred",
+      userVerification: "required",
       timeout: 120000,
       extensions: { prf: { eval: { first: await prfSaltBytes() } } },
     },
   })
   if (!cred) throw new CryptoError("passkey_failed")
+  assertUserVerified(cred)
   const out = prfFirst(cred)
   if (!out) throw new CryptoError("passkey_unsupported")
   return out
@@ -553,7 +574,7 @@ export async function createPasskey(rpId, rpName, userIdB64u, userName, userDisp
           { type: "public-key", alg: -7 },
           { type: "public-key", alg: -257 },
         ],
-        authenticatorSelection: { residentKey: "preferred", userVerification: "preferred" },
+        authenticatorSelection: { residentKey: "preferred", userVerification: "required" },
         attestation: "none",
         timeout: 120000,
         extensions: { prf: { eval: { first: await prfSaltBytes() } } },

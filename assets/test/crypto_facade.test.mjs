@@ -186,17 +186,18 @@ test("recovery key: transposed adjacent chars, wrong length, bad characters reje
   await rejectsWith(F.deriveRecoveryKek(flat.slice(0, 55) + (flat[55] === "A" ? "B" : "A")), "bad_recovery_key")
   await rejectsWith(F.parseRecoveryKey(null), "bad_recovery_key")
 })
+const PW12 = "twelve chars!"
 test("passphrase KEK for NEW wraps enforces the floor; unwrap-time derivation does not", async () => {
   const salt16 = b64(new Uint8Array(16).fill(5))
-  const ok = await F.deriveNewPassphraseKek("pw", salt16, 65536, 3, 1)
-  assert.equal(ok, await F.derivePassphraseKek("pw", salt16, 65536, 3, 1))
-  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65535, 3, 1), "bad_params")
-  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 2, 1), "bad_params")
-  await rejectsWith(F.deriveNewPassphraseKek("pw", b64(new Uint8Array(15)), 65536, 3, 1), "bad_params")
-  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 262145, 3, 1), "bad_params") // sanity bound still applies
-  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 11, 1), "bad_params")
+  const ok = await F.deriveNewPassphraseKek(PW12, salt16, 65536, 3, 1)
+  assert.equal(ok, await F.derivePassphraseKek(PW12, salt16, 65536, 3, 1))
+  await rejectsWith(F.deriveNewPassphraseKek(PW12, salt16, 65535, 3, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek(PW12, salt16, 65536, 2, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek(PW12, b64(new Uint8Array(15)), 65536, 3, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek(PW12, salt16, 262145, 3, 1), "bad_params") // sanity bound still applies
+  await rejectsWith(F.deriveNewPassphraseKek(PW12, salt16, 65536, 11, 1), "bad_params")
   // above the floor is fine
-  await F.deriveNewPassphraseKek("pw", salt16, 65536, 4, 1)
+  await F.deriveNewPassphraseKek(PW12, salt16, 65536, 4, 1)
   // unwrap side: low stored params (within sanity bounds) still derive
   assert.equal(unb64(await F.derivePassphraseKek("pw", salt16, 1024, 1, 1)).length, 32)
   assert.equal(unb64(await F.derivePassphraseKek("pw", b64(new Uint8Array(8)), 1024, 1, 1)).length, 32)
@@ -493,4 +494,59 @@ test("facade source: no console output, no storage, no eval", () => {
   const code = src.replace(/\/\/.*$/gm, "")
   for (const banned of [/console\./, /localStorage/, /sessionStorage/, /document\.cookie/, /\beval\s*\(/, /new Function/, /\bindexedDB\b/])
     assert.doesNotMatch(code, banned)
+})
+
+test("passphrase minimum length (12 code points) is enforced on every NEW-wrap path", async () => {
+  const salt16 = b64(new Uint8Array(16).fill(5))
+  await rejectsWith(F.deriveNewPassphraseKek("elevenchars", salt16, 65536, 3, 1), "passphrase_too_short")
+  await rejectsWith(F.deriveNewPassphraseKek("", salt16, 65536, 3, 1), "passphrase_too_short")
+  await rejectsWith(F.deriveNewPassphraseKek(null, salt16, 65536, 3, 1), "passphrase_too_short")
+  // astral characters count as one code point each: 11 emoji is too short, 12 is fine
+  await rejectsWith(F.deriveNewPassphraseKek("\u{1F600}".repeat(11), salt16, 65536, 3, 1), "passphrase_too_short")
+  await F.deriveNewPassphraseKek("\u{1F600}".repeat(12), salt16, 65536, 3, 1)
+  const h = ok(await holo.vaultNew())
+  assert.equal(await holo.vaultWrapPassphrase(h, "short one", WS, "p1"), "err:passphrase_too_short")
+  assert.equal(await holo.vaultWrapPassphrase(h, "", WS, "p1"), "err:passphrase_too_short")
+  assert.match(await holo.vaultWrapPassphrase(h, "exactly12chr", WS, "p1"), /^ok:/)
+})
+
+test("passkeys require user verification (create + get) and refuse a non-UV assertion", async () => {
+  const seen = []
+  const ad = (flags) => {
+    const a = new Uint8Array(37)
+    a[32] = flags
+    return a.buffer
+  }
+  const prf = new Uint8Array(32).fill(7).buffer
+  let getFlags = 0x05
+  const creds = {
+    async create(o) {
+      seen.push(["create", o.publicKey.authenticatorSelection.userVerification])
+      return { rawId: new Uint8Array([1, 2, 3]).buffer, getClientExtensionResults: () => ({ prf: { enabled: true, results: { first: prf } } }) }
+    },
+    async get(o) {
+      seen.push(["get", o.publicKey.userVerification])
+      return { response: { authenticatorData: ad(getFlags) }, getClientExtensionResults: () => ({ prf: { results: { first: prf } } }) }
+    },
+  }
+  const saved = Object.getOwnPropertyDescriptors(globalThis)
+  const set = (k, v) => Object.defineProperty(globalThis, k, { value: v, configurable: true, writable: true })
+  set("PublicKeyCredential", function () {})
+  set("navigator", { credentials: creds })
+  try {
+    const out = await F.createPasskey("", "App", b64(new Uint8Array(16)), "u", "U")
+    assert.match(out, /\./)
+    await F.derivePasskeyKek(b64(new Uint8Array([1, 2, 3])), "")
+    assert.deepEqual(seen, [["create", "required"], ["get", "required"]])
+    getFlags = 0x01 // user present but NOT verified
+    await rejectsWith(F.derivePasskeyKek(b64(new Uint8Array([1, 2, 3])), ""), "passkey_uv_unsupported")
+    // authenticator that cannot do UV: browsers raise ConstraintError
+    creds.create = async () => { throw Object.assign(new Error("x"), { name: "ConstraintError" }) }
+    await rejectsWith(F.createPasskey("", "App", b64(new Uint8Array(16)), "u", "U"), "passkey_uv_unsupported")
+  } finally {
+    for (const k of ["PublicKeyCredential", "navigator"]) {
+      if (saved[k]) Object.defineProperty(globalThis, k, saved[k])
+      else delete globalThis[k]
+    }
+  }
 })
