@@ -55,7 +55,19 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
     <section id="vault-setup" class="w-full max-w-lg flex flex-col gap-4 text-left">
       <h2 class="text-xl font-semibold">Set up your encrypted vault</h2>
 
-      {%if @step == :choose}
+      {%if @vault.busy == :creating}
+        <p id="setup-creating" role="status" class="flex items-center gap-2">
+          <span class="loading loading-spinner loading-sm"></span> Creating your encrypted vault...
+        </p>
+      {/if}
+
+      {%if @vault.error == :create_failed}
+        <p id="setup-create-error" role="alert" class="text-sm text-error">
+          The vault could not be created and nothing was saved. Please start again.
+        </p>
+      {/if}
+
+      {%if @step == :choose and @vault.busy != :creating}
         <p class="text-base-content/70">
           Your data is encrypted in this browser before it is saved. The server only ever stores ciphertext
           and never sees your passphrase, keys or financial data.
@@ -129,7 +141,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
         </p>
       {/if}
 
-      {%if @step == :recovery}
+      {%if @step == :recovery and @vault.busy != :creating}
         <p class="text-base-content/70">
           This is your <strong>recovery key</strong>. If you lose your {method_name(@method)}, it is the only way
           back in. It is shown once and is not stored anywhere. Write it down or save it in a password manager now.
@@ -158,18 +170,6 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
         </button>
       {/if}
 
-      {%if @step == :creating}
-        {%if @vault.error}
-          <p id="setup-create-error" role="alert" class="text-sm text-error">
-            The vault could not be created. Nothing was saved. You can try again.
-          </p>
-          <button id="setup-retry" type="button" class="btn btn-primary self-start" $click="retry">Try again</button>
-        {%else}
-          <p id="setup-creating" role="status" class="flex items-center gap-2">
-            <span class="loading loading-spinner loading-sm"></span> Creating your encrypted vault...
-          </p>
-        {/if}
-      {/if}
     </section>
     """
   end
@@ -279,7 +279,6 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
 
     if ack_ok?(s.recovery_key, s.ack_saved, s.ack_final) do
       component
-      |> put_state(:step, :creating)
       |> put_state(:error, nil)
       |> put_action(name: :do_finish, delay: 20)
     else
@@ -294,11 +293,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
 
     case Crypto.encrypt_document(s.handle, ws, 1, VaultDoc.encode(doc)) do
       {:ok, blob} ->
-        # The recovery key leaves this component's memory with the hand-off.
+        # The recovery key leaves this component's memory with the hand-off; the
+        # wizard goes back to its first step (a component's state outlives its
+        # being unmounted, so a later wizard must not start mid-way).
         component
-        |> put_state(:recovery_key, nil)
-        |> put_state(:ack_final, "")
-        |> put_state(:ack_saved, false)
+        |> reset()
         |> put_action(
           name: :vault_create_request,
           target: "page",
@@ -314,15 +313,6 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
       {:error, code} ->
         put_state(component, :error, error_for(code))
     end
-  end
-
-  # After a failed create the page flags `vault.error`; go back to the
-  # acknowledged recovery step (the recovery key is gone, so restart).
-  def action(:retry, _params, component) do
-    component
-    |> discard_handle()
-    |> put_action(name: :vault_reset_error, target: "page")
-    |> reset()
   end
 
   # --- internals -----------------------------------------------------------------
@@ -380,7 +370,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
       wraps: [],
       recovery_key: nil,
       ack_saved: false,
-      ack_final: ""
+      ack_final: "",
+      copied: false
     )
   end
 end

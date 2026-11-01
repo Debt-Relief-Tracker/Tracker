@@ -51,6 +51,41 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
       refute status =~ "no vault"
     end
 
+    test "no vault: the setup wizard is offered, not the unlock screen", %{conn: conn} do
+      doc = doc(conn)
+      assert count(doc, "#vault-setup") == 1
+      assert count(doc, "#setup-method-passphrase") == 1
+      assert count(doc, "#setup-passphrase") == 1
+      assert count(doc, "#vault-unlock") == 0
+      assert count(doc, "#vault-home") == 0
+    end
+
+    test "with a vault: one unlock section per enrolled kind, never the wizard",
+         %{conn: conn, workspace: ws} do
+      {:ok, _} = Vaults.create(ws, "blob", passphrase_wrap())
+      doc = doc(conn)
+      assert count(doc, "#vault-unlock") == 1
+      assert count(doc, "#unlock-passphrase-form") == 1
+      assert count(doc, "#unlock-recovery-form") == 0
+      assert count(doc, "#unlock-passkey-btn") == 0
+      assert count(doc, "#vault-setup") == 0
+
+      {:ok, _} = Vaults.add_key_wrap(ws, passkey_wrap())
+      {:ok, _} = Vaults.add_key_wrap(ws, passphrase_wrap(%{kind: "recovery", label: "r"}))
+      doc = doc(conn)
+      assert count(doc, "#unlock-passkey-btn") == 1
+      assert count(doc, "#unlock-recovery-form") == 1
+      # the remembered-device button needs client-side detection: absent from the server render
+      assert count(doc, "#unlock-device-btn") == 0
+    end
+
+    test "the vault blob is never rendered into the page", %{conn: conn, workspace: ws} do
+      {:ok, _} = Vaults.create(ws, "v1.BLOBMARKERBLOB.BLOBMARKERBLOB", passphrase_wrap())
+      body = conn |> get("/app") |> html_response(200)
+      refute body =~ "BLOBMARKERBLOB"
+      refute body =~ @marker
+    end
+
     test "contains no plaintext financial data anywhere in the body", %{conn: conn} do
       body = conn |> get("/app") |> html_response(200)
 

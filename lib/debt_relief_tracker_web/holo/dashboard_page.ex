@@ -247,7 +247,6 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def action(:vault_create_request, params, component),
     do: VaultFlow.create_request(component, params)
 
-  def action(:vault_reset_error, _params, component), do: VaultFlow.reset_error(component)
   def action(:vault_rollback_ack, _params, component), do: VaultFlow.rollback_ack(component)
   def action(:vault_lock, _params, component), do: VaultFlow.request_lock(component, :manual)
   def action(:vault_lock_anyway, _params, component), do: VaultFlow.lock_anyway(component)
@@ -262,7 +261,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     do: VaultFlow.apply_change(component, change)
 
   # Minimal editing hook (test_hook config) until feature components use the ledger.
-  def action(:vault_hook_add, %{event: %{name: name}}, component) when name != "",
+  def action(:vault_hook_add, %{event: %{"name" => name}}, component) when name != "",
     do: VaultFlow.test_hook_add(component, name)
 
   def action(:vault_hook_add, _params, component), do: component

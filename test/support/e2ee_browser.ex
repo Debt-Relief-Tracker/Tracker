@@ -126,4 +126,41 @@ defmodule DebtReliefTracker.E2EEBrowser do
   end
 
   def storage_dump(%{driver: d}), do: Driver.call(d, "storage_dump", %{})
+
+  # --- out-of-band helpers ---------------------------------------------------
+
+  def workspace, do: DebtReliefTracker.Accounts.ensure_default_workspace!()
+
+  def server_vault do
+    {:ok, vault} = DebtReliefTracker.E2EE.Vaults.fetch(workspace())
+    vault
+  end
+
+  @doc "A well-formed recovery key (valid checksum) that unlocks nothing."
+  def foreign_recovery_key do
+    bytes = :crypto.strong_rand_bytes(32)
+    <<check::binary-size(3), _::binary>> = :crypto.hash(:sha256, "drt-recovery-check-v1" <> bytes)
+    key = Base.encode32(bytes, padding: false)
+    # 256 bits -> 52 chars (the last carries 4 zero pad bits)
+    checksum = check |> Base.encode32(padding: false) |> binary_part(0, 4)
+
+    (key <> checksum)
+    |> String.graphemes()
+    |> Enum.chunk_every(4)
+    |> Enum.map_join("-", &Enum.join/1)
+  end
+
+  def wait_until(fun, tries \\ 100) do
+    cond do
+      fun.() ->
+        :ok
+
+      tries == 0 ->
+        raise "wait_until timed out"
+
+      true ->
+        Process.sleep(100)
+        wait_until(fun, tries - 1)
+    end
+  end
 end

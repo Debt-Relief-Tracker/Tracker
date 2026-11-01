@@ -306,15 +306,6 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     )
   end
 
-  def reset_error(c) do
-    case c.state.vault.creating do
-      %{handle: handle} -> Crypto.lock(handle)
-      _ -> :ok
-    end
-
-    merge(c, %{error: nil, creating: nil, busy: nil})
-  end
-
   defp created(c, r) do
     creating = c.state.vault.creating
 
@@ -347,7 +338,8 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       VaultEnv.broadcast("unlocked")
       c
     else
-      merge(c, %{busy: nil, error: :create_failed})
+      if creating, do: Crypto.lock(creating.handle)
+      merge(c, %{busy: nil, error: :create_failed, creating: nil})
     end
   end
 
