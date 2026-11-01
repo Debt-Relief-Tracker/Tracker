@@ -27,6 +27,17 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
     %{workspace: workspace}
   end
 
+  defp clear_plaintext(ws) do
+    import Ecto.Query
+    alias DebtReliefTracker.Repo
+
+    Repo.delete_all(
+      from(e in DebtReliefTracker.ActivityLog.Entry, where: e.workspace_id == ^ws.id)
+    )
+
+    Repo.delete_all(from(d in DebtReliefTracker.Debts.Debt, where: d.workspace_id == ^ws.id))
+  end
+
   defp doc(conn), do: conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
   defp count(doc, sel), do: doc |> LazyHTML.query(sel) |> Enum.count()
 
@@ -36,7 +47,16 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
       :ok
     end
 
-    test "renders the locked shell with no vault yet", %{conn: conn} do
+    test "plaintext and no vault: the migration screen replaces the setup wizard", %{conn: conn} do
+      doc = doc(conn)
+      assert count(doc, "#migration-screen") == 1
+      assert count(doc, "#vault-setup") == 0
+      assert count(doc, "#e2ee-locked") == 0
+      refute conn |> get("/app") |> html_response(200) =~ @marker
+    end
+
+    test "renders the locked shell with no vault yet", %{conn: conn, workspace: ws} do
+      clear_plaintext(ws)
       doc = doc(conn)
       assert count(doc, "#holo-dashboard") == 1
       assert count(doc, "#e2ee-locked") == 1
@@ -51,7 +71,11 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
       refute status =~ "no vault"
     end
 
-    test "no vault: the setup wizard is offered, not the unlock screen", %{conn: conn} do
+    test "no vault: the setup wizard is offered, not the unlock screen", %{
+      conn: conn,
+      workspace: ws
+    } do
+      clear_plaintext(ws)
       doc = doc(conn)
       assert count(doc, "#vault-setup") == 1
       assert count(doc, "#setup-method-passphrase") == 1
