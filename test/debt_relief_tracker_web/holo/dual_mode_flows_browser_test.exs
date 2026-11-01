@@ -661,7 +661,9 @@ defmodule DebtReliefTrackerWeb.Holo.DualModeFlowsBrowserTest do
       assert payments =~ "Debt,Amount,Principal Portion,Interest Portion,Paid On,Note"
       # (a single-line input turns the typed newline into a space; CRLF/LF quoting
       # is covered byte for byte by CsvExportTest)
-      assert payments =~ "\"=SUM(A1), \"\"quoted\"\" line2\""
+      # A text cell starting with `=` is neutralised with a leading quote
+      # (CSV formula-injection guard), the rest is escaped as usual.
+      assert payments =~ "\"'=SUM(A1), \"\"quoted\"\" line2\""
       assert errors(ctx) == []
       finish(ctx, :e2ee, ["ZQXCsv"])
     end
