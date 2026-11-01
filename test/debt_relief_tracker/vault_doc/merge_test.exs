@@ -268,7 +268,9 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
              Enum.random([
                card(%{name: "b#{i}"}),
                loan(%{name: "bl#{i}", auto_log_mode: "automatic", due_day: 5})
-             ])}, now: seconds(i))
+             ])},
+            now: seconds(i)
+          )
         end)
 
       a = replica(b, "a", 10)

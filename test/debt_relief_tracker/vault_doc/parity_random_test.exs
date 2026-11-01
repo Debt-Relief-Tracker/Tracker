@@ -8,8 +8,26 @@ defmodule DebtReliefTracker.VaultDoc.ParityRandomTest do
   alias DebtReliefTracker.VaultDocParity, as: P
 
   setup do
-    owner = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+    owner =
+      with_retry(fn ->
+        Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
+      end)
+
     %{owner: owner, workspace: Accounts.current_workspace_for_user(owner)}
+  end
+
+  # The shared SQLite file can be briefly busy right after a browser test's
+  # server process wrote to it ("mix test --include browser").
+  defp with_retry(fun, attempts \\ 8) do
+    fun.()
+  rescue
+    e in Exqlite.Error ->
+      if attempts > 1 do
+        Process.sleep(500)
+        with_retry(fun, attempts - 1)
+      else
+        reraise e, __STACKTRACE__
+      end
   end
 
   defp pick(list), do: Enum.at(list, :rand.uniform(length(list)) - 1)
