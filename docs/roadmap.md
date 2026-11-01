@@ -375,7 +375,11 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
       Phase 4. Retirement projection and `Charts` are now ported too (see 4).
 - [x] 3. `Storage` behaviour + `Storage.Plain` (snapshot in cents/bp + change
       vocabulary; plaintext adapter runs changes through the existing contexts).
-- [ ] 4. Port UI to Hologram (plaintext mode).
+- [x] 4. Port UI to Hologram (plaintext mode): `/app` has debts, payments,
+      plan/charts (Chart.js), retirement, settings/sharing/theme/logout,
+      activity log, tutorial and footer, covered by ~50 real-browser
+      tests (`mix test --include browser`). Open: cut `/` over to it
+      (owner's call), and `AdminLive` deliberately stays a LiveView.
   - [x] Plan panel + charts: `Engine.Charts` (integer port of `Charts`,
         parity-tested against it), Chart.js behind
         `assets/js/chart_facade.mjs` / `Holo.ChartJS` / `Holo.Components.Chart`

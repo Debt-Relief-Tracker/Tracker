@@ -7,20 +7,6 @@ defmodule DebtReliefTrackerWeb.Holo.DebtFlowsBrowserTest do
   alias DebtReliefTracker.{Accounts, ActivityLog, Debts, Payments}
   alias DebtReliefTrackerWeb.Holo.DashboardPage
 
-  # Every save re-runs the payoff simulation in the browser (PlanPanel
-  # `compare_strategies`, several seconds of blocked JS), during which
-  # Playwright can't observe the page; give waits headroom over the 10s default.
-  setup_all do
-    previous = System.get_env("BROWSER_TEST_TIMEOUT_MS")
-    System.put_env("BROWSER_TEST_TIMEOUT_MS", "25000")
-
-    on_exit(fn ->
-      if previous,
-        do: System.put_env("BROWSER_TEST_TIMEOUT_MS", previous),
-        else: System.delete_env("BROWSER_TEST_TIMEOUT_MS")
-    end)
-  end
-
   # The first-run tutorial overlay would intercept every click.
   setup do
     {:ok, _} = Accounts.set_tutorial_seen(Accounts.get_default_user!(), true)
