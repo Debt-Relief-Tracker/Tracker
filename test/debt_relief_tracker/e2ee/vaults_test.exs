@@ -170,6 +170,21 @@ defmodule DebtReliefTracker.E2EE.VaultsTest do
       assert {:error, :not_found} = Vaults.add_key_wrap(a, passkey_wrap())
     end
 
+    test "a vault is capped at 3 passphrase wraps (other kinds unaffected)", %{a: a} do
+      {:ok, _} = Vaults.create(a, "b", passphrase_wrap())
+      for _ <- 2..3, do: {:ok, _} = Vaults.add_key_wrap(a, passphrase_wrap())
+      assert {:error, :too_many_passphrase_wraps} = Vaults.add_key_wrap(a, passphrase_wrap())
+      assert {:ok, _} = Vaults.add_key_wrap(a, passkey_wrap())
+      assert {:ok, %{key_wraps: wraps}} = Vaults.fetch(a)
+      assert Enum.count(wraps, &(&1.kind == "passphrase")) == 3
+    end
+
+    test "create refuses a fourth passphrase wrap", %{a: a} do
+      wraps = for _ <- 1..4, do: passphrase_wrap()
+      assert {:error, :too_many_passphrase_wraps} = Vaults.create(a, "b", wraps)
+      assert :none = Vaults.fetch(a)
+    end
+
     test "a workspace is capped at 20 wraps", %{a: a} do
       {:ok, _} = Vaults.create(a, "b", passphrase_wrap())
       for _ <- 2..20, do: {:ok, _} = Vaults.add_key_wrap(a, passkey_wrap())

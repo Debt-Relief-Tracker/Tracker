@@ -437,6 +437,20 @@ defmodule DebtReliefTrackerWeb.Holo.E2EEClientBrowserTest do
       refute_selector(ctx, "#vault-home")
     end
 
+    test "a lock survives a reload: the locked marker blocks auto-unlock until one click", ctx do
+      {ctx, _} = unlocked(ctx, @pass, remember: true)
+      ctx = lock(ctx)
+      ctx = reload(ctx)
+      assert_selector(ctx, "#vault-unlock")
+      refute_selector(ctx, "#vault-home")
+
+      # the click clears the marker: the next reload auto-unlocks again
+      click(ctx, "#unlock-device-btn")
+      assert_selector(ctx, "#vault-home")
+      ctx = reload(ctx)
+      assert_selector(ctx, "#vault-home")
+    end
+
     test "the unlock screen's remember checkbox stores the key after a normal unlock", ctx do
       {ctx, _} = unlocked(ctx)
       assert storage_dump(ctx)["idb"]["drt-vault"]["device_keys"] == []
@@ -462,6 +476,17 @@ defmodule DebtReliefTrackerWeb.Holo.E2EEClientBrowserTest do
       assert_selector(ctx, "#vault-home")
       assert_selector(ctx, "#vault-unlock")
       refute_selector(ctx, "#vault-home")
+    end
+
+    test "an idle lock survives a reload of a remembered device", ctx do
+      e2ee_on(idle_ms: 2500)
+      {ctx, _} = unlocked(ctx, @pass, remember: true)
+      assert_selector(ctx, "#vault-unlock")
+      ctx = reload(ctx)
+      assert_selector(ctx, "#vault-unlock")
+      refute_selector(ctx, "#vault-home")
+      click(ctx, "#unlock-device-btn")
+      assert_selector(ctx, "#vault-home")
     end
 
     test "locking one tab locks the others; unlocking is hinted to locked tabs", ctx do

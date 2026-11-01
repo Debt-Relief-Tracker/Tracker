@@ -209,6 +209,18 @@ defmodule DebtReliefTracker.Crypto do
   @doc "Deletes the remembered-device key."
   def forget_device(workspace_id), do: run(:deviceForget, [workspace_id])
 
+  @doc """
+  Non-secret per-workspace "locked" marker: set by a manual, idle or cross-tab
+  lock so a page load does not silently re-open a remembered device.
+  """
+  def mark_locked(workspace_id), do: run(:deviceMarkLocked, [workspace_id])
+
+  @doc "Clears the locked marker (explicit device unlock, or a fresh method unlock)."
+  def clear_locked(workspace_id), do: run(:deviceClearLocked, [workspace_id])
+
+  @doc "Whether the locked marker is set for the workspace."
+  def locked_marker?(workspace_id), do: run(:deviceIsLocked, [workspace_id]) == {:ok, "true"}
+
   # --- rollback detection ------------------------------------------------------------------
 
   @doc """

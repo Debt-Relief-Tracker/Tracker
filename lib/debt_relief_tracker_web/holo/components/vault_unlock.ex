@@ -124,6 +124,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
     do:
       "That does not look like a valid recovery key. Check for typos: it has 14 groups of 4 characters."
 
+  def error_text(:too_many_passphrases),
+    do:
+      "This vault lists more than 3 passphrases, so only the 3 oldest were tried and none matched. " <>
+        "Use another unlock method (recovery key or passkey)."
+
   def error_text(:cancelled), do: "The passkey prompt was cancelled."
   def error_text(:unavailable), do: "Passkeys are not available in this browser."
   def error_text(:empty), do: "Enter your secret first."
@@ -153,7 +158,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
     result =
       case method do
         :passphrase ->
-          try_passphrase(for(w <- wraps, w.kind == "passphrase", do: w), state.passphrase, ws)
+          passphrase_wraps(for(w <- wraps, w.kind == "passphrase", do: w), state.passphrase, ws)
 
         :recovery ->
           try_recovery(for(w <- wraps, w.kind == "recovery", do: w), state.recovery, ws)
@@ -190,6 +195,21 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
         |> put_state(:error, nil)
         |> put_state(:wait, 0)
         |> put_action(name: :attempt, params: %{method: method}, delay: 40)
+    end
+  end
+
+  # A hostile server could serve many passphrase wraps with costly Argon2
+  # params: try at most `@max_passphrase_tries` (oldest first) and say so when
+  # more exist, instead of grinding through all of them.
+  @max_passphrase_tries 3
+
+  defp passphrase_wraps(wraps, pass, ws) do
+    case try_passphrase(Enum.take(wraps, @max_passphrase_tries), pass, ws) do
+      {:error, :decrypt_failed} when length(wraps) > @max_passphrase_tries ->
+        {:error, :too_many_passphrases}
+
+      other ->
+        other
     end
   end
 
@@ -251,9 +271,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
 
       _ ->
         delay = Delay.failed(component.state.delay, VaultEnv.now_ms())
+        shown = if code == :too_many_passphrases, do: code, else: :failed
 
         component
-        |> put_state(busy: nil, error: :failed, delay: delay)
+        |> put_state(busy: nil, error: shown, delay: delay)
         |> put_state(:wait, Delay.remaining_seconds(delay, VaultEnv.now_ms()))
     end
   end

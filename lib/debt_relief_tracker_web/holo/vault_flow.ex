@@ -103,7 +103,9 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     device = Crypto.device_remembered?(ws)
     c = merge(c, %{prf: prf, device: device})
 
-    if c.state.vault.phase == :locked and device do
+    # A manual / idle / cross-tab lock leaves a non-secret marker: the page load
+    # then waits for the "Unlock this device" click instead of re-opening.
+    if c.state.vault.phase == :locked and device and not Crypto.locked_marker?(ws) do
       case Crypto.unlock_device(ws) do
         {:ok, handle} -> opened(c, %{handle: handle, remember: false, method: :device})
         {:error, _} -> merge(c, %{device: false})
@@ -119,6 +121,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   def opened(c, %{handle: handle, remember: remember, method: _method}) do
     ws = ws(c)
     if remember, do: Crypto.remember_device(handle, ws)
+    Crypto.clear_locked(ws)
 
     c
     |> merge(%{
@@ -723,6 +726,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   defp do_lock(c, broadcast? \\ true) do
     vault = c.state.vault
     if vault.handle, do: Crypto.lock(vault.handle)
+    Crypto.mark_locked(ws(c))
     VaultEnv.idle_stop()
     VaultEnv.set_dirty(false)
     if broadcast?, do: VaultEnv.broadcast("locked")

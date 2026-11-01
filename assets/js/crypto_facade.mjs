@@ -68,7 +68,7 @@ const PRF_SALT_LABEL = "drt-prf-salt-v1"
 
 // Accepted Argon2id parameter range (stored params are honoured, absurd ones
 // rejected so a malicious server cannot make the client allocate gigabytes).
-export const ARGON2_LIMITS = { maxMemoryKiB: 1048576, maxIterations: 20, maxParallelism: 16 }
+export const ARGON2_LIMITS = { maxMemoryKiB: 262144, maxIterations: 10, maxParallelism: 4 }
 // Starting params for new passphrase wraps; callers store them with the wrap.
 export const ARGON2_DEFAULTS = { memoryKiB: 65536, iterations: 3, parallelism: 1 }
 
@@ -866,8 +866,29 @@ export async function deviceUnlock(workspaceId) {
   return handle
 }
 
+// NON-SECRET "locked" marker (per workspace, in the `seen` store under its own
+// key). Set by a manual / idle / cross-tab lock; while it is present a page
+// load does NOT auto-unlock the remembered device. Cleared by the explicit
+// "Unlock this device" click or by any fresh method unlock.
+const lockedKey = (workspaceId) => `locked:${workspaceId}`
+
+export async function deviceMarkLocked(workspaceId) {
+  await store.put("seen", lockedKey(workspaceId), { locked: true })
+  return "marked"
+}
+
+export async function deviceClearLocked(workspaceId) {
+  await store.del("seen", lockedKey(workspaceId))
+  return "cleared"
+}
+
+export async function deviceIsLocked(workspaceId) {
+  return String((await store.get("seen", lockedKey(workspaceId))) != null)
+}
+
 export async function deviceForget(workspaceId) {
   await store.del("device_keys", workspaceId)
+  await store.del("seen", lockedKey(workspaceId))
   return "forgotten"
 }
 
@@ -912,6 +933,7 @@ export async function seenAcknowledge(workspaceId, revision, blob) {
 export async function localWipe(workspaceId) {
   await store.del("device_keys", workspaceId)
   await store.del("seen", workspaceId)
+  await store.del("seen", lockedKey(workspaceId))
   return "wiped"
 }
 
@@ -941,6 +963,9 @@ const PUBLIC = {
   deviceHas,
   deviceUnlock,
   deviceForget,
+  deviceMarkLocked,
+  deviceClearLocked,
+  deviceIsLocked,
   seenCheck,
   seenRecord,
   seenAcknowledge,

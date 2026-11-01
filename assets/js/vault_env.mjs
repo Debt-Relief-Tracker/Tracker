@@ -138,11 +138,27 @@ export function randomUuid() {
   return globalThis.crypto.randomUUID()
 }
 
-// Copies text to the clipboard (the recovery key). Fire and forget.
+// Copies text to the clipboard (the recovery key). Fire and forget. BEST EFFORT
+// hygiene: after CLIPBOARD_CLEAR_MS the clipboard is overwritten with an empty
+// string. Browsers may refuse that (no focus, permission), which is swallowed
+// silently; it is not a guarantee and clipboard managers may keep a copy.
+export const CLIPBOARD_CLEAR_MS = 60000
+let clipboardTimer = null
+
 export function copyText(text) {
   try {
     const p = globalThis.navigator.clipboard.writeText(String(text))
     if (p && p.catch) p.catch(() => {})
+    if (clipboardTimer) globalThis.clearTimeout(clipboardTimer)
+    clipboardTimer = globalThis.setTimeout(() => {
+      clipboardTimer = null
+      try {
+        const q = globalThis.navigator.clipboard.writeText("")
+        if (q && q.catch) q.catch(() => {})
+      } catch {
+        // clipboard unavailable or not focused: nothing to do
+      }
+    }, CLIPBOARD_CLEAR_MS)
   } catch {
     // clipboard unavailable: the user can still select and copy by hand
   }

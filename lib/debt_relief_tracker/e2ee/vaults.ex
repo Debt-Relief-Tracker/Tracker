@@ -25,6 +25,9 @@ defmodule DebtReliefTracker.E2EE.Vaults do
 
   @max_blob_bytes 5 * 1024 * 1024
   @max_wraps 20
+  # Unlock tries every passphrase wrap (Argon2id each), so a hostile server must
+  # not be able to hand the client dozens; the client tries at most this many.
+  @max_passphrase_wraps 3
   # Never let Ecto's debug query log print bound parameters (the blob / wraps).
   @q [log: false]
 
@@ -138,6 +141,14 @@ defmodule DebtReliefTracker.E2EE.Vaults do
           Repo.aggregate(from(w in KeyWrap, where: w.workspace_id == ^ws), :count, @q) >=
               @max_wraps ->
             Repo.rollback(:too_many_wraps)
+
+          passphrase_wrap?(wrap_attrs) and
+              Repo.aggregate(
+                from(w in KeyWrap, where: w.workspace_id == ^ws and w.kind == "passphrase"),
+                :count,
+                @q
+              ) >= @max_passphrase_wraps ->
+            Repo.rollback(:too_many_passphrase_wraps)
 
           true ->
             case insert_wrap(ws, wrap_attrs) do
@@ -282,7 +293,21 @@ defmodule DebtReliefTracker.E2EE.Vaults do
 
   defp check_wraps(wraps) when length(wraps) > @max_wraps, do: {:error, :too_many_wraps}
 
-  defp check_wraps(wraps) do
+  defp check_wraps(wraps)
+       when length(wraps) > @max_passphrase_wraps and
+              is_list(wraps) do
+    if Enum.count(wraps, &passphrase_wrap?/1) > @max_passphrase_wraps,
+      do: {:error, :too_many_passphrase_wraps},
+      else: check_wrap_list(wraps)
+  end
+
+  defp check_wraps(wraps), do: check_wrap_list(wraps)
+
+  defp passphrase_wrap?(%{kind: kind}), do: kind == "passphrase"
+  defp passphrase_wrap?(%{"kind" => kind}), do: kind == "passphrase"
+  defp passphrase_wrap?(_), do: false
+
+  defp check_wrap_list(wraps) do
     Enum.find_value(wraps, :ok, fn attrs ->
       case check_wrap_sizes(attrs) do
         :ok -> nil

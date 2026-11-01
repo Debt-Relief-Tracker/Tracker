@@ -90,4 +90,82 @@ defmodule DebtReliefTrackerWeb.Holo.CsvExportTest do
     assert CsvExport.debts(snapshot) == IO.iodata_to_binary(CSVExport.debts_csv([]))
     assert CsvExport.payments(snapshot) == IO.iodata_to_binary(CSVExport.payments_csv([]))
   end
+
+  describe "formula injection guard (text cells only)" do
+    test "every trigger char is prefixed with a single quote, identically on both sides" do
+      names = [
+        "=1+1",
+        "+1",
+        "-1",
+        "@SUM(A1)",
+        "\tTab",
+        "\rCR",
+        "Mid=dle+x-y@z",
+        "Ünï=日本",
+        "",
+        "'=already"
+      ]
+
+      expected = [
+        "'=1+1",
+        "'+1",
+        "'-1",
+        "'@SUM(A1)",
+        "'\tTab",
+        "'\rCR",
+        "Mid=dle+x-y@z",
+        "Ünï=日本",
+        "",
+        "'=already"
+      ]
+
+      server_debts =
+        names
+        |> Enum.with_index()
+        |> Enum.map(fn {n, i} ->
+          %DebtReliefTracker.Debts.Debt{
+            id: "d#{i}",
+            name: n,
+            type: :revolving,
+            status: :active,
+            balance: Decimal.new("-5.00"),
+            apr: Decimal.new("-1.50")
+          }
+        end)
+
+      server = server_debts |> CSVExport.debts_csv() |> IO.iodata_to_binary()
+
+      snapshot = %{
+        debts:
+          Enum.map(server_debts, fn d ->
+            %{
+              id: d.id,
+              name: d.name,
+              type: "revolving",
+              status: "active",
+              balance: -500,
+              apr_bp: -150,
+              minimum_payment_floor: nil,
+              minimum_payment_rate_bp: nil,
+              fixed_payment: nil,
+              credit_limit: nil
+            }
+          end),
+        payments: []
+      }
+
+      client = CsvExport.debts(snapshot)
+      assert client == server
+
+      first_cells =
+        server
+        |> String.split("\r\n", trim: true)
+        |> tl()
+        |> Enum.map(fn line -> line |> String.split(",") |> hd() end)
+
+      assert first_cells == Enum.map(expected, &String.trim_leading(&1, "\r"))
+      assert server =~ ",-5.00,-1.50,"
+      refute server =~ "'-5.00"
+    end
+  end
 end
