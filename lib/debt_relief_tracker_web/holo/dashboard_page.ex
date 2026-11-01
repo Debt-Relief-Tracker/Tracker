@@ -106,6 +106,14 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def action(:open_modal, %{modal: modal}, component), do: put_state(component, :modal, modal)
   def action(:close_modal, _params, component), do: put_state(component, :modal, nil)
 
+  # Settings modal's "View tutorial again": close the modal and hand off to
+  # the tutorial overlay (which resets tutorial_seen and starts at step 1).
+  def action(:restart_tutorial, _params, component) do
+    component
+    |> put_state(:modal, nil)
+    |> put_action(name: :restart, target: "tutorial_overlay")
+  end
+
   def action(:select_strategy, %{strategy: strategy}, component),
     do: put_state(component, :strategy, strategy)
 end
