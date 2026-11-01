@@ -396,6 +396,11 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 - [ ] 7. Client vault flows (setup wizard, unlock, remember device).
 - [ ] 8. Sync (CAS merge, catch-up of auto-logged installments).
 - [ ] 9. Plaintext -> vault migration with verification and confirmed delete.
+      Decided: owner of a shared workspace migrates and other members lose
+      access (explicit confirmation listing them); unmigrated users keep
+      plaintext until next login (forced wizard, admin count of unmigrated);
+      delete requires the export digest; two-step deploy; Postgres-verified.
+      See ADR 0007 'Production rollout'.
 - [ ] 10. Security review.
 
 ## Verification
