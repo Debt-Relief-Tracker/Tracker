@@ -40,10 +40,12 @@
 //   passkey_unsupported  no WebAuthn / no PRF support
 //   passkey_cancelled  user dismissed or timed out the prompt
 //   passkey_failed     any other passkey failure
+//   locked             the session handle is unknown (locked / never unlocked)
 //   crypto_unavailable WebCrypto missing (e.g. insecure context)
 //   selftest_failed    selfTest() KAT mismatch
 //   internal           anything unexpected (message is never included)
 import { argon2id } from "hash-wasm"
+import * as store from "./vault_store.mjs"
 
 export class CryptoError extends Error {
   constructor(code) {
@@ -669,28 +671,263 @@ export async function selfTest() {
 
 const ARGON2_SELFTEST_EXPECTED = "03aab965c12001c9d7d0d2de33192c0494b684bb148196d73c1df1acaf6d0c2e"
 
+// ---- vault sessions (OPAQUE HANDLES) ----------------------------------------
+//
+// The E2EE UI never sees key material. An unlocked vault lives here, in
+// module-private memory: the vault key bytes (`vk`, absent for a "remembered
+// device" session) and a NON-EXTRACTABLE AES-GCM CryptoKey derived from it.
+// Elixir holds only an opaque handle id (random, meaningless) and passes
+// ciphertext envelopes, workspace ids and revisions. Locking overwrites the
+// key bytes and drops the entry. Nothing here is written to storage except the
+// non-extractable CryptoKey of "remember this device" (vault_store.mjs).
+//
+// Multi-value results are joined with "|" (never in b64u, envelopes or the
+// kdf JSON) so Elixir can split them without parsing JSON.
+
+const sessions = new Map()
+
+function newHandle() {
+  const b = new Uint8Array(12)
+  subtle().getRandomValues(b)
+  return "h" + bytesToB64u(b)
+}
+
+async function openSession(vkBytes) {
+  const docKey = await subtle().subtle.importKey("raw", vkBytes, { name: "AES-GCM" }, false, ["encrypt", "decrypt"])
+  const handle = newHandle()
+  sessions.set(handle, { vk: vkBytes, docKey })
+  return handle
+}
+
+function sessionOf(handle) {
+  const s = typeof handle === "string" ? sessions.get(handle) : null
+  if (!s) throw new CryptoError("locked")
+  return s
+}
+
+function vkOf(handle) {
+  const s = sessionOf(handle)
+  if (!s.vk) throw new CryptoError("locked")
+  return s.vk
+}
+
+const KDF_PARAMS_JSON = JSON.stringify({
+  memoryKiB: ARGON2_DEFAULTS.memoryKiB,
+  iterations: ARGON2_DEFAULTS.iterations,
+  parallelism: ARGON2_DEFAULTS.parallelism,
+})
+
+// New random vault key, unlocked under a fresh handle.
+export async function vaultNew() {
+  const vk = new Uint8Array(KEY_BYTES)
+  subtle().getRandomValues(vk)
+  return openSession(vk)
+}
+
+export async function vaultLock(handle) {
+  const s = sessions.get(handle)
+  if (s && s.vk) s.vk.fill(0)
+  sessions.delete(handle)
+  return "locked"
+}
+
+export async function vaultLockAll() {
+  for (const s of sessions.values()) if (s.vk) s.vk.fill(0)
+  sessions.clear()
+  return "locked"
+}
+
+export async function vaultActive(handle) {
+  return String(sessions.has(handle))
+}
+
+// Whether the session can add/replace unlock methods (needs the vault key; a
+// "remembered device" session only has the document CryptoKey).
+export async function vaultCanManage(handle) {
+  const s = sessions.get(handle)
+  return String(!!(s && s.vk))
+}
+
+export async function vaultEncrypt(handle, workspaceId, revision, plaintext) {
+  const { docKey } = sessionOf(handle)
+  const iv = freshIv()
+  const ct = await subtle().subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: vaultAad(workspaceId, revision), tagLength: 128 },
+    docKey,
+    utf8(plaintext),
+  )
+  return envelope(iv, new Uint8Array(ct))
+}
+
+export async function vaultDecrypt(handle, workspaceId, revision, envelopeStr) {
+  const { docKey } = sessionOf(handle)
+  const parsed = parseEnvelope(envelopeStr)
+  const aad = vaultAad(workspaceId, revision)
+  if (!parsed) throw new CryptoError("decrypt_failed")
+  try {
+    const pt = await subtle().subtle.decrypt(
+      { name: "AES-GCM", iv: parsed.iv, additionalData: aad, tagLength: 128 },
+      docKey,
+      parsed.ct,
+    )
+    return dec.decode(pt)
+  } catch {
+    throw new CryptoError("decrypt_failed")
+  }
+}
+
+// "<salt>|<kdf params json>|<wrapped key>" for a NEW passphrase wrap (floor on
+// Argon2 params enforced by deriveNewPassphraseKek).
+export async function vaultWrapPassphrase(handle, passphrase, workspaceId, wrapId) {
+  const vk = vkOf(handle)
+  const salt = await newSaltB64u()
+  const kek = b64uToBytes(
+    await deriveNewPassphraseKek(
+      passphrase,
+      salt,
+      ARGON2_DEFAULTS.memoryKiB,
+      ARGON2_DEFAULTS.iterations,
+      ARGON2_DEFAULTS.parallelism,
+    ),
+  )
+  const wrapped = await encryptFresh(kek, vk, wrapAad(workspaceId, wrapId, "passphrase"))
+  return `${salt}|${KDF_PARAMS_JSON}|${wrapped}`
+}
+
+// "<recovery key text>|<wrapped key>" for a NEW recovery wrap. The recovery
+// key text is the one value that must reach the user (shown once).
+export async function vaultWrapRecovery(handle, workspaceId, wrapId) {
+  const vk = vkOf(handle)
+  const text = await generateRecoveryKey()
+  const kek = b64uToBytes(await deriveRecoveryKek(text))
+  const wrapped = await encryptFresh(kek, vk, wrapAad(workspaceId, wrapId, "recovery"))
+  return `${text}|${wrapped}`
+}
+
+// "<credential id>|<wrapped key>" for a NEW passkey wrap.
+export async function vaultWrapPasskey(handle, workspaceId, wrapId, rpId, rpName, userName) {
+  const vk = vkOf(handle)
+  const userId = await randomBytesB64u(16)
+  const made = await createPasskey(rpId, rpName, userId, userName || "user", userName || "user")
+  const [credId, kekB64u] = made.split(".")
+  const wrapped = await encryptFresh(b64uToBytes(kekB64u), vk, wrapAad(workspaceId, wrapId, "passkey"))
+  return `${credId}|${wrapped}`
+}
+
+function parseKdfParams(json) {
+  try {
+    const p = JSON.parse(json)
+    return [p.memoryKiB, p.iterations, p.parallelism].map((n) => (Number.isInteger(n) ? n : NaN))
+  } catch {
+    throw new CryptoError("bad_params")
+  }
+}
+
+async function openFromWrap(kekB64u, wrapped, workspaceId, wrapId, kind) {
+  const vk = b64uToBytes(await unwrapVaultKey(kekB64u, wrapped, workspaceId, wrapId, kind))
+  return openSession(vk)
+}
+
+// Unlock with a passphrase against a wrap's STORED salt + params + envelope.
+export async function vaultUnlockPassphrase(passphrase, workspaceId, wrapId, saltB64u, kdfJson, wrapped) {
+  const [m, t, p] = parseKdfParams(kdfJson)
+  const kek = await derivePassphraseKek(passphrase, saltB64u, m, t, p)
+  return openFromWrap(kek, wrapped, workspaceId, wrapId, "passphrase")
+}
+
+export async function vaultUnlockRecovery(text, workspaceId, wrapId, wrapped) {
+  return openFromWrap(await deriveRecoveryKek(text), wrapped, workspaceId, wrapId, "recovery")
+}
+
+export async function vaultUnlockPasskey(credentialId, rpId, workspaceId, wrapId, wrapped) {
+  return openFromWrap(await derivePasskeyKek(credentialId, rpId), wrapped, workspaceId, wrapId, "passkey")
+}
+
+// ---- remember this device ----------------------------------------------------
+// The stored object is the session's NON-EXTRACTABLE CryptoKey (encrypt/decrypt
+// only): scripts on this origin can use it but never read its bytes.
+
+export async function deviceRemember(handle, workspaceId) {
+  const { docKey } = sessionOf(handle)
+  await store.put("device_keys", workspaceId, docKey)
+  return "remembered"
+}
+
+export async function deviceHas(workspaceId) {
+  return String((await store.get("device_keys", workspaceId)) != null)
+}
+
+// New session holding only the document key (cannot manage methods).
+export async function deviceUnlock(workspaceId) {
+  const key = await store.get("device_keys", workspaceId)
+  if (!key || typeof key !== "object" || key.extractable !== false) throw new CryptoError("decrypt_failed")
+  const handle = newHandle()
+  sessions.set(handle, { vk: null, docKey: key })
+  return handle
+}
+
+export async function deviceForget(workspaceId) {
+  await store.del("device_keys", workspaceId)
+  return "forgotten"
+}
+
+// ---- rollback detection (last seen rev + SHA-256 of the blob) ------------------
+
+// "first" (nothing seen), "ok", or "rollback" (lower rev, or same rev with a
+// different blob hash).
+export async function seenCheck(workspaceId, revision, blob) {
+  const rev = Number(revision)
+  const rec = await store.get("seen", workspaceId)
+  if (!rec) return "first"
+  const hash = await sha256B64u(blob)
+  if (rev < rec.rev) return "rollback"
+  if (rev === rec.rev && hash !== rec.hash) return "rollback"
+  return "ok"
+}
+
+export async function seenRecord(workspaceId, revision, blob) {
+  const rev = Number(revision)
+  if (!Number.isSafeInteger(rev) || rev < 0) throw new CryptoError("bad_input")
+  await store.put("seen", workspaceId, { rev, hash: await sha256B64u(blob) })
+  return "recorded"
+}
+
+// Start over / sign-out of a workspace: drops every local record for it.
+export async function localWipe(workspaceId) {
+  await store.del("device_keys", workspaceId)
+  await store.del("seen", workspaceId)
+  return "wiped"
+}
+
 // ---- Hologram surface -------------------------------------------------------
+//
+// ONLY the handle API (and feature detection / self test) is exposed to
+// Hologram. The string-key functions above are named exports for the Node
+// known-answer tests and for JS-side migration code; Elixir cannot reach them.
 
 const PUBLIC = {
-  randomBytesB64u,
-  sha256B64u,
-  hkdfSha256B64u,
-  generateVaultKey,
-  encryptDocument,
-  decryptDocument,
-  wrapVaultKey,
-  unwrapVaultKey,
-  newSaltB64u,
-  derivePassphraseKek,
-  deriveNewPassphraseKek,
-  generateRecoveryKey,
-  parseRecoveryKey,
-  formatRecoveryKey,
-  deriveRecoveryKek,
   prfSupported: async () => String(await prfSupported()),
-  createPasskey,
-  derivePasskeyKek,
   selfTest,
+  vaultNew,
+  vaultLock,
+  vaultLockAll,
+  vaultActive,
+  vaultCanManage,
+  vaultEncrypt,
+  vaultDecrypt,
+  vaultWrapPassphrase,
+  vaultWrapRecovery,
+  vaultWrapPasskey,
+  vaultUnlockPassphrase,
+  vaultUnlockRecovery,
+  vaultUnlockPasskey,
+  deviceRemember,
+  deviceHas,
+  deviceUnlock,
+  deviceForget,
+  seenCheck,
+  seenRecord,
+  localWipe,
 }
 
 function wrap(fn) {

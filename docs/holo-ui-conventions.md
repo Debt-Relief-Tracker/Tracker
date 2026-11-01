@@ -72,6 +72,20 @@ Every key element gets a unique DOM `id` (tests select on them).
 JS goes in `assets/js/` as small facade files behind an Elixir module; no
 app logic in JS and no inline `<script>` in templates.
 
+## JS interop and async (crypto facade)
+
+* `JS.call` on a Promise-returning facade function gives a Task; `Task.await`
+  it inside the action. **An `await` inside an anonymous function (a closure
+  passed to a helper, `Enum.*`, etc.) is not awaited by the interpreter** -- the
+  closure returns a raw Promise and the next `case` raises. Make awaiting calls
+  from direct recursion, `with` or straight-line code.
+* A component's state outlives its being unmounted (same `cid` later reuses
+  it): reset a wizard-like component's state when it hands off.
+* `$submit` event data has STRING keys (`%{event: %{"name" => v}}`); input
+  `$change` gives `%{event: %{value: v}}`.
+* Do not put key material in Elixir. E2EE crypto goes through the handle-only
+  `DebtReliefTracker.Crypto` (see ADR 0007 "Client vault flows").
+
 ## Money and forms
 
 Inputs hold text; parse dollars->cents in the component with integer string

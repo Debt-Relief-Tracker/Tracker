@@ -9,7 +9,7 @@ defmodule DebtReliefTracker.CryptoNodeTest do
   @assets Path.expand("../../assets", __DIR__)
 
   @tag timeout: 120_000
-  test "node --test passes for assets/test/crypto_facade.test.mjs" do
+  test "node --test passes for assets/test/*.test.mjs" do
     cond do
       is_nil(System.find_executable("node")) ->
         IO.puts("SKIP crypto facade node tests: `node` not found on PATH")
@@ -19,7 +19,7 @@ defmodule DebtReliefTracker.CryptoNodeTest do
 
       true ->
         {out, status} =
-          System.cmd("node", ["--test", "test/crypto_facade.test.mjs"],
+          System.cmd("node", ["--test", "test/crypto_facade.test.mjs", "test/vault_env.test.mjs"],
             cd: @assets,
             stderr_to_stdout: true
           )

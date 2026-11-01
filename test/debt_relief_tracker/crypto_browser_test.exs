@@ -31,10 +31,11 @@ defmodule DebtReliefTracker.CryptoBrowserTest do
       "[crypto] Hologram flow (Argon2id 64MiB/3/1 + wrap/unwrap/doc), click-to-done: #{ms} ms"
     )
 
-    assert text(ctx, "#kek-bytes") == "43"
+    assert text(ctx, "#handle-len") == "17"
+    assert text(ctx, "#locked") == "{:error, :locked}"
     assert text(ctx, "#unwrap-same") == "yes"
     assert text(ctx, "#doc-text") == ~s({"hello":"wörld"})
-    assert text(ctx, "#wrong-kind") == "{:error, :decrypt_failed}"
+    assert text(ctx, "#wrong-kind") == "{{:error, :decrypt_failed}, {:error, :decrypt_failed}}"
     assert text(ctx, "#wrong-rev") == "{:error, :decrypt_failed}"
     assert text(ctx, "#bad-params") == "{:error, :bad_params}"
     assert Driver.call(ctx.driver, "errors", %{}) == []

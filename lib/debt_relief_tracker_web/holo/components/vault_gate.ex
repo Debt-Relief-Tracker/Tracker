@@ -2,8 +2,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
   @moduledoc """
   Server side of E2EE mode (docs/architecture/0007-e2ee.md, roadmap Phase 6):
   the Hologram commands that read and write the blind vault store
-  (`DebtReliefTracker.E2EE.Vaults`). The UI is a stub -- it renders a hidden
-  marker only; the setup/unlock flows are Phase 7.
+  (`DebtReliefTracker.E2EE.Vaults`). The component itself renders only a hidden
+  marker; the setup/unlock/sync flows are in `DashboardPage` and the
+  `Vault*` components (Phase 7/8).
 
   Rules every command here follows:
 
@@ -38,6 +39,12 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
 
   def action(:create_vault, %{blob: blob, wrap: wrap}, component),
     do: put_command(component, :create_vault, blob: blob, wrap: wrap)
+
+  def action(:create_vault, %{blob: blob, wraps: wraps}, component),
+    do: put_command(component, :create_vault, blob: blob, wraps: wraps)
+
+  def action(:rename_key_wrap, %{id: id, label: label}, component),
+    do: put_command(component, :rename_key_wrap, id: id, label: label)
 
   def action(:save_vault, %{base_rev: base_rev, blob: blob}, component),
     do: put_command(component, :save_vault, base_rev: base_rev, blob: blob)
@@ -75,6 +82,23 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
       when is_binary(blob) and is_map(wrap) do
     run(server, :create_vault, fn workspace ->
       workspace |> Vaults.create(blob, wrap) |> reply()
+    end)
+  end
+
+  def command(:create_vault, %{blob: blob, wraps: wraps}, server)
+      when is_binary(blob) and is_list(wraps) do
+    run(server, :create_vault, fn workspace ->
+      workspace |> Vaults.create(blob, wraps) |> reply()
+    end)
+  end
+
+  def command(:rename_key_wrap, %{id: id, label: label}, server)
+      when is_binary(id) and is_binary(label) do
+    run(server, :rename_key_wrap, fn workspace ->
+      case Vaults.rename_key_wrap(workspace, id, label) do
+        {:ok, %KeyWrap{} = wrap} -> %{ok: true, key_wrap: wrap_map(wrap)}
+        {:error, reason} -> %{ok: false, error: error_code(reason)}
+      end
     end)
   end
 
@@ -148,12 +172,16 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
   defp error_code({:invalid, _errors}), do: :invalid
   defp error_code(reason) when is_atom(reason), do: reason
 
+  @doc false
+  def wrap_view(%KeyWrap{} = wrap), do: wrap_map(wrap)
+
   defp wrap_map(%KeyWrap{} = wrap) do
     %{
       id: wrap.id,
       kind: wrap.kind,
       label: wrap.label,
       credential_id: wrap.credential_id,
+      inserted_at: DateTime.to_iso8601(wrap.inserted_at),
       kdf_params: wrap.kdf_params,
       salt: wrap.salt,
       wrapped_key: wrap.wrapped_key

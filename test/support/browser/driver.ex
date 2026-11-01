@@ -33,6 +33,9 @@ defmodule DebtReliefTracker.BrowserCase.Driver do
     _ -> :ok
   end
 
+  # `{port, tab}` addresses a named browser tab (see `new_tab` in driver.mjs).
+  def call({port, tab}, cmd, args), do: call(port, cmd, Map.put(args, :tab, tab))
+
   def call(port, cmd, args) do
     id = System.unique_integer([:positive])
     Port.command(port, JSON.encode!(%{id: id, cmd: cmd, args: args}) <> "\n")

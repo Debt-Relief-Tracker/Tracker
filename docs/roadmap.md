@@ -397,8 +397,14 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
       `Holo.Components.VaultGate` commands (rate limited, log-redacted),
       `Storage.Vault`, locked-shell `/app`, `/` -> `/app` redirect, CSV export
       410, boot checks. Setup/unlock UI is Phase 7.
-- [ ] 7. Client vault flows (setup wizard, unlock, remember device).
-- [ ] 8. Sync (CAS merge, catch-up of auto-logged installments).
+- [x] 7. Client vault flows (setup wizard, unlock, lock/idle/cross-tab,
+      methods modal, change passphrase, start over, remember device, rollback
+      detection) on opaque crypto handles. ADR 0007 "Client vault flows".
+      Open: real authenticators / Safari / Firefox.
+- [x] 8. Sync (CAS merge with retry/backoff, debounced save, visibility refetch,
+      unload warning, catch-up of auto-logged installments on open). Feature
+      components still save through `Context.apply_change`; routing them to the
+      page's `:vault_apply_change` is the next task.
 - [ ] 9. Plaintext -> vault migration with verification and confirmed delete.
       Decided: owner of a shared workspace migrates and other members lose
       access (explicit confirmation listing them); unmigrated users keep

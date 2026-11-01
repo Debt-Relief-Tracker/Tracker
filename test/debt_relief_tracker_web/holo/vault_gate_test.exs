@@ -64,6 +64,22 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGateTest do
       assert Vaults.fetch(wa) == :none
     end
 
+    test "create with several wraps, rename, and created time", %{a: a} do
+      w1 = passphrase_wrap()
+      w2 = passphrase_wrap(%{kind: "recovery", label: "recovery", kdf_params: nil, salt: nil})
+
+      assert %{ok: true, rev: 1} = run(a, :create_vault, %{blob: "v1.A.B", wraps: [w1, w2]})
+
+      assert %{ok: true, key_wrap: %{label: "Mine"}} =
+               run(a, :rename_key_wrap, %{id: w1.id, label: "Mine"})
+
+      assert %{ok: false, error: :not_found} = run(a, :rename_key_wrap, %{id: "x", label: "y"})
+
+      assert %{ok: true, key_wraps: wraps} = run(a, :fetch_vault, %{})
+      assert length(wraps) == 2
+      assert Enum.all?(wraps, &(is_binary(&1.inserted_at) and &1.inserted_at =~ ~r/^\d{4}-/))
+    end
+
     test "invalid input is a plain error, not a crash", %{a: a} do
       assert %{ok: false, error: :invalid} = run(a, :create_vault, %{blob: 5})
       assert %{ok: false, error: :invalid} = run(a, :save_vault, %{base_rev: "1", blob: "x"})

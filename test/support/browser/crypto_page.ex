@@ -25,7 +25,8 @@ defmodule DebtReliefTracker.BrowserCase.CryptoPage do
       <button id="run-prf" $click="run_prf">PRF detect + self test</button>
       <button id="run-passkey" $click="run_passkey">Passkey</button>
       <p id="flow-done">{@r[:flow_done]}</p>
-      <p id="kek-bytes">{@r[:kek_bytes]}</p>
+      <p id="handle-len">{@r[:handle_len]}</p>
+      <p id="locked">{@r[:locked]}</p>
       <p id="unwrap-same">{@r[:unwrap_same]}</p>
       <p id="doc-text">{@r[:doc_text]}</p>
       <p id="wrong-kind">{@r[:wrong_kind]}</p>
@@ -46,50 +47,52 @@ defmodule DebtReliefTracker.BrowserCase.CryptoPage do
   end
 
   def action(:run_flow, _params, component) do
-    {:ok, vk} = Crypto.generate_vault_key()
-    {:ok, salt} = Crypto.new_salt()
+    {:ok, h} = Crypto.new_vault()
+    {:ok, wrap} = Crypto.wrap_passphrase(h, "pässphrase long", "ws1", "w1")
 
-    {:ok, kek} =
-      Crypto.derive_new_passphrase_kek("pässphrase", salt, Crypto.default_argon2_params())
+    {:ok, env} = Crypto.encrypt_document(h, "ws1", 3, "{\"hello\":\"wörld\"}")
+    {:ok, "locked"} = Crypto.lock(h)
+    locked = Crypto.decrypt_document(h, "ws1", 3, env)
 
-    {:ok, wrap} = Crypto.wrap_vault_key(kek, vk, "ws1", "w1", :passphrase)
-    {:ok, vk2} = Crypto.unwrap_vault_key(kek, wrap, "ws1", "w1", :passphrase)
-    {:ok, env} = Crypto.encrypt_document(vk, "ws1", 3, "{\"hello\":\"wörld\"}")
-    {:ok, text} = Crypto.decrypt_document(vk2, "ws1", 3, env)
-    wrong_kind = Crypto.unwrap_vault_key(kek, wrap, "ws1", "w1", :recovery)
-    wrong_rev = Crypto.decrypt_document(vk, "ws1", 4, env)
+    {:ok, h2} = Crypto.unlock_passphrase("pässphrase long", "ws1", Map.put(wrap, :id, "w1"))
+    {:ok, text} = Crypto.decrypt_document(h2, "ws1", 3, env)
+    wrong_pass = Crypto.unlock_passphrase("nope nope nope", "ws1", Map.put(wrap, :id, "w1"))
+    wrong_id = Crypto.unlock_passphrase("pässphrase long", "ws1", Map.put(wrap, :id, "w2"))
+    wrong_rev = Crypto.decrypt_document(h2, "ws1", 4, env)
 
     bad =
-      Crypto.derive_passphrase_kek("x", salt, %{
-        memory_kib: 2_000_000,
-        iterations: 3,
-        parallelism: 1
+      Crypto.unlock_passphrase("x", "ws1", %{
+        id: "w1",
+        salt: wrap.salt,
+        kdf_params: ~s({"memoryKiB":2000000,"iterations":3,"parallelism":1}),
+        wrapped_key: wrap.wrapped_key
       })
 
     put_state(component, :r, %{
       flow_done: "yes",
-      kek_bytes: to_string(byte_size(kek)),
-      unwrap_same: yes_no(vk == vk2),
+      handle_len: to_string(byte_size(h)),
+      unwrap_same: yes_no(text == "{\"hello\":\"wörld\"}"),
       doc_text: text,
-      wrong_kind: inspect(wrong_kind),
+      locked: inspect(locked),
+      wrong_kind: inspect({wrong_pass, wrong_id}),
       wrong_rev: inspect(wrong_rev),
       bad_params: inspect(bad)
     })
   end
 
   def action(:run_recovery, _params, component) do
-    {:ok, key} = Crypto.generate_recovery_key()
-    {:ok, kek1} = Crypto.derive_recovery_kek(key)
-    {:ok, kek2} = Crypto.derive_recovery_kek(String.downcase(key))
-    {:ok, vk} = Crypto.generate_vault_key()
-    {:ok, wrap} = Crypto.wrap_vault_key(kek1, vk, "ws1", "r1", :recovery)
-    {:ok, vk2} = Crypto.unwrap_vault_key(kek2, wrap, "ws1", "r1", :recovery)
-    bad = Crypto.derive_recovery_kek("not a key")
+    {:ok, h} = Crypto.new_vault()
+    {:ok, %{recovery_key: key, wrapped_key: wrapped}} = Crypto.wrap_recovery(h, "ws1", "r1")
+    {:ok, env} = Crypto.encrypt_document(h, "ws1", 1, "secret")
+    wrap = %{id: "r1", wrapped_key: wrapped}
+    {:ok, h2} = Crypto.unlock_recovery(String.downcase(key), "ws1", wrap)
+    {:ok, text} = Crypto.decrypt_document(h2, "ws1", 1, env)
+    bad = Crypto.unlock_recovery("not a key", "ws1", wrap)
 
     put_state(component, :r, %{
       recovery_done: "yes",
-      recovery_same: yes_no(kek1 == kek2),
-      recovery_unwrap: yes_no(vk == vk2),
+      recovery_same: yes_no(String.length(key) == 69),
+      recovery_unwrap: yes_no(text == "secret"),
       recovery_bad: inspect(bad)
     })
   end
@@ -103,22 +106,21 @@ defmodule DebtReliefTracker.BrowserCase.CryptoPage do
   end
 
   def action(:run_passkey, _params, component) do
-    opts = %{
-      rp_id: "localhost",
-      rp_name: "DRT test",
-      user_id: "AQIDBA",
-      user_name: "tester",
-      display_name: "Tester"
-    }
+    {:ok, h} = Crypto.new_vault()
 
-    case Crypto.create_passkey(opts) do
-      {:ok, %{credential_id: id, kek: kek}} ->
-        {:ok, kek2} = Crypto.derive_passkey_kek(id, "localhost")
+    opts = %{rp_id: "localhost", rp_name: "DRT test", user_name: "tester"}
+
+    case Crypto.wrap_passkey(h, "ws1", "p1", opts) do
+      {:ok, %{credential_id: id, wrapped_key: wrapped}} ->
+        wrap = %{id: "p1", credential_id: id, wrapped_key: wrapped}
+        {:ok, env} = Crypto.encrypt_document(h, "ws1", 1, "pk")
+        {:ok, h2} = Crypto.unlock_passkey("ws1", "localhost", wrap)
+        {:ok, text} = Crypto.decrypt_document(h2, "ws1", 1, env)
 
         put_state(component, :r, %{
           passkey_done: "yes",
           passkey_create: "ok",
-          passkey_derive: yes_no(kek == kek2)
+          passkey_derive: yes_no(text == "pk")
         })
 
       {:error, code} ->

@@ -50,17 +50,24 @@ defmodule DebtReliefTracker.E2EE.Vaults do
     end
   end
 
+  @doc "The workspace's key wraps (oldest first); `[]` without a vault. No blob read."
+  def key_wraps(%Workspace{id: ws}), do: list_wraps(ws)
+
   @doc "Whether the workspace has a vault (no blob read)."
   def exists?(%Workspace{id: ws}),
     do: Repo.exists?(from(v in Vault, where: v.workspace_id == ^ws), @q)
 
   @doc """
-  Creates the workspace's vault and its first key wrap in ONE transaction.
-  `{:error, :exists}` if a vault is already there.
+  Creates the workspace's vault and its first key wrap(s) in ONE transaction
+  (all or nothing). `wraps` is one wrap map or a non-empty list of them (the
+  setup wizard creates the chosen method's wrap and the recovery wrap
+  together). `{:error, :exists}` if a vault is already there.
   """
-  def create(%Workspace{id: ws}, blob, wrap_attrs) when is_binary(blob) do
+  def create(%Workspace{id: ws}, blob, wraps) when is_binary(blob) do
+    wraps = List.wrap(wraps)
+
     with :ok <- check_blob(blob),
-         :ok <- check_wrap_sizes(wrap_attrs) do
+         :ok <- check_wraps(wraps) do
       Repo.transaction(fn ->
         if Repo.exists?(from(v in Vault, where: v.workspace_id == ^ws), @q),
           do: Repo.rollback(:exists)
@@ -68,10 +75,14 @@ defmodule DebtReliefTracker.E2EE.Vaults do
         %Vault{workspace_id: ws, rev: 1, format_version: 1, blob: blob}
         |> Repo.insert!(@q)
 
-        case insert_wrap(ws, wrap_attrs) do
-          {:ok, _wrap} -> %{rev: 1}
-          {:error, reason} -> Repo.rollback(reason)
-        end
+        Enum.each(wraps, fn attrs ->
+          case insert_wrap(ws, attrs) do
+            {:ok, _wrap} -> :ok
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end)
+
+        %{rev: 1}
       end)
       |> unwrap_tx()
     end
@@ -171,6 +182,30 @@ defmodule DebtReliefTracker.E2EE.Vaults do
     end
   end
 
+  @doc """
+  Changes one wrap's label (the only wrap field that is not cryptographically
+  bound). `{:error, :not_found}` for any id that is not this workspace's.
+  """
+  def rename_key_wrap(%Workspace{id: ws}, wrap_id, label)
+      when is_binary(wrap_id) and is_binary(label) do
+    with {:ok, wrap_id} <- Ecto.UUID.cast(wrap_id),
+         %KeyWrap{} = wrap <- Repo.get_by(KeyWrap, [id: wrap_id, workspace_id: ws], @q) do
+      changeset =
+        wrap
+        |> Ecto.Changeset.cast(%{label: label}, [:label])
+        |> Ecto.Changeset.validate_length(:label, max: KeyWrap.limits().label, count: :bytes)
+
+      if changeset.valid?,
+        do: changeset |> Repo.update(@q) |> rename_result(),
+        else: {:error, {:invalid, errors(changeset)}}
+    else
+      _ -> {:error, :not_found}
+    end
+  end
+
+  defp rename_result({:ok, %KeyWrap{} = wrap}), do: {:ok, wrap}
+  defp rename_result({:error, cs}), do: {:error, {:invalid, errors(cs)}}
+
   @doc "Deletes the vault and all its wraps (account wipe)."
   def delete_vault(%Workspace{id: ws}) do
     Repo.transaction(fn ->
@@ -242,6 +277,19 @@ defmodule DebtReliefTracker.E2EE.Vaults do
   defp check_blob(blob) when byte_size(blob) == 0, do: {:error, {:invalid, %{blob: ["is empty"]}}}
   defp check_blob(blob) when byte_size(blob) > @max_blob_bytes, do: {:error, :too_large}
   defp check_blob(_blob), do: :ok
+
+  defp check_wraps([]), do: {:error, {:invalid, %{wrap: ["is invalid"]}}}
+
+  defp check_wraps(wraps) when length(wraps) > @max_wraps, do: {:error, :too_many_wraps}
+
+  defp check_wraps(wraps) do
+    Enum.find_value(wraps, :ok, fn attrs ->
+      case check_wrap_sizes(attrs) do
+        :ok -> nil
+        error -> error
+      end
+    end)
+  end
 
   defp check_wrap_sizes(attrs) when is_map(attrs) do
     limits = KeyWrap.limits()

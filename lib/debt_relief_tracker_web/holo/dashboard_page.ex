@@ -8,7 +8,12 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
     * `:e2ee` -- true in E2EE mode: the server never loads financial data, so
       `:snapshot` is `nil` and the page renders only a locked shell.
-    * `:vault` -- E2EE only: `%{exists: boolean}` (never the blob).
+    * `:vault` -- E2EE only: the client-side vault state machine
+      (`Holo.VaultFlow`: phase `:no_vault | :locked | :unlocked`, the
+      server-visible key wraps, an opaque crypto session handle -- never a
+      key, the blob or plaintext).
+    * `:doc` / `:sync` -- E2EE only, memory only, `nil` while locked: the
+      decrypted `VaultDoc` and the save-loop state.
     * `:snapshot` -- a `Storage` snapshot, the single source of truth for all
       financial data. Everything displayed is derived from it by the shared
       integer engine.
@@ -32,9 +37,14 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   alias DebtReliefTrackerWeb.Holo.Components.SettingsModal
   alias DebtReliefTrackerWeb.Holo.Components.TutorialOverlay
   alias DebtReliefTrackerWeb.Holo.Components.VaultGate
+  alias DebtReliefTrackerWeb.Holo.Components.VaultHome
+  alias DebtReliefTrackerWeb.Holo.Components.VaultMethods
+  alias DebtReliefTrackerWeb.Holo.Components.VaultSetup
+  alias DebtReliefTrackerWeb.Holo.Components.VaultUnlock
   alias DebtReliefTracker.E2EE
   alias DebtReliefTracker.E2EE.Vaults
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.VaultFlow
 
   route "/app"
   layout DebtReliefTrackerWeb.Holo.Layout
@@ -46,18 +56,29 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   # only whether a vault exists.
   def init(_params, component, server) do
     if E2EE.enabled?() do
-      vault = %{exists: Vaults.exists?(Context.workspace(server))}
+      workspace = Context.workspace(server)
+      wraps = for w <- Vaults.key_wraps(workspace), do: VaultGate.wrap_view(w)
+
+      vault =
+        VaultFlow.new_vault(wraps,
+          idle_ms: Application.get_env(:debt_relief_tracker, :e2ee_idle_ms, 900_000),
+          test_hook: Application.get_env(:debt_relief_tracker, :e2ee_test_hook, false)
+        )
 
       component
       |> put_state(:e2ee, true)
       |> put_state(:vault, vault)
       |> put_state(:vault_result, nil)
       |> put_state(:snapshot, nil)
+      |> put_state(:doc, nil)
+      |> put_state(:sync, nil)
       |> put_state(:account, Context.account(server))
       |> put_state(:strategy, :cash_flow)
       |> put_state(:modal, nil)
       |> put_state(:error, nil)
       |> put_state(:notice, nil)
+      # Client-side on mount: environment, feature detection, remembered device.
+      |> put_action(:vault_boot)
     else
       {:ok, snapshot} = Context.load(server)
 
@@ -65,6 +86,8 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
       |> put_state(:e2ee, false)
       |> put_state(:vault, nil)
       |> put_state(:vault_result, nil)
+      |> put_state(:doc, nil)
+      |> put_state(:sync, nil)
       |> put_state(:snapshot, snapshot)
       |> put_state(:account, Context.account(server))
       |> put_state(:strategy, :cash_flow)
@@ -78,17 +101,49 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     ~HOLO"""
     <div id="holo-dashboard" class="flex flex-col min-h-screen">
       {%if @e2ee}
-        <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
-          <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
-          <p id="e2ee-locked-status" class="text-base-content/70 max-w-md">
-            {%if @vault.exists}
-              Your encrypted vault is locked. Unlocking happens in this browser; the server never sees your data.
-            {%else}
-              End-to-end encryption is on, but no vault has been created yet. Vault setup is coming in a later release.
-            {/if}
-          </p>
-          <VaultGate cid="vault_gate" />
-        </main>
+        {%if @vault.rollback}
+          <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
+            <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
+            <div id="vault-rollback" role="alert" class="alert alert-warning max-w-lg flex flex-col gap-2 text-left">
+              <strong>Your vault may have been rolled back or tampered with.</strong>
+              <span>
+                The server returned an older version of your encrypted data than this browser has seen before, or a
+                different one with the same version number. This can happen after a restore from backup, but it can
+                also mean someone is replaying old data. Continue only if you expect this.
+              </span>
+              <div class="flex flex-wrap gap-2">
+                <button id="vault-rollback-ack" type="button" class="btn btn-sm btn-warning" $click={:vault_rollback_ack}>I understand, continue</button>
+                <button id="vault-rollback-lock" type="button" class="btn btn-sm btn-outline" $click={:vault_lock}>Lock</button>
+              </div>
+            </div>
+          </main>
+        {%else}
+          {%if @vault.phase == :unlocked}
+            <VaultHome snapshot={@snapshot} vault={@vault} sync={@sync} account={@account} />
+          {%else}
+            <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
+              <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
+              <p id="e2ee-locked-status" class="text-base-content/70 max-w-md">
+                {%if @vault.phase == :locked}
+                  Your encrypted vault is locked. Unlocking happens in this browser; the server never sees your data.
+                {%else}
+                  End-to-end encryption is on, but no vault has been created yet.
+                {/if}
+              </p>
+              {%if @vault.phase == :locked}
+                <VaultUnlock cid="vault_unlock" vault={@vault} account={@account} />
+              {%else}
+                <VaultSetup cid="vault_setup" vault={@vault} account={@account} />
+              {/if}
+            </main>
+          {/if}
+        {/if}
+        <VaultGate cid="vault_gate" />
+        {%if @modal}
+          {%if @modal.type == :vault_methods}
+            <VaultMethods cid="vault_methods" vault={@vault} account={@account} />
+          {/if}
+        {/if}
         <Footer cid="footer" account={@account} />
       {%else}
       <HeaderBar cid="header_bar" snapshot={@snapshot} account={@account} />
@@ -183,8 +238,41 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     |> put_state(:notice, Map.get(params, :notice))
   end
 
-  # Outcome of a VaultGate command (E2EE mode); kept for the Phase 7 flows.
-  def action(:vault_result, params, component), do: put_state(component, :vault_result, params)
+  # --- E2EE mode: delegated to Holo.VaultFlow (see its moduledoc) --------------
+
+  def action(:vault_boot, _params, component), do: VaultFlow.boot(component)
+  def action(:vault_result, params, component), do: VaultFlow.result(component, params)
+  def action(:vault_opened, params, component), do: VaultFlow.opened(component, params)
+
+  def action(:vault_create_request, params, component),
+    do: VaultFlow.create_request(component, params)
+
+  def action(:vault_rollback_ack, _params, component), do: VaultFlow.rollback_ack(component)
+  def action(:vault_lock, _params, component), do: VaultFlow.request_lock(component, :manual)
+  def action(:vault_lock_anyway, _params, component), do: VaultFlow.lock_anyway(component)
+  def action(:vault_retry, _params, component), do: VaultFlow.retry(component)
+  def action(:vault_flush, params, component), do: VaultFlow.flush(component, params)
+  def action(:vault_methods_op, params, component), do: VaultFlow.methods_op(component, params)
+
+  def action(:vault_session_event, params, component),
+    do: VaultFlow.session_event(component, params)
+
+  def action(:vault_apply_change, %{change: change}, component),
+    do: VaultFlow.apply_change(component, change)
+
+  # Minimal editing hook (test_hook config) until feature components use the ledger.
+  def action(:vault_hook_add, %{event: %{"name" => name}}, component) when name != "",
+    do: VaultFlow.test_hook_add(component, name)
+
+  def action(:vault_hook_add, _params, component), do: component
+
+  def action(:vault_hook_add_auto, _params, component),
+    do: VaultFlow.test_hook_add_auto(component)
+
+  def action(:vault_hook_pay, %{id: id}, component), do: VaultFlow.test_hook_pay(component, id)
+
+  def action(:vault_hook_delete, %{id: id}, component),
+    do: VaultFlow.test_hook_delete(component, id)
 
   def action(:dismiss_notice, _params, component), do: put_state(component, :notice, nil)
 
