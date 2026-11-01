@@ -100,10 +100,25 @@ defmodule DebtReliefTracker.VaultDocParity do
     b = normalize(view)
 
     for key <- [:schema_version, :settings, :debts, :payments, :activity, :retirement_profiles] do
-      assert Map.fetch!(a, key) == Map.fetch!(b, key),
+      assert comparable(key, Map.fetch!(a, key)) == comparable(key, Map.fetch!(b, key)),
              "#{key} differ after #{inspect(change)}\nplain:  #{inspect(Map.fetch!(a, key), pretty: true, limit: :infinity)}\nledger: #{inspect(Map.fetch!(b, key), pretty: true, limit: :infinity)}"
     end
   end
+
+  # On Postgres the plaintext tables keep one-second timestamps (activity_logs,
+  # payments, debts and retirement_profiles are `timestamp(0)`, see the Postgres notes in ADR 0001),
+  # so "newest first" lists tie within a second and Plain returns ties in an
+  # arbitrary order -- while the ledger orders them deterministically. The
+  # contract inside a tie is therefore undefined there: compare those lists as
+  # sets on Postgres. SQLite keeps microseconds, so it is compared strictly.
+  defp comparable(key, list)
+       when key in [:debts, :payments, :activity, :retirement_profiles] and is_list(list) do
+    if DebtReliefTracker.Repo.active_repo() == DebtReliefTracker.Repo.Postgres,
+      do: Enum.sort_by(list, &:erlang.term_to_binary/1),
+      else: list
+  end
+
+  defp comparable(_key, value), do: value
 
   def normalize(snapshot) do
     assert_iso(snapshot.settings.updated_at)
