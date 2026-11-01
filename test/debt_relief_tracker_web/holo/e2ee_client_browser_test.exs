@@ -456,7 +456,7 @@ defmodule DebtReliefTrackerWeb.Holo.E2EEClientBrowserTest do
       # activity every 0.8 s keeps it unlocked well past the timeout
       for _ <- 1..5 do
         Process.sleep(800)
-        click(ctx, "#vault-home h1")
+        click(ctx, "#vault-sync-status")
       end
 
       assert_selector(ctx, "#vault-home")

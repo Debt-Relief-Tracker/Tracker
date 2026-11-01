@@ -11,7 +11,9 @@ export function download(filename, text, mime) {
   a.download = String(filename)
   a.style.display = "none"
   document.body.appendChild(a)
-  a.click()
+  // Non-bubbling: a bubbling click on an element outside the open modal would
+  // reach Hologram's `$click_outside` handler and close the settings modal.
+  a.dispatchEvent(new MouseEvent("click", { bubbles: false, cancelable: true }))
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10000)
   return "ok"

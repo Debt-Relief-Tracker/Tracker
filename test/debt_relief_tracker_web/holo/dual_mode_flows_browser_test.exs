@@ -750,7 +750,7 @@ defmodule DebtReliefTrackerWeb.Holo.DualModeFlowsBrowserTest do
       :ok
     end
 
-    @tag :perf
+    @tag skip: if(System.get_env("E2EE_PERF"), do: false, else: "set E2EE_PERF=1 (takes ~4 min)")
     @tag timeout: 900_000
     @tag ownership_timeout: 900_000
     test "a workspace with 500 payments: timings of an ordinary action", ctx do

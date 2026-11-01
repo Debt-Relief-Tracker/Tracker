@@ -13,8 +13,15 @@ defmodule DebtReliefTracker.E2EEBrowser do
   alias DebtReliefTracker.BrowserCase.Driver
   alias DebtReliefTrackerWeb.Holo.DashboardPage
 
-  @doc "Turns E2EE on for this test and restores config afterwards."
+  @doc "Turns E2EE on for this test and restores config afterwards (also marks the tutorial seen)."
   def e2ee_on(opts \\ []) do
+    # the first-run tutorial overlay would intercept every click on the dashboard
+    {:ok, _} =
+      DebtReliefTracker.Accounts.set_tutorial_seen(
+        DebtReliefTracker.Accounts.get_default_user!(),
+        true
+      )
+
     DebtReliefTracker.E2EEHelpers.enable_e2ee()
     put_env(:e2ee_test_hook, Keyword.get(opts, :hook, true))
     put_env(:e2ee_idle_ms, Keyword.get(opts, :idle_ms, 900_000))
