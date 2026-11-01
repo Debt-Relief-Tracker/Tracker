@@ -107,10 +107,14 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
     confirm? = Map.get(params, :confirm_remove_members) == true
 
     run(server, :migration_finalize, :strict, fn workspace, user ->
-      case Migration.finalize(workspace, user, digest, confirm_remove_members: confirm?) do
-        {:ok, :already_clean} -> %{ok: true, already_clean: true}
-        {:ok, summary} -> Map.put(summary, :ok, true)
-        {:error, reason} -> %{ok: false, error: reason}
+      with :ok <- test_busy() do
+        case Migration.finalize(workspace, user, digest, confirm_remove_members: confirm?) do
+          {:ok, :already_clean} -> %{ok: true, already_clean: true}
+          {:ok, summary} -> Map.put(summary, :ok, true)
+          {:error, reason} -> %{ok: false, error: reason}
+        end
+      else
+        :busy -> %{ok: false, error: :busy}
       end
     end)
   end
@@ -121,6 +125,19 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
   end
 
   # --- internals ----------------------------------------------------------
+
+  # Test seam, never set by default: `:migration_test_busy_finalize` = n makes
+  # the next n finalize calls answer `:busy` without touching any data.
+  defp test_busy do
+    case Application.get_env(:debt_relief_tracker, :migration_test_busy_finalize, 0) do
+      n when is_integer(n) and n > 0 ->
+        Application.put_env(:debt_relief_tracker, :migration_test_busy_finalize, n - 1)
+        :busy
+
+      _ ->
+        :ok
+    end
+  end
 
   defp run(server, op, bucket, fun) do
     workspace = Context.workspace(server)

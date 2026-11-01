@@ -511,6 +511,85 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     end
   end
 
+  # --- migration rebuild --------------------------------------------------------------
+  #
+  # The plaintext moved on (or the stored vault is stale) while migrating:
+  # replace the document of the EXISTING, unlocked vault with one built from
+  # the fresh export snapshot -- fresh IV, AAD rev = base_rev + 1, compare-and-
+  # swap on base_rev. One conflict (another writer bumped the rev) is retried
+  # once against the rev the server reports; then the migration is told it failed.
+
+  def migration_rebuild(c, snapshot), do: rebuild_save(c, snapshot, 1)
+
+  defp rebuild_save(c, snapshot, tries) do
+    doc = VaultDoc.from_snapshot(snapshot)
+    base_rev = rebuild_base_rev(c)
+    rev = base_rev + 1
+
+    case Crypto.encrypt_document(c.state.vault.handle, ws(c), rev, VaultDoc.encode(doc)) do
+      {:ok, blob} ->
+        c
+        |> merge(%{
+          flow: :migration_rebuild,
+          inflight: %{blob: blob, rev: rev, doc: doc, snapshot: snapshot, tries: tries}
+        })
+        |> put_action(
+          name: :save_vault,
+          target: "vault_gate",
+          params: %{base_rev: base_rev, blob: blob}
+        )
+
+      {:error, _} ->
+        rebuild_failed(c)
+    end
+  end
+
+  defp rebuild_base_rev(c) do
+    case c.state.sync do
+      nil -> 0
+      sync -> sync.base_rev
+    end
+  end
+
+  @doc "The `save_vault` reply of a migration rebuild."
+  def migration_rebuilt(c, %{ok: true, rev: rev}) do
+    %{blob: blob, doc: doc} = c.state.vault.inflight
+    Crypto.seen_record(ws(c), rev, blob)
+
+    c
+    |> put_state(:doc, doc)
+    |> put_state(:snapshot, VaultDoc.view(doc))
+    |> put_state(:sync, SaveLoop.new(rev))
+    |> merge(%{flow: nil, inflight: nil})
+    |> put_action(
+      name: :migration_event,
+      target: "migration_screen",
+      params: %{event: :vault_ready}
+    )
+  end
+
+  def migration_rebuilt(c, %{ok: false, error: :conflict, rev: rev}) do
+    %{snapshot: snapshot, tries: tries} = c.state.vault.inflight
+
+    if tries < 2 do
+      c |> put_state(:sync, SaveLoop.new(rev)) |> rebuild_save(snapshot, tries + 1)
+    else
+      rebuild_failed(c)
+    end
+  end
+
+  def migration_rebuilt(c, _failed), do: rebuild_failed(c)
+
+  defp rebuild_failed(c) do
+    c
+    |> merge(%{flow: nil, inflight: nil})
+    |> put_action(
+      name: :migration_event,
+      target: "migration_screen",
+      params: %{event: :vault_failed}
+    )
+  end
+
   defp saved(c, %{ok: true, rev: rev}) do
     inflight = c.state.vault.inflight
     ws = ws(c)

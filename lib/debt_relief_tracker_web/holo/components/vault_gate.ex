@@ -70,7 +70,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
             ok: true,
             exists: true,
             rev: vault.rev,
-            blob: vault.blob,
+            blob: test_corrupt(vault.blob),
             format_version: vault.format_version,
             key_wraps: Enum.map(vault.key_wraps, &wrap_map/1)
           }
@@ -163,6 +163,19 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
       target: "page",
       params: Map.put(result, :op, op)
     )
+  end
+
+  # Test seam, never set by default: `:migration_test_corrupt_fetch` = n makes
+  # the next n fetches return a damaged blob (nothing stored is touched).
+  defp test_corrupt(blob) do
+    case Application.get_env(:debt_relief_tracker, :migration_test_corrupt_fetch, 0) do
+      n when is_integer(n) and n > 0 ->
+        Application.put_env(:debt_relief_tracker, :migration_test_corrupt_fetch, n - 1)
+        blob <> "AAAA"
+
+      _ ->
+        blob
+    end
   end
 
   defp reply(:ok), do: %{ok: true}

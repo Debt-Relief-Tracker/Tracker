@@ -16,9 +16,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
   `{:status_result | :export_result | :finalize_result, reply}` and
   `{:fetched, reply}` (the verification download).
 
-  Not handled yet: the `{:rebuild_vault, snapshot}` effect (CAS-saving a new
-  document over the half-created vault after `:changed` or a verification
-  mismatch); the screen asks the user to reload instead.
+  The `{:rebuild_vault, snapshot}` effect (after `:changed` or a verification
+  mismatch) asks the page (`VaultFlow.migration_rebuild/2`) to CAS-save a new
+  document over the existing vault; the page answers `:vault_ready` (saved,
+  continue with the re-download) or `:vault_failed`.
   """
 
   use Hologram.Component
@@ -88,9 +89,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
 
       {%if @flow.step == :setting_up}
         {%if @rebuild_needed}
-          <p id="migration-rebuild" role="alert" class="alert alert-warning">
-            Something changed while we were encrypting your data, so we stopped before deleting anything.
-            Please reload this page to try again.
+          <p id="migration-rebuild" role="status" class="flex items-center gap-2">
+            <span class="loading loading-spinner loading-sm"></span>
+            Something changed, so we are updating your encrypted copy. Nothing has been deleted.
           </p>
         {%else}
           <VaultSetup cid="vault_setup" vault={@vault} account={@account} initial_doc={@doc} />
@@ -252,8 +253,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
     |> put_state(:rebuild_needed, false)
   end
 
-  defp do_effect(component, {:rebuild_vault, _snapshot}),
-    do: put_state(component, :rebuild_needed, true)
+  defp do_effect(component, {:rebuild_vault, snapshot}) do
+    component
+    |> put_state(:rebuild_needed, true)
+    |> put_action(name: :migration_rebuild, target: "page", params: %{snapshot: snapshot})
+  end
 
   defp do_effect(component, {:redownload_vault}),
     do: put_action(component, name: :migration_fetch, target: "page")
