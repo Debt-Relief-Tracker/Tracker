@@ -1,5 +1,6 @@
 defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
   use ExUnit.Case, async: true
+  @ref %{rev: 1, sha256: "abc123"}
 
   alias DebtReliefTracker.VaultDoc
   alias DebtReliefTrackerWeb.Holo.MigrationFlow, as: Flow
@@ -242,12 +243,19 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       assert s.step == :verifying
       assert effects == [{:redownload_vault}]
 
-      {s, effects} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {s, effects} =
+        Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+
       assert s.step == :finalizing
 
       assert effects == [
                {:command, :migration_finalize,
-                %{digest: "digest-1", confirm_remove_members: false}}
+                %{
+                  digest: "digest-1",
+                  confirm_remove_members: false,
+                  vault_rev: 1,
+                  vault_blob_sha256: "abc123"
+                }}
              ]
 
       {s, []} = Flow.apply(s, {:finalize_result, %{ok: true, deleted: %{}}})
@@ -257,7 +265,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
     test "already_clean finalize also completes" do
       s = to_verifying()
-      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
       {s, _} = Flow.apply(s, {:finalize_result, %{ok: true, already_clean: true}})
       assert s.step == :done
     end
@@ -271,7 +279,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
       for ev <- [
             :vault_created,
-            {:vault_downloaded, {:ok, redownloaded_view(snapshot())}},
+            {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref},
             :begin
           ] do
         assert {^s, []} = Flow.apply(s, ev)
@@ -284,7 +292,9 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       {s, [{:build_vault, _}]} = Flow.apply(s, {:confirm_members, true})
       assert s.step == :setting_up
       {s, _} = Flow.apply(s, :vault_created)
-      {_s, effects} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+
+      {_s, effects} =
+        Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
 
       assert effects == [
                {:command, :migration_finalize,
@@ -299,7 +309,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
     test "members_present at finalize is a terminal failure" do
       s = to_verifying()
-      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
       {s, []} = Flow.apply(s, {:finalize_result, %{ok: false, error: :members_present}})
       assert {s.step, s.reason} == {:failed, :members_present}
       assert Flow.terminal?(s)
@@ -309,7 +319,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
   describe "finalize failures" do
     test "digest changed: re-export, rebuild the vault, verify the NEW export, finalize its digest" do
       s = to_verifying()
-      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
       {s, effects} = Flow.apply(s, {:finalize_result, %{ok: false, error: :changed}})
       assert s.step == :re_exporting
       assert s.verified_digest == nil
@@ -327,14 +337,21 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       {s, [{:redownload_vault}]} = Flow.apply(s, :vault_created)
 
       # the OLD vault contents no longer verify
-      {failed, []} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {failed, []} =
+        Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+
       assert failed.reason == :verification_mismatch
 
-      {s, effects} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(newer)}})
+      {s, effects} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(newer)}, @ref})
 
       assert effects == [
                {:command, :migration_finalize,
-                %{digest: "digest-2", confirm_remove_members: false}}
+                %{
+                  digest: "digest-2",
+                  confirm_remove_members: false,
+                  vault_rev: 1,
+                  vault_blob_sha256: "abc123"
+                }}
              ]
 
       assert s.step == :finalizing
@@ -345,7 +362,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
       final =
         Enum.reduce(1..4, s, fn _, s ->
-          {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+          {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
           {s, _} = Flow.apply(s, {:finalize_result, %{ok: false, error: :changed}})
 
           case s.step do
@@ -364,9 +381,17 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
     test "busy retries with backoff, bounded, same digest" do
       s = to_verifying()
-      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
       busy = {:finalize_result, %{ok: false, error: :busy}}
-      fin = {:command, :migration_finalize, %{digest: "digest-1", confirm_remove_members: false}}
+
+      fin =
+        {:command, :migration_finalize,
+         %{
+           digest: "digest-1",
+           confirm_remove_members: false,
+           vault_rev: 1,
+           vault_blob_sha256: "abc123"
+         }}
 
       {s, [{:retry_after, 1_000, ^fin}]} = Flow.apply(s, busy)
       {s, [{:retry_after, 3_000, ^fin}]} = Flow.apply(s, busy)
@@ -382,7 +407,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
     test "busy then success" do
       s = to_verifying()
-      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
       {s, _} = Flow.apply(s, {:finalize_result, %{ok: false, error: :busy}})
       {s, []} = Flow.apply(s, {:finalize_result, %{ok: true}})
       assert s.step == :done
@@ -479,7 +504,10 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       {s, effects} = Flow.apply(s, {:export_result, export_reply(snapshot())})
       assert s.step == :verifying
       assert effects == [{:redownload_vault}]
-      {s, effects} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+
+      {s, effects} =
+        Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+
       assert s.step == :finalizing
       assert length(finalize_effects(effects)) == 1
     end
@@ -496,7 +524,10 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       {s, _} = Flow.apply(Flow.new(), {:status_result, %{ok: true, status: :both, owner: true}})
       newer = %{snapshot() | debts: [debt("d1", 0, "Visa", 1) | tl(snapshot().debts)]}
       {s, _} = Flow.apply(s, {:export_result, export_reply(newer)})
-      {s, effects} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+
+      {s, effects} =
+        Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+
       assert s.reason == :verification_mismatch
       assert finalize_effects(effects) == []
       assert {%{step: :setting_up}, [{:rebuild_vault, ^newer}]} = Flow.apply(s, :rebuild)
@@ -524,12 +555,16 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
         {:confirm_members, false},
         :vault_created,
         :vault_failed,
-        {:vault_downloaded, {:ok, good}},
-        {:vault_downloaded, {:ok, redownloaded_view(newer)}},
+        {:vault_downloaded, {:ok, good}, @ref},
+        {:vault_downloaded, {:ok, redownloaded_view(newer)}, @ref},
         {:vault_downloaded, {:ok, %{good | payments: tl(good.payments)}}},
         {:vault_downloaded, {:error, :invalid}},
         {:finalize_result, %{ok: true}},
         {:finalize_result, %{ok: false, error: :changed}},
+        {:finalize_result, %{ok: false, error: :vault_changed}},
+        {:vault_downloaded, {:ok, good}, %{rev: 2, sha256: "other"}},
+        {:vault_downloaded, {:ok, good}},
+        {:vault_downloaded, {:ok, good}, %{rev: "x", sha256: ""}},
         {:finalize_result, %{ok: false, error: :busy}},
         {:finalize_result, %{ok: false, error: :members_present}},
         {:finalize_result, %{ok: false, error: :other}},
@@ -549,7 +584,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
           if s2.step == :finalizing and s.step != :finalizing do
             :counters.add(reached, 1, 1)
             assert s.step == :verifying
-            assert {:vault_downloaded, {:ok, view}} = ev
+            assert {:vault_downloaded, {:ok, view}, @ref} = ev
             assert Flow.verify(s.export.snapshot, view) == :ok
             assert s2.verified_digest == s.export.digest
           end
@@ -566,12 +601,15 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
               assert s2.step == :finalizing
               assert p.digest == s2.verified_digest
               assert p.digest == s2.export.digest
+              assert %{rev: p.vault_rev, sha256: p.vault_blob_sha256} == s2.verified_vault
 
             _ ->
               :ok
           end)
 
-          if s2.step != :finalizing, do: assert(s2.verified_digest == nil)
+          if s2.step != :finalizing,
+            do: assert(s2.verified_digest == nil and s2.verified_vault == nil)
+
           if s2.step == :done, do: assert(s.step in [:finalizing, :done])
           _ = finals
           s2
@@ -604,6 +642,66 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       assert s.step == :verifying
       assert effects == [{:redownload_vault}]
       refute Enum.any?(effects, &match?({:command, :migration_finalize, _}, &1))
+    end
+  end
+
+  describe "vault_changed at finalize" do
+    test "re-downloads and re-verifies (bounded), finalizing only against the NEW vault ref" do
+      s = to_verifying()
+      {s, [fin]} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+      assert {:command, :migration_finalize, %{vault_rev: 1, vault_blob_sha256: "abc123"}} = fin
+
+      {s, effects} = Flow.apply(s, {:finalize_result, %{ok: false, error: :vault_changed}})
+      assert s.step == :verifying
+      assert effects == [{:redownload_vault}]
+      assert s.verified_vault == nil
+
+      # a mismatching new vault never finalizes
+      {bad, effects} =
+        Flow.apply(
+          s,
+          {:vault_downloaded, {:ok, %{redownloaded_view(snapshot()) | debts: []}},
+           %{rev: 2, sha256: "def"}}
+        )
+
+      assert bad.reason == :verification_mismatch
+      assert finalize_effects(effects) == []
+
+      # a matching one finalizes bound to the new ref
+      {s, [{:command, :migration_finalize, p}]} =
+        Flow.apply(
+          s,
+          {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, %{rev: 2, sha256: "def"}}
+        )
+
+      assert {p.vault_rev, p.vault_blob_sha256} == {2, "def"}
+    end
+
+    test "a download without a ref never finalizes" do
+      {s, effects} =
+        Flow.apply(to_verifying(), {:vault_downloaded, {:ok, redownloaded_view(snapshot())}})
+
+      assert s.step == :failed
+      assert finalize_effects(effects) == []
+    end
+
+    test "rounds are bounded" do
+      s = to_verifying()
+
+      s =
+        Enum.reduce(1..3, s, fn _, s ->
+          {s, [_]} =
+            Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+
+          {s, [{:redownload_vault}]} =
+            Flow.apply(s, {:finalize_result, %{ok: false, error: :vault_changed}})
+
+          s
+        end)
+
+      {s, [_]} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+      {s, []} = Flow.apply(s, {:finalize_result, %{ok: false, error: :vault_changed}})
+      assert {s.step, s.reason} == {:failed, :vault_changed}
     end
   end
 end

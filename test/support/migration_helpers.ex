@@ -53,6 +53,21 @@ defmodule DebtReliefTracker.MigrationHelpers do
     %{debt: debt, payment: payment, profile: profile}
   end
 
+  @doc "The `finalize/4` options binding to the workspace's CURRENT vault (none if absent)."
+  def vopts(workspace) do
+    case Repo.get(DebtReliefTracker.E2EE.Vault, workspace.id) do
+      %{rev: rev, blob: blob} -> [vault_rev: rev, vault_blob_sha256: blob_sha(blob)]
+      nil -> []
+    end
+  end
+
+  def blob_sha(blob), do: Base.encode16(:crypto.hash(:sha256, blob), case: :lower)
+
+  @doc "`Migration.finalize/4` bound to the current vault, as the verified browser would."
+  def fin(workspace, user, digest, opts \\ []),
+    do:
+      DebtReliefTracker.E2EE.Migration.finalize(workspace, user, digest, vopts(workspace) ++ opts)
+
   def create_vault!(workspace),
     do: {:ok, _} = Vaults.create(workspace, "v1.AAAA.BBBB", passphrase_wrap())
 

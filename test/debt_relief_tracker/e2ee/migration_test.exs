@@ -6,7 +6,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
   import DebtReliefTracker.MigrationHelpers
   import ExUnit.CaptureIO
 
-  alias DebtReliefTracker.{Accounts, ActivityLog, Debts, Payments, Settings}
+  alias DebtReliefTracker.{Accounts, ActivityLog, Debts, Payments, Repo, Settings}
   alias DebtReliefTracker.E2EE.{Migration, Vaults}
   alias DebtReliefTracker.Settings.Setting
   alias Mix.Tasks.Drt.AuditSnapshot
@@ -33,7 +33,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       assert Migration.status(ws) == :both
 
       {:ok, e} = Migration.export(ws, owner)
-      assert {:ok, %{}} = Migration.finalize(ws, owner, e.digest, confirm_remove_members: true)
+      assert {:ok, %{}} = fin(ws, owner, e.digest, confirm_remove_members: true)
       assert Migration.status(ws) == :vault_only
     end
 
@@ -210,7 +210,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
         assert {:error, :forbidden} = Migration.dry_run(ws, other)
 
         assert {:error, :forbidden} =
-                 Migration.finalize(ws, other, "x", confirm_remove_members: true)
+                 fin(ws, other, "x", confirm_remove_members: true)
       end
 
       # a stale/forged workspace struct claiming another owner does not help either
@@ -226,7 +226,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       create_vault!(ws)
       assert {:ok, _} = Migration.export(ws, owner)
       {:ok, e} = Migration.export(ws, owner)
-      {:ok, %{}} = Migration.finalize(ws, owner, e.digest)
+      {:ok, %{}} = fin(ws, owner, e.digest)
       assert {:error, :already_encrypted} = Migration.export(ws, owner)
     end
 
@@ -270,7 +270,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       before = table_counts(ws)
 
       assert {:error, :no_vault} =
-               Migration.finalize(ws, owner, digest, confirm_remove_members: true)
+               fin(ws, owner, digest, confirm_remove_members: true)
 
       assert table_counts(ws) == before
       assert Migration.digest(ws) == digest
@@ -282,7 +282,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
 
       for bad <- ["", "x", String.duplicate("0", 64), nil, 5, String.upcase(digest) <> "0"] do
         assert {:error, :changed} =
-                 Migration.finalize(ws, owner, bad, confirm_remove_members: true)
+                 fin(ws, owner, bad, confirm_remove_members: true)
       end
 
       assert table_counts(ws) == before
@@ -299,13 +299,13 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       before = table_counts(ws)
 
       assert {:error, :changed} =
-               Migration.finalize(ws, owner, digest, confirm_remove_members: true)
+               fin(ws, owner, digest, confirm_remove_members: true)
 
       assert table_counts(ws) == before
 
       # re-export, then it goes through
       %{digest: fresh} = export!(ws, owner)
-      assert {:ok, %{deleted: %{payments: 2}}} = Migration.finalize(ws, owner, fresh)
+      assert {:ok, %{deleted: %{payments: 2}}} = fin(ws, owner, fresh)
     end
 
     test "a payment posted by the scheduler after the export makes it :changed",
@@ -328,7 +328,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       {:ok, _} = DebtReliefTracker.DuePayments.post_due_payment(ws, nil, auto)
 
       assert {:error, :changed} =
-               Migration.finalize(ws, owner, digest, confirm_remove_members: true)
+               fin(ws, owner, digest, confirm_remove_members: true)
     end
 
     test "members and invitations need explicit confirmation", %{owner: owner, ws: ws} do
@@ -344,13 +344,13 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
             [confirm_remove_members: "true"],
             [confirm_remove_members: 1]
           ] do
-        assert {:error, :members_present} = Migration.finalize(ws, owner, digest, opts)
+        assert {:error, :members_present} = fin(ws, owner, digest, opts)
       end
 
       assert table_counts(ws) == before
 
       assert {:ok, %{removed_members: 1, canceled_invitations: 1}} =
-               Migration.finalize(ws, owner, digest, confirm_remove_members: true)
+               fin(ws, owner, digest, confirm_remove_members: true)
 
       assert Accounts.list_workspace_members(ws) == []
       assert Accounts.list_pending_invitations(ws) == []
@@ -366,7 +366,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       create_vault!(ws)
 
       assert {:ok, %{removed_members: 0, canceled_invitations: 0}} =
-               Migration.finalize(ws, owner, digest)
+               fin(ws, owner, digest)
     end
 
     test "deletes every plaintext row; the marker is nowhere afterwards",
@@ -378,7 +378,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       # decrypted dump covers the Cloak columns
       assert dump_all() =~ "Card #{marker()}"
 
-      assert {:ok, summary} = Migration.finalize(ws, owner, digest)
+      assert {:ok, summary} = fin(ws, owner, digest)
 
       assert summary == %{
                deleted: %{debts: 1, payments: 1, activity: 2, retirement_profiles: 1},
@@ -418,7 +418,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       before2 = {table_counts(ws2), Migration.digest(ws2), Vaults.fetch(ws2)}
 
       assert {:ok, %{removed_members: 1}} =
-               Migration.finalize(ws, owner, digest, confirm_remove_members: true)
+               fin(ws, owner, digest, confirm_remove_members: true)
 
       assert {table_counts(ws2), Migration.digest(ws2), Vaults.fetch(ws2)} == before2
       assert ws2 in Accounts.list_workspaces_for_user(member)
@@ -427,9 +427,9 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
 
     test "is idempotent", %{owner: owner, ws: ws, digest: digest} do
       create_vault!(ws)
-      assert {:ok, %{deleted: _}} = Migration.finalize(ws, owner, digest)
-      assert {:ok, :already_clean} = Migration.finalize(ws, owner, digest)
-      assert {:ok, :already_clean} = Migration.finalize(ws, owner, "anything")
+      assert {:ok, %{deleted: _}} = fin(ws, owner, digest)
+      assert {:ok, :already_clean} = fin(ws, owner, digest)
+      assert {:ok, :already_clean} = fin(ws, owner, "anything")
     end
 
     test "a failure inside the transaction rolls EVERYTHING back", %{
@@ -443,7 +443,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       before = {table_counts(ws), Migration.digest(ws), Vaults.fetch(ws), Migration.status(ws)}
 
       assert_raise RuntimeError, "boom", fn ->
-        Migration.finalize(ws, owner, digest,
+        fin(ws, owner, digest,
           confirm_remove_members: true,
           before_commit: fn -> raise "boom" end
         )
@@ -461,7 +461,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
 
       # and a clean retry still works
       assert {:ok, %{deleted: %{debts: 1}}} =
-               Migration.finalize(ws, owner, digest, confirm_remove_members: true)
+               fin(ws, owner, digest, confirm_remove_members: true)
     end
 
     test "a member who is demoted/forged is not the owner", %{
@@ -474,7 +474,7 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
       forged = %{ws | owner_user_id: member.id}
 
       assert {:error, :forbidden} =
-               Migration.finalize(forged, member, digest, confirm_remove_members: true)
+               fin(forged, member, digest, confirm_remove_members: true)
 
       assert Migration.status(ws) == :both
     end
@@ -482,9 +482,59 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
     test "mix drt.audit_snapshot (read-only) still passes after a migration",
          %{owner: owner, ws: ws, digest: digest} do
       create_vault!(ws)
-      {:ok, _} = Migration.finalize(ws, owner, digest)
+      {:ok, _} = fin(ws, owner, digest)
       out = capture_io(fn -> AuditSnapshot.run([]) end)
       assert out =~ "no precision loss"
+    end
+  end
+
+  describe "finalize is bound to the verified vault" do
+    setup do
+      {owner, ws} = owner_ws("bind")
+      populate!(ws, owner)
+      create_vault!(ws)
+      {:ok, e} = Migration.export(ws, owner)
+      %{owner: owner, ws: ws, digest: e.digest}
+    end
+
+    test "wrong hash, wrong rev, missing options: :vault_changed and nothing deleted",
+         %{owner: owner, ws: ws, digest: digest} do
+      good = vopts(ws)
+      before = {table_counts(ws), Migration.digest(ws), Migration.status(ws)}
+
+      for opts <- [
+            [],
+            [vault_rev: good[:vault_rev]],
+            [vault_rev: good[:vault_rev], vault_blob_sha256: blob_sha("v1.other.blob")],
+            [vault_rev: good[:vault_rev] + 1, vault_blob_sha256: good[:vault_blob_sha256]],
+            [vault_rev: "1", vault_blob_sha256: good[:vault_blob_sha256]],
+            [vault_rev: good[:vault_rev], vault_blob_sha256: 5]
+          ] do
+        assert {:error, :vault_changed} = Migration.finalize(ws, owner, digest, opts)
+      end
+
+      assert {table_counts(ws), Migration.digest(ws), Migration.status(ws)} == before
+    end
+
+    test "a vault overwritten after verification blocks the delete",
+         %{owner: owner, ws: ws, digest: digest} do
+      good = vopts(ws)
+
+      vault = Repo.get!(DebtReliefTracker.E2EE.Vault, ws.id)
+
+      vault
+      |> Ecto.Changeset.change(blob: "v1.CCCC.DDDD", rev: vault.rev + 1)
+      |> Repo.update!()
+
+      assert {:error, :vault_changed} = Migration.finalize(ws, owner, digest, good)
+      assert Migration.status(ws) == :both
+    end
+
+    test "the matching rev and hash delete", %{owner: owner, ws: ws, digest: digest} do
+      assert {:ok, %{deleted: %{debts: 1}}} =
+               Migration.finalize(ws, owner, digest, vopts(ws))
+
+      assert Migration.status(ws) == :vault_only
     end
   end
 end

@@ -34,7 +34,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
       members_to_remove: [%{display_name, email}], pending_invitations: n}`;
       error `:forbidden`.
     * `:migration_finalize` (`%{digest: string, confirm_remove_members:
-      boolean}`) -> `:migration_finalize_result`: `%{ok: true, already_clean:
+      boolean, vault_rev: integer, vault_blob_sha256: lower-hex string}`; the
+      last two identify the verified vault, error `:vault_changed` if it moved) -> `:migration_finalize_result`: `%{ok: true, already_clean:
       true}` or `%{ok: true, deleted: %{debts, payments, activity,
       retirement_profiles}, removed_members: n, canceled_invitations: n}`;
       errors `:forbidden | :no_vault | :changed | :members_present | :busy`
@@ -74,7 +75,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
     do:
       put_command(component, :migration_finalize,
         digest: digest,
-        confirm_remove_members: Map.get(params, :confirm_remove_members) == true
+        confirm_remove_members: Map.get(params, :confirm_remove_members) == true,
+        vault_rev: Map.get(params, :vault_rev),
+        vault_blob_sha256: Map.get(params, :vault_blob_sha256)
       )
 
   # --- commands (server) ------------------------------------------------------
@@ -113,12 +116,19 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
     end)
   end
 
-  defp dispatch(:migration_finalize, %{digest: digest} = params, server) when is_binary(digest) do
+  defp dispatch(
+         :migration_finalize,
+         %{digest: digest, vault_rev: vault_rev, vault_blob_sha256: sha} = params,
+         server
+       )
+       when is_binary(digest) and is_integer(vault_rev) and is_binary(sha) do
     confirm? = Map.get(params, :confirm_remove_members) == true
 
     run(server, :migration_finalize, :strict, fn workspace, user ->
       with :ok <- test_busy() do
-        case Migration.finalize(workspace, user, digest, confirm_remove_members: confirm?) do
+        opts = [confirm_remove_members: confirm?, vault_rev: vault_rev, vault_blob_sha256: sha]
+
+        case Migration.finalize(workspace, user, digest, opts) do
           {:ok, :already_clean} -> %{ok: true, already_clean: true}
           {:ok, summary} -> Map.put(summary, :ok, true)
           {:error, reason} -> %{ok: false, error: reason}
