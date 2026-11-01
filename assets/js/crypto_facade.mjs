@@ -885,11 +885,27 @@ export async function seenCheck(workspaceId, revision, blob) {
   return "ok"
 }
 
+// MONOTONIC: a stale write (a slow tab, a replayed older reply) never lowers
+// the record, and a same-rev write with a different blob never replaces it.
+// Only `seenAcknowledge` (an explicit user decision) can reset it.
 export async function seenRecord(workspaceId, revision, blob) {
   const rev = Number(revision)
   if (!Number.isSafeInteger(rev) || rev < 0) throw new CryptoError("bad_input")
+  const rec = await store.get("seen", workspaceId)
+  if (rec && (rev < rec.rev || (rev === rec.rev && (await sha256B64u(blob)) !== rec.hash))) {
+    return "kept"
+  }
   await store.put("seen", workspaceId, { rev, hash: await sha256B64u(blob) })
   return "recorded"
+}
+
+// The user explicitly accepted a rollback (or a new vault replaced the old):
+// the only way to lower the record. The caller logs it in state.
+export async function seenAcknowledge(workspaceId, revision, blob) {
+  const rev = Number(revision)
+  if (!Number.isSafeInteger(rev) || rev < 0) throw new CryptoError("bad_input")
+  await store.put("seen", workspaceId, { rev, hash: await sha256B64u(blob) })
+  return "acknowledged"
 }
 
 // Start over / sign-out of a workspace: drops every local record for it.
@@ -927,6 +943,7 @@ const PUBLIC = {
   deviceForget,
   seenCheck,
   seenRecord,
+  seenAcknowledge,
   localWipe,
 }
 

@@ -13,6 +13,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
         today: "2026-11-01",           # the user's local date (due dates, interest estimate)
         new_id: fn -> "uuid" end,      # UUID source; called in the order below
         actor: nil | user_id,          # who is acting (activity user_id; nil = unattended)
+        server_now: "2026-11-01T12:00:00Z",   # optional server-clock estimate (skew guard, ADR 0007)
         members: %{user_id => display_name}   # optional: confirmed workspace members
       }
 
@@ -97,6 +98,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
           required(:today) => String.t(),
           required(:new_id) => (-> String.t()),
           optional(:actor) => nil | String.t(),
+          optional(:server_now) => nil | String.t(),
           optional(:members) => %{String.t() => String.t()}
         }
 
@@ -177,15 +179,22 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
 
   # --- state -------------------------------------------------------------------
 
+  @max_ahead_secs 300
+  @suspect_secs 86_400
+
   defp init(doc, %{now: now, today: today, new_id: new_id} = ctx) when is_function(new_id, 0) do
     with {:ok, now} <- Stamp.normalize(now),
          {:ok, ymd} <- Stamp.parse_date(today),
          true <- is_map(doc) and doc.schema_version == VaultDoc.schema_version() do
-      # New records must sort after everything already logged, even if the
-      # device clock stands still or went backwards.
-      latest =
-        doc.activity |> Map.values() |> Enum.reduce(nil, &Stamp.max_stamp(&2, &1.inserted_at))
-
+      # Clock-skew guard (ADR 0007): with a server time reference, no stamp is
+      # later than server_now + 5 min, and a stamp already in the document more
+      # than 24 h ahead of server_now is ignored as "newest" (it is suspect;
+      # Merge compares it as server_now). Always: stamps never go backwards
+      # within a document, even if the device clock stands still or goes back.
+      server_now = ctx |> Map.get(:server_now) |> server_stamp()
+      suspect_after = server_now && Stamp.add_seconds(server_now, @suspect_secs)
+      now = if server_now, do: min(now, Stamp.add_seconds(server_now, @max_ahead_secs)), else: now
+      latest = newest_stamp(doc, suspect_after)
       clock = if latest != nil and now <= latest, do: Stamp.bump(latest), else: now
 
       {:ok,
@@ -193,6 +202,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
          doc: doc,
          clock: clock,
          now: now,
+         suspect_after: suspect_after,
          today: ymd,
          today_iso: Stamp.format_date(ymd),
          new_id: new_id,
@@ -205,6 +215,34 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
   end
 
   defp init(_doc, _ctx), do: {:error, {:invalid, %{ctx: ["is invalid"]}}}
+
+  defp server_stamp(nil), do: nil
+
+  defp server_stamp(str) do
+    case Stamp.normalize(str) do
+      {:ok, stamp} -> stamp
+      :error -> nil
+    end
+  end
+
+  # Newest stamp anywhere in the document (ignoring suspect future ones).
+  defp newest_stamp(doc, suspect_after) do
+    stamps =
+      Enum.map(Map.values(doc.activity), & &1.inserted_at) ++
+        Enum.map(Map.values(doc.debts), & &1.updated_at) ++
+        Enum.map(Map.values(doc.retirement_profiles), & &1.updated_at) ++
+        Map.values(doc.settings_updated_at)
+
+    Enum.reduce(stamps, nil, fn stamp, acc ->
+      if suspect_after != nil and stamp > suspect_after,
+        do: acc,
+        else: Stamp.max_stamp(acc, stamp)
+    end)
+  end
+
+  # `Stamp.after_/2`, but a suspect previous stamp does not push the new one up.
+  defp after_(%{suspect_after: sa}, stamp, prev) when sa != nil and prev > sa, do: stamp
+  defp after_(_st, stamp, prev), do: Stamp.after_(stamp, prev)
 
   defp new_id(st), do: st.new_id.()
 
@@ -288,7 +326,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
         rec
         | status: "paid_off",
           paid_off_at: Stamp.seconds(stamp),
-          updated_at: Stamp.after_(stamp, rec.updated_at)
+          updated_at: after_(st, stamp, rec.updated_at)
       }
 
       {:ok,
@@ -301,7 +339,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
       {stamp, st} = tick(st)
 
       st =
-        put(st, :debts, %{rec | deleted: true, updated_at: Stamp.after_(stamp, rec.updated_at)})
+        put(st, :debts, %{rec | deleted: true, updated_at: after_(st, stamp, rec.updated_at)})
 
       payments =
         Map.new(st.doc.payments, fn {pid, p} ->
@@ -336,7 +374,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
                 {settings, stamps}
               else
                 {Map.put(settings, key, Map.fetch!(values, key)),
-                 Map.put(stamps, key, Stamp.after_(stamp, Map.fetch!(stamps, key)))}
+                 Map.put(stamps, key, after_(st, stamp, Map.fetch!(stamps, key)))}
               end
           end
         )
@@ -460,7 +498,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
           new = if kind == :update_manual, do: %{new | display_name: values.name}, else: new
 
           {:ok,
-           put(st, :retirement_profiles, %{new | updated_at: Stamp.after_(stamp, rec.updated_at)})}
+           put(st, :retirement_profiles, %{new | updated_at: after_(st, stamp, rec.updated_at)})}
         end
       end
     end
@@ -474,7 +512,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
        put(st, :retirement_profiles, %{
          rec
          | deleted: true,
-           updated_at: Stamp.after_(stamp, rec.updated_at)
+           updated_at: after_(st, stamp, rec.updated_at)
        })}
     end
   end
@@ -492,7 +530,7 @@ defmodule DebtReliefTracker.VaultDoc.Ledger do
         else
           {stamp, st} = tick(st)
           new = Map.merge(rec, values)
-          new = %{new | updated_at: Stamp.after_(stamp, rec.updated_at)}
+          new = %{new | updated_at: after_(st, stamp, rec.updated_at)}
 
           # A directly edited balance is a new baseline that already
           # accounts for every payment this document has.

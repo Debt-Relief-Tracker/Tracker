@@ -223,6 +223,13 @@ defmodule DebtReliefTracker.Crypto do
   def seen_record(workspace_id, revision, blob),
     do: run(:seenRecord, [workspace_id, revision, blob])
 
+  @doc """
+  The user explicitly accepted a rollback (or a new vault was created): the
+  only call that can lower the last-seen record, which `seen_record/3` never does.
+  """
+  def seen_acknowledge(workspace_id, revision, blob),
+    do: run(:seenAcknowledge, [workspace_id, revision, blob])
+
   @doc "Deletes every local record (remembered key, last seen state) for the workspace."
   def local_wipe(workspace_id), do: run(:localWipe, [workspace_id])
 

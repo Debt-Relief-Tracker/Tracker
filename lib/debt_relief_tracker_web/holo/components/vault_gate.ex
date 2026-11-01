@@ -173,7 +173,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
     put_action(server,
       name: :vault_result,
       target: "page",
-      params: Map.put(result, :op, op)
+      params: result |> Map.put(:op, op) |> Map.put(:server_now, server_now())
     )
   end
 
@@ -189,6 +189,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
         blob
     end
   end
+
+  # The server clock (not secret): the client's clock-skew guard (ADR 0007).
+  defp server_now, do: DateTime.to_iso8601(DateTime.utc_now())
 
   defp reply(:ok), do: %{ok: true}
   defp reply({:ok, %{rev: rev}}), do: %{ok: true, rev: rev}

@@ -4,7 +4,7 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
   import DebtReliefTracker.VaultDocHelpers
 
   alias DebtReliefTracker.VaultDoc
-  alias DebtReliefTracker.VaultDoc.{Ledger, Merge}
+  alias DebtReliefTracker.VaultDoc.{Ledger, Merge, Stamp}
 
   defp base do
     VaultDoc.new()
@@ -333,6 +333,66 @@ defmodule DebtReliefTracker.VaultDoc.MergeTest do
 
         assert debt.balance == 10_000_000 - spent
       end
+    end
+  end
+
+  describe "clock skew guard" do
+    defp rec(doc, name),
+      do: doc |> Map.fetch!(:debts) |> Map.values() |> Enum.find(&(&1.name == name))
+
+    test "a skewed future clock is clamped to server_now + 5 min when stamping" do
+      b = base()
+      id = debt_id(b, "Visa")
+      real = seconds(1000)
+      future = seconds(10 * 86_400)
+
+      a = ok!(b, {:update_debt, id, %{name: "A"}}, now: future, server_now: real)
+      {:ok, cap} = Stamp.normalize(real)
+      assert rec(a, "A").updated_at == Stamp.add_seconds(cap, 300)
+    end
+
+    test "device A at +10 days, device B at the real clock: B's later edit wins" do
+      b = base()
+      id = debt_id(b, "Visa")
+      t_a = seconds(1000)
+      t_b = seconds(1000 + 600)
+
+      a =
+        ok!(b, {:update_debt, id, %{name: "From A"}}, now: seconds(10 * 86_400), server_now: t_a)
+
+      c = ok!(b, {:update_debt, id, %{name: "From B"}}, now: t_b, server_now: t_b)
+
+      for m <- [Merge.merge(a, c, server_now: t_b), Merge.merge(c, a, server_now: t_b)] do
+        assert rec(m, "From B")
+        refute rec(m, "From A")
+      end
+    end
+
+    test "legacy poisoned stamps (already far in the future) lose when compared, and do not push new stamps up" do
+      b = base()
+      id = debt_id(b, "Visa")
+      t_b = seconds(5000)
+      # Written by an old client without the guard.
+      poisoned = ok!(b, {:update_debt, id, %{name: "Poison"}}, now: seconds(10 * 86_400))
+      c = ok!(b, {:update_debt, id, %{name: "Real"}}, now: t_b, server_now: t_b)
+
+      assert rec(c, "Real").updated_at < rec(poisoned, "Poison").updated_at
+      m = Merge.merge(poisoned, c, server_now: t_b)
+      assert rec(m, "Real")
+      assert m == Merge.merge(c, poisoned, server_now: t_b)
+      # Without the guard the old behaviour (poison wins) is unchanged.
+      assert rec(Merge.merge(poisoned, c), "Poison")
+    end
+
+    test "stamps never go backwards within a document" do
+      b = base()
+      id = debt_id(b, "Visa")
+      d1 = ok!(b, {:update_debt, id, %{name: "One"}}, now: seconds(500), server_now: seconds(500))
+
+      d2 =
+        ok!(d1, {:update_debt, id, %{name: "Two"}}, now: seconds(100), server_now: seconds(100))
+
+      assert rec(d2, "Two").updated_at > rec(d1, "One").updated_at
     end
   end
 end

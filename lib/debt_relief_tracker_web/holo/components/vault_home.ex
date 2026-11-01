@@ -30,6 +30,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
         <div class="flex flex-wrap items-center gap-2">
           <span id="vault-sync-status" role="status" data-status={@sync.status} class={status_class(@sync.status)}>{status_text(@sync.status)}</span>
           {%if @sync.status == :failed}
+            {%if @vault.sync_problem == :unreadable_server_copy}
+              <span id="vault-sync-problem" class="text-xs text-warning">The server's copy could not be read. It may have been written by a newer version of the app, or it may be damaged. Your changes are kept on this device.</span>
+            {/if}
             <button id="vault-sync-retry" type="button" class="btn btn-xs btn-outline" $click={action: :vault_retry, target: "page"}>Retry save</button>
           {/if}
           <button id="vault-methods-btn" type="button" class="btn btn-sm btn-ghost" $click={action: :open_modal, target: "page", params: %{modal: %{type: :vault_methods}}}>Unlock methods</button>
@@ -40,6 +43,12 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
       {%if @vault.notice == :created}
         <div id="vault-created-notice" role="status" class="alert alert-success flex flex-col sm:flex-row items-start sm:items-center gap-2">
           <span>Your encrypted vault is ready. You can add another unlock method, such as a passkey or a second passphrase, in Unlock methods.</span>
+        </div>
+      {/if}
+
+      {%if not @vault.rollback_protection}
+        <div id="vault-rollback-off" role="status" class="alert alert-warning">
+          <span>Rollback protection is off in this browser (its local storage is unavailable), so an older copy of your vault from the server could not be detected.</span>
         </div>
       {/if}
 

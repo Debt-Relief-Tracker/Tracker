@@ -139,4 +139,30 @@ defmodule DebtReliefTracker.VaultClient.PureTest do
       assert s.dirty? and s.status == :dirty and SaveLoop.flush_due?(s, token)
     end
   end
+
+  describe "SaveLoop.stalled (undecryptable conflict reply)" do
+    test "releases the in-flight flag, keeps the edits dirty, and allows a retry" do
+      s = SaveLoop.new(3)
+      {s, token} = SaveLoop.changed(s)
+      assert SaveLoop.flush_due?(s, token)
+      s = SaveLoop.flush_started(s)
+      assert s.inflight? and SaveLoop.unsaved?(s)
+      refute SaveLoop.flush_due?(s, token)
+
+      s = SaveLoop.stalled(s)
+      assert s.status == :failed and s.dirty? and not s.inflight?
+      assert SaveLoop.unsaved?(s)
+
+      # Manual retry: a new flush is due again (this was the wedge).
+      s = SaveLoop.reset_retries(s)
+      {s, token} = SaveLoop.changed(s)
+      assert SaveLoop.flush_due?(s, token)
+    end
+
+    test "a clean loop stays clean" do
+      s = SaveLoop.stalled(SaveLoop.new(1))
+      refute s.dirty?
+      refute s.inflight?
+    end
+  end
 end

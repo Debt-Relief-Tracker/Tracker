@@ -61,6 +61,23 @@ defmodule DebtReliefTracker.VaultDoc.Stamp do
     end
   end
 
+  @doc "`stamp` shifted by a whole number of seconds (floored at the epoch)."
+  def add_seconds(stamp, secs) when is_integer(secs) do
+    {:ok, {days, s, micros}} = parse(stamp)
+    total = days * 86_400 + s + secs
+
+    if total < 0,
+      do: @epoch,
+      else: format(div(total, 86_400), rem(total, 86_400), micros)
+  end
+
+  @doc "Whole seconds from `b` to `a` (positive when `a` is later)."
+  def diff_seconds(a, b) do
+    {:ok, {da, sa, _}} = parse(a)
+    {:ok, {db, sb, _}} = parse(b)
+    da * 86_400 + sa - (db * 86_400 + sb)
+  end
+
   @doc "`stamp` if it is later than `prev`, else `bump(prev)`."
   def after_(stamp, nil), do: stamp
   def after_(stamp, prev), do: if(stamp > prev, do: stamp, else: bump(prev))

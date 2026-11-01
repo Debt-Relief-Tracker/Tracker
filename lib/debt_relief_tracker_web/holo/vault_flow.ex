@@ -48,7 +48,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
 
   alias DebtReliefTracker.{Crypto, VaultDoc, VaultEnv}
   alias DebtReliefTracker.VaultClient.SaveLoop
-  alias DebtReliefTracker.VaultDoc.{Ledger, Merge}
+  alias DebtReliefTracker.VaultDoc.{Ledger, Merge, Stamp}
   alias DebtReliefTrackerWeb.Holo.QuietJS
 
   # --- initial state (server `init/3`, so no JS here) -------------------------------
@@ -72,6 +72,10 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       inflight: nil,
       locking: nil,
       lock_blocked: false,
+      sync_problem: nil,
+      skew_secs: nil,
+      rollback_protection: true,
+      rollback_acks: 0,
       methods: %{busy: false, status: nil, message: nil, queue: [], removing: nil},
       notice: nil,
       other_tab: nil,
@@ -129,14 +133,16 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   end
 
   @doc "A `VaultGate` command reply."
-  def result(c, %{op: :fetch_vault} = r), do: fetched(c, r)
-  def result(c, %{op: :create_vault} = r), do: created(c, r)
-  def result(c, %{op: :save_vault} = r), do: saved(c, r)
-  def result(c, %{op: :add_key_wrap} = r), do: wrap_added(c, r)
-  def result(c, %{op: :remove_key_wrap} = r), do: wrap_removed(c, r)
-  def result(c, %{op: :rename_key_wrap} = r), do: wrap_renamed(c, r)
-  def result(c, %{op: :delete_vault} = r), do: deleted(c, r)
-  def result(c, _other), do: c
+  def result(c, r), do: c |> note_clock(r) |> dispatch(r)
+
+  defp dispatch(c, %{op: :fetch_vault} = r), do: fetched(c, r)
+  defp dispatch(c, %{op: :create_vault} = r), do: created(c, r)
+  defp dispatch(c, %{op: :save_vault} = r), do: saved(c, r)
+  defp dispatch(c, %{op: :add_key_wrap} = r), do: wrap_added(c, r)
+  defp dispatch(c, %{op: :remove_key_wrap} = r), do: wrap_removed(c, r)
+  defp dispatch(c, %{op: :rename_key_wrap} = r), do: wrap_renamed(c, r)
+  defp dispatch(c, %{op: :delete_vault} = r), do: deleted(c, r)
+  defp dispatch(c, _other), do: c
 
   defp fetched(c, r) do
     vault = c.state.vault
@@ -179,8 +185,12 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
           busy: nil
         })
 
-      _ ->
+      {:ok, _} ->
         continue(c, mode, rev, blob)
+
+      _ ->
+        # IndexedDB unavailable: carry on, but say rollback protection is off.
+        c |> merge(%{rollback_protection: false}) |> continue(mode, rev, blob)
     end
   end
 
@@ -200,7 +210,14 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   def rollback_ack(c) do
     case c.state.vault.pending do
       %{mode: mode, rev: rev, blob: blob} ->
-        c |> merge(%{rollback: nil, pending: nil}) |> continue(mode, rev, blob)
+        # The explicit acknowledgement is the only thing that may lower the
+        # last-seen record; it is logged in state.
+        Crypto.seen_acknowledge(ws(c), rev, blob)
+        acks = Map.get(c.state.vault, :rollback_acks, 0) + 1
+
+        c
+        |> merge(%{rollback: nil, pending: nil, rollback_acks: acks})
+        |> continue(mode, rev, blob)
 
       _ ->
         merge(c, %{rollback: nil, pending: nil})
@@ -221,12 +238,21 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     })
   end
 
+  # A conflict/refresh reply we cannot read (a newer app version wrote it, or
+  # the server's copy is damaged -- we cannot tell which, and say only that).
+  # The local edits stay dirty and the loop is released so Retry works.
   defp undecryptable(c, _mode) do
-    sync = %{c.state.sync | status: :failed}
+    sync = if c.state.sync, do: SaveLoop.stalled(c.state.sync), else: nil
 
     c
     |> put_state(:sync, sync)
-    |> merge(%{inflight: nil, locking: nil, lock_blocked: c.state.vault.locking != nil})
+    |> merge(%{
+      inflight: nil,
+      locking: nil,
+      lock_blocked: c.state.vault.locking != nil,
+      sync_problem: :unreadable_server_copy
+    })
+    |> tap_flag()
   end
 
   defp adopt(c, :open, rev, remote) do
@@ -268,7 +294,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   end
 
   defp adopt(c, :refresh, rev, remote) do
-    merged = Merge.merge(c.state.doc, remote)
+    merged = Merge.merge(c.state.doc, remote, server_now: server_now(c))
     {sync, token} = SaveLoop.remote_merged(c.state.sync, rev, merged != remote)
 
     c
@@ -280,7 +306,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   end
 
   defp adopt(c, :conflict, rev, remote) do
-    merged = Merge.merge(c.state.doc, remote)
+    merged = Merge.merge(c.state.doc, remote, server_now: server_now(c))
     {sync, action} = SaveLoop.conflicted(c.state.sync, rev)
 
     c =
@@ -315,7 +341,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
 
     if r.ok and creating != nil do
       ws = ws(c)
-      Crypto.seen_record(ws, 1, creating.blob)
+      Crypto.seen_acknowledge(ws, 1, creating.blob)
       if creating.remember, do: Crypto.remember_device(creating.handle, ws)
       now = VaultEnv.now_iso()
       wraps = for w <- creating.wraps, do: wrap_with_defaults(w, now)
@@ -590,12 +616,13 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     )
   end
 
+  defp saved(c, %{ok: true}) when c.state.sync == nil, do: c
   defp saved(c, %{ok: true, rev: rev}) do
     inflight = c.state.vault.inflight
     ws = ws(c)
     if inflight, do: Crypto.seen_record(ws, rev, inflight.blob)
     {sync, next} = SaveLoop.saved(c.state.sync, rev)
-    c = c |> put_state(:sync, sync) |> merge(%{inflight: nil}) |> tap_flag()
+    c = c |> put_state(:sync, sync) |> merge(%{inflight: nil, sync_problem: nil}) |> tap_flag()
 
     case next do
       :flush_again ->
@@ -643,7 +670,11 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     else
       sync = SaveLoop.reset_retries(c.state.sync)
       {sync, token} = SaveLoop.changed(sync)
-      c |> put_state(:sync, sync) |> merge(%{lock_blocked: false}) |> schedule(token, 0)
+
+      c
+      |> put_state(:sync, sync)
+      |> merge(%{lock_blocked: false, sync_problem: nil})
+      |> schedule(token, 0)
     end
   end
 
@@ -897,9 +928,38 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
 
   defp ws(c), do: c.state.account.workspace.id
 
+  # Clock-skew guard: remember how far the server clock is from this device's
+  # (whole seconds, server minus device) from every reply carrying `server_now`.
+  # The estimate of "server now" is then device_now + skew, so it keeps running
+  # between replies. Merge/Ledger clamp with it (ADR 0007).
+  defp note_clock(c, %{server_now: sn}) when is_binary(sn) do
+    with {:ok, sn} <- Stamp.normalize(sn),
+         {:ok, dn} <- Stamp.normalize(VaultEnv.now_iso()) do
+      merge(c, %{skew_secs: Stamp.diff_seconds(sn, dn)})
+    else
+      _ -> c
+    end
+  end
+
+  defp note_clock(c, _r), do: c
+
+  defp server_now(c) do
+    case Map.get(c.state.vault, :skew_secs) do
+      nil ->
+        nil
+
+      skew ->
+        case Stamp.normalize(VaultEnv.now_iso()) do
+          {:ok, dn} -> Stamp.add_seconds(dn, skew)
+          :error -> nil
+        end
+    end
+  end
+
   defp ctx(c, members \\ nil) do
     %{
       now: VaultEnv.now_iso(),
+      server_now: server_now(c),
       today: VaultEnv.today_iso(),
       new_id: fn -> VaultEnv.random_uuid() end,
       actor: c.state.account.user.id,
