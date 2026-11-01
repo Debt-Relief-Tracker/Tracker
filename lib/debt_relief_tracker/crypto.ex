@@ -3,35 +3,33 @@ defmodule DebtReliefTracker.Crypto do
   Elixir facade over `assets/js/crypto_facade.mjs`, the browser crypto layer
   for E2EE mode (ADR 0007). The only module that talks to that file.
 
-  No hand-rolled primitives: AES-256-GCM, HKDF-SHA256 and randomness are
-  WebCrypto; Argon2id is the bundled `hash-wasm` package; passkeys use the
-  WebAuthn PRF extension. Hologram bundles the facade and `hash-wasm` from
-  `assets/node_modules` (no CDN). Argon2's WebAssembly needs the
-  `'wasm-unsafe-eval'` CSP source; nothing here needs `'unsafe-eval'`.
+  ## RAW KEY MATERIAL NEVER ENTERS ELIXIR
 
-  ## Contract
+  This facade is a **handle API**. The unlocked vault (vault key bytes and a
+  derived non-extractable CryptoKey) lives in module-private JS memory; Elixir
+  and Hologram state hold only an opaque `handle` string (random, meaningless)
+  plus ciphertext envelopes, ids and revisions. There is no function here that
+  returns or accepts a vault key, KEK, or derived secret. Secrets that
+  necessarily cross the boundary are the ones a human types or reads: a
+  passphrase going in, and a newly generated recovery key text coming out once
+  (to be shown to the user).
 
-  Everything is a string. Binary values (keys, salts, KEKs, credential ids)
-  are base64url without padding; documents are UTF-8 strings (typically
-  JSON); ciphertext and wraps are `"v1.<iv>.<ciphertext||tag>"` envelopes
-  (see the facade header for the AAD layouts).
-
-  Every function returns `{:ok, value}` or `{:error, code}` and never raises
-  for crypto failures. Codes: `:decrypt_failed` (one code for wrong key, wrong
-  AAD, tampering and malformed input, so there is no oracle), `:bad_input`,
-  `:bad_params`, `:bad_recovery_key`, `:passkey_unsupported`,
+  Everything is a string. Wraps and ciphertext are `"v1.<iv>.<ct||tag>"`
+  envelopes (AAD layouts in the facade header). Every function returns
+  `{:ok, value}` or `{:error, code}` and never raises for crypto failures.
+  Codes: `:decrypt_failed` (ONE code for wrong key, wrong AAD, tampering and
+  malformed input, so there is no oracle), `:locked` (unknown handle),
+  `:bad_input`, `:bad_params`, `:bad_recovery_key`, `:passkey_unsupported`,
   `:passkey_cancelled`, `:passkey_failed`, `:crypto_unavailable`,
-  `:selftest_failed`, `:internal`, and `:not_in_browser` (called on the
-  server, where Hologram JS interop is a no-op).
+  `:selftest_failed`, `:internal`, and `:not_in_browser`.
 
   The JS functions are async (Promises become Elixir Tasks), so these must be
   called from a Hologram action, which awaits them; a call blocks that
   component's later actions until it finishes. Argon2id at 64 MiB takes
-  seconds, so put the UI in a "working" state first and chain the derive in a
-  separate action.
+  seconds on a phone, so put the UI in a "working" state first and chain the
+  derive in a separate (delayed) action.
 
-  Never log or store the returned keys, passphrases, plaintext or ciphertext
-  outside the intended places.
+  Never log or store the returned values outside the intended places.
   """
 
   use Hologram.JS
@@ -39,128 +37,10 @@ defmodule DebtReliefTracker.Crypto do
   js_import from: "../../assets/js/crypto_facade.mjs", as: :CryptoFacade
 
   @type result(t) :: {:ok, t} | {:error, atom()}
+  @type handle :: String.t()
   @type kind :: :passphrase | :passkey | :recovery
-  @type argon2_params :: %{
-          memory_kib: pos_integer(),
-          iterations: pos_integer(),
-          parallelism: pos_integer()
-        }
 
-  @doc """
-  Argon2id parameters to start new passphrase wraps with (64 MiB, 3 passes,
-  1 lane). Store the params used next to each wrap and pass them back to
-  `derive_passphrase_kek/3`; they are never defaulted at unwrap time. The
-  facade rejects stored params above 1 GiB, 20 passes or 16 lanes.
-  """
-  def default_argon2_params, do: %{memory_kib: 65_536, iterations: 3, parallelism: 1}
-
-  # --- randomness / hashing -------------------------------------------------
-
-  @doc "`n` random bytes (1..65536) from `crypto.getRandomValues`, base64url."
-  def random_bytes(n), do: run(:randomBytesB64u, [n])
-
-  @doc "SHA-256 of the UTF-8 string `string`, base64url."
-  def sha256(string), do: run(:sha256B64u, [string])
-
-  @doc "A new 32-byte vault key (VK), base64url."
-  def generate_vault_key, do: run(:generateVaultKey, [])
-
-  @doc "A fresh 16-byte Argon2 salt, base64url."
-  def new_salt, do: run(:newSaltB64u, [])
-
-  # --- documents -------------------------------------------------------------
-
-  @doc """
-  Encrypts the UTF-8 string `plaintext` under `vault_key` (base64url) with
-  AES-256-GCM, a fresh random 12-byte IV, and AAD bound to `workspace_id`
-  (non-empty string) and `revision` (non-negative integer). Returns the
-  `"v1.<iv>.<ct||tag>"` envelope.
-  """
-  def encrypt_document(vault_key, workspace_id, revision, plaintext),
-    do: run(:encryptDocument, [vault_key, workspace_id, revision, plaintext])
-
-  @doc """
-  Inverse of `encrypt_document/4`. Any failure (wrong key, workspace or
-  revision, tampering, malformed envelope) is `{:error, :decrypt_failed}`.
-  """
-  def decrypt_document(vault_key, workspace_id, revision, envelope),
-    do: run(:decryptDocument, [vault_key, workspace_id, revision, envelope])
-
-  # --- key wraps ---------------------------------------------------------------
-
-  @doc """
-  Wraps `vault_key` under `kek` (both base64url, 32 bytes) with AES-256-GCM,
-  a fresh IV and AAD bound to `workspace_id`, `wrap_id` and `kind`
-  (`:passphrase | :passkey | :recovery`). Returns a `"v1..."` envelope.
-  """
-  def wrap_vault_key(kek, vault_key, workspace_id, wrap_id, kind),
-    do: run(:wrapVaultKey, [kek, vault_key, workspace_id, wrap_id, kind_string(kind)])
-
-  @doc """
-  Unwraps to the vault key (base64url). Any failure, including a wrong
-  `kind`/`wrap_id`/`workspace_id`, is `{:error, :decrypt_failed}`.
-  """
-  def unwrap_vault_key(kek, wrap_envelope, workspace_id, wrap_id, kind),
-    do: run(:unwrapVaultKey, [kek, wrap_envelope, workspace_id, wrap_id, kind_string(kind)])
-
-  # --- passphrase ---------------------------------------------------------------
-
-  @doc """
-  Unwrap-time passphrase KEK (base64url) = Argon2id(NFKC(passphrase) as UTF-8,
-  `salt`) with the STORED `params` (see `default_argon2_params/0`), 32-byte
-  output. `salt` is base64url. Accepts any params within the sanity bounds
-  (at most 1 GiB, 20 passes, 16 lanes; at least Argon2's own minimums): a
-  malicious server can only make unwrap fail by lowering them, and the
-  passphrase never leaves the browser. Do NOT use this for a wrap you write;
-  use `derive_new_passphrase_kek/3`. Slow by design.
-  """
-  def derive_passphrase_kek(passphrase, salt, params),
-    do: derive(:derivePassphraseKek, passphrase, salt, params)
-
-  @doc """
-  Creation-time passphrase KEK, for every wrap the app writes (new wrap or
-  re-wrap). Same as `derive_passphrase_kek/3` but returns `{:error,
-  :bad_params}` for memory below 65536 KiB, fewer than 3 iterations or a salt
-  under 16 bytes, so weak params can never be created.
-  """
-  def derive_new_passphrase_kek(passphrase, salt, params),
-    do: derive(:deriveNewPassphraseKek, passphrase, salt, params)
-
-  defp derive(function, passphrase, salt, %{
-         memory_kib: memory_kib,
-         iterations: iterations,
-         parallelism: parallelism
-       }),
-       do: run(function, [passphrase, salt, memory_kib, iterations, parallelism])
-
-  # --- recovery key ---------------------------------------------------------------
-
-  @doc """
-  A new 256-bit recovery key as grouped base32 (RFC 4648 alphabet, no
-  padding): 52 characters of key plus a 4-character checksum (first 20 bits
-  of SHA-256("drt-recovery-check-v1" || key bytes)), shown as 14
-  dash-separated groups of 4. Show it once; it is never stored by the app.
-  """
-  def generate_recovery_key, do: run(:generateRecoveryKey, [])
-
-  @doc """
-  Parses a recovery key typed by a human (case, spaces and dashes are
-  ignored) to its 32 raw bytes, base64url. Wrong length, bad characters or a
-  bad checksum are `{:error, :bad_recovery_key}` (a typo), distinct from a
-  correct-looking but wrong key, which later fails as `:decrypt_failed`.
-  """
-  def parse_recovery_key(text), do: run(:parseRecoveryKey, [text])
-
-  @doc "Canonical grouped display form (with checksum) of 32 raw recovery-key bytes (base64url)."
-  def format_recovery_key(raw), do: run(:formatRecoveryKey, [raw])
-
-  @doc """
-  Recovery KEK (base64url) from the human-entered recovery key text:
-  HKDF-SHA256(key bytes, empty salt, info `"drt-kek-v1"`).
-  """
-  def derive_recovery_kek(text), do: run(:deriveRecoveryKek, [text])
-
-  # --- passkey (WebAuthn PRF) --------------------------------------------------------
+  # --- feature detection / self test -------------------------------------------
 
   @doc """
   Feature detection: false when WebAuthn is missing or the browser reports no
@@ -173,25 +53,54 @@ defmodule DebtReliefTracker.Crypto do
     end
   end
 
+  @doc "Runs the facade's known-answer checks; `{:ok, \"ok\"}` or `{:error, :selftest_failed}`."
+  def self_test, do: run(:selfTest, [])
+
+  # --- sessions ------------------------------------------------------------------
+
+  @doc "A new random vault key, unlocked under a fresh handle (setup wizard)."
+  def new_vault, do: run(:vaultNew, [])
+
+  @doc "Locks one session: overwrites its key bytes and forgets the handle."
+  def lock(handle), do: run(:vaultLock, [handle])
+
+  @doc "Locks every session of this page."
+  def lock_all, do: run(:vaultLockAll, [])
+
+  @doc "Whether `handle` is still an unlocked session."
+  def active?(handle), do: run(:vaultActive, [handle]) == {:ok, "true"}
+
   @doc """
-  Creates a passkey with the PRF extension and derives its KEK, running an
-  immediate `get()` if the create result carries no PRF output. `opts` is a
-  map with string values: `:rp_id` (`""` = page domain), `:rp_name`,
-  `:user_id` (base64url, 1..64 bytes), `:user_name`, `:display_name`.
-  Returns `{:ok, %{credential_id: b64u, kek: b64u}}`; errors are
-  `:passkey_unsupported`, `:passkey_cancelled` or `:passkey_failed`.
+  Whether the session holds the vault key (may add or replace unlock methods).
+  A session opened by a remembered device holds only the document key.
   """
-  def create_passkey(%{
-        rp_id: rp_id,
-        rp_name: rp_name,
-        user_id: user_id,
-        user_name: user_name,
-        display_name: display_name
-      }) do
-    case run(:createPasskey, [rp_id, rp_name, user_id, user_name, display_name]) do
+  def can_manage?(handle), do: run(:vaultCanManage, [handle]) == {:ok, "true"}
+
+  # --- documents -----------------------------------------------------------------
+
+  @doc """
+  Encrypts the UTF-8 string `plaintext` (AES-256-GCM, fresh random IV, AAD bound
+  to `workspace_id` and `revision`). Returns the `"v1..."` envelope.
+  """
+  def encrypt_document(handle, workspace_id, revision, plaintext),
+    do: run(:vaultEncrypt, [handle, workspace_id, revision, plaintext])
+
+  @doc "Inverse of `encrypt_document/4`; any failure is `{:error, :decrypt_failed}`."
+  def decrypt_document(handle, workspace_id, revision, envelope),
+    do: run(:vaultDecrypt, [handle, workspace_id, revision, envelope])
+
+  # --- new unlock methods (need a session that holds the vault key) -----------------
+
+  @doc """
+  Wraps the session's vault key under a NEW passphrase: Argon2id with a fresh
+  16-byte salt and the app's floor (64 MiB, 3 passes, 1 lane). Slow by design.
+  Returns `{:ok, %{salt: b64u, kdf_params: json_string, wrapped_key: envelope}}`.
+  """
+  def wrap_passphrase(handle, passphrase, workspace_id, wrap_id) do
+    case run(:vaultWrapPassphrase, [handle, passphrase, workspace_id, wrap_id]) do
       {:ok, joined} ->
-        case String.split(joined, ".") do
-          [credential_id, kek] -> {:ok, %{credential_id: credential_id, kek: kek}}
+        case String.split(joined, "|") do
+          [salt, kdf, wrapped] -> {:ok, %{salt: salt, kdf_params: kdf, wrapped_key: wrapped}}
           _ -> {:error, :internal}
         end
 
@@ -200,21 +109,124 @@ defmodule DebtReliefTracker.Crypto do
     end
   end
 
-  @doc "Passkey KEK (base64url) via `get()` with the PRF extension on `credential_id`."
-  def derive_passkey_kek(credential_id, rp_id),
-    do: run(:derivePasskeyKek, [credential_id, rp_id])
+  @doc """
+  Generates a NEW recovery key and wraps the session's vault key under it.
+  `{:ok, %{recovery_key: text, wrapped_key: envelope}}`; `recovery_key` is 14
+  dash-separated groups of 4 base32 characters (52 of key + 4 checksum) and is
+  never stored: show it once.
+  """
+  def wrap_recovery(handle, workspace_id, wrap_id) do
+    case run(:vaultWrapRecovery, [handle, workspace_id, wrap_id]) do
+      {:ok, joined} ->
+        case String.split(joined, "|") do
+          [text, wrapped] -> {:ok, %{recovery_key: text, wrapped_key: wrapped}}
+          _ -> {:error, :internal}
+        end
 
-  # --- self test -----------------------------------------------------------------------
+      {:error, _} = error ->
+        error
+    end
+  end
 
-  @doc "Runs the facade's known-answer checks; `{:ok, \"ok\"}` or `{:error, :selftest_failed}`."
-  def self_test, do: run(:selfTest, [])
+  @doc """
+  Creates a passkey (WebAuthn PRF) and wraps the session's vault key under it.
+  `opts`: `:rp_id` (`""` = page domain), `:rp_name`, `:user_name`.
+  `{:ok, %{credential_id: b64u, wrapped_key: envelope}}`; errors are
+  `:passkey_unsupported`, `:passkey_cancelled`, `:passkey_failed`.
+  """
+  def wrap_passkey(handle, workspace_id, wrap_id, %{
+        rp_id: rp_id,
+        rp_name: rp_name,
+        user_name: user
+      }) do
+    case run(:vaultWrapPasskey, [handle, workspace_id, wrap_id, rp_id, rp_name, user]) do
+      {:ok, joined} ->
+        case String.split(joined, "|") do
+          [credential_id, wrapped] -> {:ok, %{credential_id: credential_id, wrapped_key: wrapped}}
+          _ -> {:error, :internal}
+        end
 
-  # --- internals -------------------------------------------------------------------------
+      {:error, _} = error ->
+        error
+    end
+  end
 
-  defp kind_string(:passphrase), do: "passphrase"
-  defp kind_string(:passkey), do: "passkey"
-  defp kind_string(:recovery), do: "recovery"
-  defp kind_string(other), do: other
+  # --- unlock (open a session from a stored wrap) -------------------------------------
+
+  @doc """
+  Unlocks with a passphrase against a stored wrap (`salt`, `kdf_params` JSON and
+  `wrapped_key` exactly as the server returned them). The facade bounds-checks
+  the stored Argon2 params. Returns `{:ok, handle}`; any wrong secret is
+  `{:error, :decrypt_failed}`.
+  """
+  def unlock_passphrase(passphrase, workspace_id, wrap) do
+    run(:vaultUnlockPassphrase, [
+      passphrase,
+      workspace_id,
+      wrap.id,
+      wrap.salt,
+      wrap.kdf_params,
+      wrap.wrapped_key
+    ])
+  end
+
+  @doc """
+  Unlocks with a typed recovery key (case, spaces, dashes ignored). A malformed
+  or mistyped key is `{:error, :bad_recovery_key}`; a well-formed wrong key is
+  `{:error, :decrypt_failed}`.
+  """
+  def unlock_recovery(text, workspace_id, wrap),
+    do: run(:vaultUnlockRecovery, [text, workspace_id, wrap.id, wrap.wrapped_key])
+
+  @doc "Unlocks with the passkey of `wrap` (WebAuthn `get()` with PRF)."
+  def unlock_passkey(workspace_id, rp_id, wrap),
+    do:
+      run(:vaultUnlockPasskey, [
+        wrap.credential_id,
+        rp_id,
+        workspace_id,
+        wrap.id,
+        wrap.wrapped_key
+      ])
+
+  # --- remember this device ------------------------------------------------------------
+
+  @doc """
+  Stores the session's NON-EXTRACTABLE document CryptoKey (encrypt/decrypt only)
+  in IndexedDB under the workspace id. Scripts can use it, never read its bytes.
+  """
+  def remember_device(handle, workspace_id), do: run(:deviceRemember, [handle, workspace_id])
+
+  @doc "Whether a remembered-device key exists for the workspace."
+  def device_remembered?(workspace_id), do: run(:deviceHas, [workspace_id]) == {:ok, "true"}
+
+  @doc """
+  Opens a session from the remembered key: document encrypt/decrypt only
+  (`can_manage?/1` is false). `{:error, :decrypt_failed}` when none is stored.
+  """
+  def unlock_device(workspace_id), do: run(:deviceUnlock, [workspace_id])
+
+  @doc "Deletes the remembered-device key."
+  def forget_device(workspace_id), do: run(:deviceForget, [workspace_id])
+
+  # --- rollback detection ------------------------------------------------------------------
+
+  @doc """
+  Compares the server's `revision` / `blob` with the last seen record for the
+  workspace: `{:ok, "first" | "ok" | "rollback"}` (rollback = lower revision, or
+  the same revision with a different SHA-256).
+  """
+  def seen_check(workspace_id, revision, blob),
+    do: run(:seenCheck, [workspace_id, revision, blob])
+
+  @doc "Records `revision` and the SHA-256 of `blob` as the last seen state."
+  def seen_record(workspace_id, revision, blob),
+    do: run(:seenRecord, [workspace_id, revision, blob])
+
+  @doc "Deletes every local record (remembered key, last seen state) for the workspace."
+  def local_wipe(workspace_id), do: run(:localWipe, [workspace_id])
+
+  # --- internals -----------------------------------------------------------------------------
 
   # Server side JS interop is a no-op returning :ok; in the browser the call
   # returns a Task for the facade's Promise.
@@ -230,6 +242,7 @@ defmodule DebtReliefTracker.Crypto do
   defp parse(_), do: {:error, :internal}
 
   defp error_code("decrypt_failed"), do: :decrypt_failed
+  defp error_code("locked"), do: :locked
   defp error_code("bad_input"), do: :bad_input
   defp error_code("bad_params"), do: :bad_params
   defp error_code("bad_recovery_key"), do: :bad_recovery_key

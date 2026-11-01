@@ -200,8 +200,7 @@ test("passphrase KEK for NEW wraps enforces the floor; unwrap-time derivation do
   // unwrap side: low stored params (within sanity bounds) still derive
   assert.equal(unb64(await F.derivePassphraseKek("pw", salt16, 1024, 1, 1)).length, 32)
   assert.equal(unb64(await F.derivePassphraseKek("pw", b64(new Uint8Array(8)), 1024, 1, 1)).length, 32)
-  assert.equal(await holo.deriveNewPassphraseKek("pw", salt16, 1024, 1, 1), "err:bad_params")
-})
+  })
 
 // ---- documents ----
 const WS = "ws-123"
@@ -353,25 +352,130 @@ test("selfTest passes", async () => {
 })
 
 // ---- Hologram surface ----
-test("default (Hologram) export never throws and returns ok:/err: strings only", async () => {
-  assert.match(await holo.randomBytesB64u(8), /^ok:[A-Za-z0-9_-]{11}$/)
-  assert.equal(await holo.decryptDocument("bad", WS, 1, "garbage"), "err:bad_input")
-  const vk = (await holo.generateVaultKey()).slice(3)
-  assert.equal(await holo.decryptDocument(vk, WS, 1, "garbage"), "err:decrypt_failed")
-  assert.equal(await holo.parseRecoveryKey("x"), "err:bad_recovery_key")
-  assert.equal(await holo.derivePassphraseKek("p", b64(new Uint8Array(16)), 99999999, 1, 1), "err:bad_params")
+import * as store from "../js/vault_store.mjs"
+
+const mem = new Map()
+store.__setBackend({
+  get: async (s, k) => mem.get(s + "/" + k),
+  put: async (s, k, v) => void mem.set(s + "/" + k, v),
+  del: async (s, k) => void mem.delete(s + "/" + k),
+})
+
+test("default (Hologram) export exposes ONLY the handle API", async () => {
   assert.equal(await holo.selfTest(), "ok:ok")
   assert.equal(await holo.prfSupported(), "ok:false") // no WebAuthn in Node
-  assert.equal(await holo.createPasskey("localhost", "x", "AQ", "u", "u"), "err:passkey_unsupported")
-  assert.equal(await holo.derivePasskeyKek("AQ", "localhost"), "err:passkey_unsupported")
   assert.equal(holo.__testOnlyEncryptWithIv, undefined)
+  for (const banned of [
+    "generateVaultKey", "encryptDocument", "decryptDocument", "wrapVaultKey", "unwrapVaultKey",
+    "derivePassphraseKek", "deriveNewPassphraseKek", "deriveRecoveryKek", "parseRecoveryKey",
+    "createPasskey", "derivePasskeyKek", "randomBytesB64u", "hkdfSha256B64u",
+  ])
+    assert.equal(holo[banned], undefined, banned)
   for (const fn of Object.values(holo)) assert.equal(typeof fn, "function")
+})
+
+const ok = (r) => {
+  assert.match(r, /^ok:/)
+  return r.slice(3)
+}
+
+test("handles: unknown / locked handle is err:locked, never throws", async () => {
+  assert.equal(await holo.vaultEncrypt("nope", WS, 1, "x"), "err:locked")
+  assert.equal(await holo.vaultDecrypt("nope", WS, 1, "v1.AA.AA"), "err:locked")
+  assert.equal(await holo.vaultWrapRecovery("nope", WS, "w"), "err:locked")
+  assert.equal(await holo.vaultActive("nope"), "ok:false")
+})
+
+test("handles: setup -> lock -> unlock by recovery key; document survives; lock wipes", async () => {
+  const h = ok(await holo.vaultNew())
+  assert.match(h, /^h[A-Za-z0-9_-]{16}$/)
+  const [rk, wrapped] = ok(await holo.vaultWrapRecovery(h, WS, "rw1")).split("|")
+  assert.match(rk, /^([A-Z2-7]{4}-){13}[A-Z2-7]{4}$/)
+  const env = ok(await holo.vaultEncrypt(h, WS, 1, '{"a":"ü"}'))
+  assert.equal(ok(await holo.vaultDecrypt(h, WS, 1, env)), '{"a":"ü"}')
+  // fresh IV every time
+  assert.notEqual(env, ok(await holo.vaultEncrypt(h, WS, 1, '{"a":"ü"}')))
+  // wrong revision / workspace -> the one generic error
+  assert.equal(await holo.vaultDecrypt(h, WS, 2, env), "err:decrypt_failed")
+  assert.equal(await holo.vaultDecrypt(h, "other", 1, env), "err:decrypt_failed")
+  assert.equal(await holo.vaultDecrypt(h, WS, 1, env.slice(0, -4) + "AAAA"), "err:decrypt_failed")
+
+  assert.equal(await holo.vaultLock(h), "ok:locked")
+  assert.equal(await holo.vaultActive(h), "ok:false")
+  assert.equal(await holo.vaultDecrypt(h, WS, 1, env), "err:locked")
+
+  // typo vs wrong key
+  assert.equal(await holo.vaultUnlockRecovery("nonsense", WS, "rw1", wrapped), "err:bad_recovery_key")
+  const other = await F.generateRecoveryKey()
+  assert.equal(await holo.vaultUnlockRecovery(other, WS, "rw1", wrapped), "err:decrypt_failed")
+  assert.equal(await holo.vaultUnlockRecovery(rk, WS, "rw2", wrapped), "err:decrypt_failed") // wrong wrap id (AAD)
+  const h2 = ok(await holo.vaultUnlockRecovery(rk.toLowerCase().replaceAll("-", " "), WS, "rw1", wrapped))
+  assert.notEqual(h2, h)
+  assert.equal(ok(await holo.vaultDecrypt(h2, WS, 1, env)), '{"a":"ü"}')
+  assert.equal(await holo.vaultLockAll(), "ok:locked")
+  assert.equal(await holo.vaultActive(h2), "ok:false")
+})
+
+test("handles: passphrase wrap uses the 64MiB/3/16-byte floor and stored params on unlock", async () => {
+  const h = ok(await holo.vaultNew())
+  const [salt, kdf, wrapped] = ok(await holo.vaultWrapPassphrase(h, "correct horse battery", WS, "pw1")).split("|")
+  assert.equal(unb64(salt).length, 16)
+  assert.deepEqual(JSON.parse(kdf), { memoryKiB: 65536, iterations: 3, parallelism: 1 })
+  const env = ok(await holo.vaultEncrypt(h, WS, 7, "doc"))
+  assert.equal(await holo.vaultUnlockPassphrase("wrong wrong wrong", WS, "pw1", salt, kdf, wrapped), "err:decrypt_failed")
+  assert.equal(await holo.vaultUnlockPassphrase("correct horse battery", WS, "pw1", salt, "not json", wrapped), "err:bad_params")
+  assert.equal(
+    await holo.vaultUnlockPassphrase("correct horse battery", WS, "pw1", salt, '{"memoryKiB":99999999,"iterations":3,"parallelism":1}', wrapped),
+    "err:bad_params",
+  )
+  const h2 = ok(await holo.vaultUnlockPassphrase("correct horse battery", WS, "pw1", salt, kdf, wrapped))
+  assert.equal(ok(await holo.vaultDecrypt(h2, WS, 7, env)), "doc")
+  await holo.vaultLockAll()
+})
+
+test("handles: remembered device session decrypts but cannot manage methods", async () => {
+  const h = ok(await holo.vaultNew())
+  const env = ok(await holo.vaultEncrypt(h, WS, 3, "remember me"))
+  assert.equal(await holo.deviceHas(WS), "ok:false")
+  assert.equal(await holo.deviceUnlock(WS), "err:decrypt_failed")
+  assert.equal(await holo.deviceRemember(h, WS), "ok:remembered")
+  assert.equal(await holo.deviceHas(WS), "ok:true")
+  const stored = mem.get("device_keys/" + WS)
+  assert.equal(stored.extractable, false)
+  assert.deepEqual([...stored.usages].sort(), ["decrypt", "encrypt"])
+  await assert.rejects(crypto.subtle.exportKey("raw", stored))
+  await holo.vaultLockAll()
+  const d = ok(await holo.deviceUnlock(WS))
+  assert.equal(ok(await holo.vaultDecrypt(d, WS, 3, env)), "remember me")
+  assert.equal(ok(await holo.vaultEncrypt(d, WS, 4, "x")).startsWith("v1."), true)
+  assert.equal(await holo.vaultCanManage(d), "ok:false")
+  assert.equal(await holo.vaultWrapRecovery(d, WS, "r"), "err:locked")
+  assert.equal(await holo.vaultWrapPassphrase(d, "long enough passphrase", WS, "p"), "err:locked")
+  assert.equal(await holo.deviceForget(WS), "ok:forgotten")
+  assert.equal(await holo.deviceHas(WS), "ok:false")
+  await holo.vaultLockAll()
+})
+
+test("rollback detection: first / ok / lower rev / same rev different blob", async () => {
+  await holo.localWipe(WS)
+  assert.equal(await holo.seenCheck(WS, 3, "blobA"), "ok:first")
+  assert.equal(await holo.seenRecord(WS, 3, "blobA"), "ok:recorded")
+  assert.equal(await holo.seenCheck(WS, 3, "blobA"), "ok:ok")
+  assert.equal(await holo.seenCheck(WS, 4, "blobB"), "ok:ok")
+  assert.equal(await holo.seenCheck(WS, 2, "blobZ"), "ok:rollback")
+  assert.equal(await holo.seenCheck(WS, 3, "blobEVIL"), "ok:rollback")
+  assert.equal(await holo.seenRecord(WS, 3, "blobEVIL"), "ok:recorded") // explicit acknowledgment
+  assert.equal(await holo.seenCheck(WS, 3, "blobEVIL"), "ok:ok")
+  // only a hash is stored, never the blob
+  assert.equal(JSON.stringify(mem.get("seen/" + WS)).includes("blobEVIL"), false)
+  assert.equal(await holo.localWipe(WS), "ok:wiped")
+  assert.equal(await holo.seenCheck(WS, 1, "x"), "ok:first")
 })
 
 // ---- hygiene ----
 test("facade source: no console output, no storage, no eval", () => {
   const src = readFileSync(new URL("../js/crypto_facade.mjs", import.meta.url), "utf8")
   const code = src.replace(/\/\/.*$/gm, "")
-  for (const banned of [/console\./, /localStorage/, /sessionStorage/, /document\.cookie/, /\beval\s*\(/, /new Function/, /indexedDB/])
+  for (const banned of [/console\./, /localStorage/, /sessionStorage/, /document\.cookie/, /\beval\s*\(/, /new Function/, /\bindexedDB\b/])
     assert.doesNotMatch(code, banned)
 })
