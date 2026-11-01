@@ -78,6 +78,7 @@ defmodule DebtReliefTracker.E2EE.Migration do
 
   @q [log: false]
   @digest_version 1
+  @busy_codes [:deadlock_detected, :lock_not_available, :serialization_failure]
 
   @type status :: :plaintext_only | :vault_only | :both | :empty
   @type person :: %{display_name: String.t() | nil, email: String.t() | nil}
@@ -275,7 +276,11 @@ defmodule DebtReliefTracker.E2EE.Migration do
   @doc """
   Deletes this workspace's plaintext, once, atomically. See the moduledoc.
 
-  Options: `:confirm_remove_members` (must be exactly `true` when other
+  `{:error, :busy}` means a concurrent writer won a lock fight and everything
+  rolled back; retry.
+
+  Options: `:compact` (default `true`; SQLite VACUUM after commit, `false` skips it),
+  `:confirm_remove_members` (must be exactly `true` when other
   members or pending invitations exist) and `:before_commit` (a 0-arity
   function run inside the transaction after all deletes, for tests to inject
   a failure; never set by the web layer).
@@ -293,14 +298,15 @@ defmodule DebtReliefTracker.E2EE.Migration do
              canceled_invitations: non_neg_integer()
            }}
           | {:ok, :already_clean}
-          | {:error, :forbidden | :no_vault | :changed | :members_present}
+          | {:error, :forbidden | :no_vault | :changed | :members_present | :busy}
   def finalize(%Workspace{} = workspace, user, digest, opts \\ []) do
     with {:ok, _} <- authorize(workspace, user) do
-      result = Repo.transaction(fn -> locked_finalize(workspace.id, user, digest, opts) end, @q)
+      result =
+        Repo.transaction(fn -> locked_finalize(workspace.id, user, digest, opts) end, tx_opts())
 
       case result do
         {:ok, {:ok, %{} = summary}} ->
-          compact_sqlite()
+          if Keyword.get(opts, :compact, true), do: compact_sqlite()
           {:ok, summary}
 
         {:ok, other} ->
@@ -310,6 +316,19 @@ defmodule DebtReliefTracker.E2EE.Migration do
           {:error, reason}
       end
     end
+  rescue
+    # A concurrent writer won a lock fight (PostgreSQL deadlock victim /
+    # lock_timeout, SQLite busy). The transaction has rolled back; nothing was
+    # deleted. The caller may simply try again.
+    e in Postgrex.Error ->
+      if match?(%{code: code} when code in @busy_codes, e.postgres),
+        do: {:error, :busy},
+        else: reraise(e, __STACKTRACE__)
+
+    e in Exqlite.Error ->
+      if String.contains?(String.downcase(e.message), ["busy", "locked"]),
+        do: {:error, :busy},
+        else: reraise(e, __STACKTRACE__)
   end
 
   defp locked_finalize(ws_id, user, presented, opts) do
@@ -413,6 +432,10 @@ defmodule DebtReliefTracker.E2EE.Migration do
 
   defp sql!(statement),
     do: Ecto.Adapters.SQL.query!(Repo.active_repo(), statement, [], @q)
+
+  # SQLite: BEGIN IMMEDIATE takes the single write lock up front (waiting via
+  # busy_timeout) instead of failing later when a deferred read upgrades.
+  defp tx_opts, do: if(postgres?(), do: @q, else: @q)
 
   defp postgres?, do: Repo.active_repo() == DebtReliefTracker.Repo.Postgres
 

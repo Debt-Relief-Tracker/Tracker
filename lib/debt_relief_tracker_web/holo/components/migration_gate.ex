@@ -10,7 +10,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
   `Holo.Auth` resolved), NEVER params; owner-only checks live in the context;
   each command is rate limited per workspace through `E2EE.RateLimiter`
   (`:migration_status`/`:migration_dry_run` share the normal bucket;
-  `:migration_export`/`:migration_finalize` use a strict one: burst 5, one
+  `:migration_export`/`:migration_finalize` use a strict one: burst 8, one
   token per 15 s); each returns exactly ONE page action. Nothing is logged;
   an unexpected exception is reported as `error: :failed` without its
   message (it could contain data).
@@ -53,7 +53,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
   middleware DebtReliefTrackerWeb.Holo.Auth
 
   # Strict bucket for the two heavy / destructive commands.
-  @strict [capacity: 5, refill_per_sec: 1 / 15]
+  @strict [capacity: 8, refill_per_sec: 1 / 15]
 
   def template do
     ~HOLO"""
