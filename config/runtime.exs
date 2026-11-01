@@ -83,6 +83,13 @@ else
   config :debt_relief_tracker, :auth0_management, nil
 end
 
+# End-to-end encrypted mode (docs/architecture/0007-e2ee.md). Read once here;
+# DebtReliefTracker.E2EE.enabled?/0 is the single gate. "true"/"1"/"yes" in any
+# case turns it on, anything else (or unset) leaves it off. IRREVERSIBLE in v1.
+# (Same rule as DebtReliefTracker.E2EE.parse_flag/1; config cannot call app code.)
+e2ee_flag = (System.get_env("E2EE") || "") |> String.trim() |> String.downcase()
+config :debt_relief_tracker, :e2ee, e2ee_flag in ~w(true 1 yes)
+
 # Optional Umami analytics (root.html.heex). Both vars must be set together;
 # they're read at runtime so the host and website ID stay out of the repo.
 # PUBLIC_UMAMI_URL is the Umami base URL -- /script.js is appended.

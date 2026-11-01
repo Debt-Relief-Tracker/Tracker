@@ -92,8 +92,19 @@ defmodule DebtReliefTrackerWeb.DashboardLive do
     }
   ]
 
+  # E2EE mode: this LiveView reads plaintext through the server-held Cloak key,
+  # which is exactly what E2EE must never do, so it hands off to the Hologram
+  # page (docs/architecture/0007-e2ee.md) before loading anything.
   @impl true
   def mount(_params, _session, socket) do
+    if DebtReliefTracker.E2EE.enabled?() do
+      {:ok, redirect(socket, to: "/app")}
+    else
+      mount_plaintext(socket)
+    end
+  end
+
+  defp mount_plaintext(socket) do
     current_user = socket.assigns.current_scope.user
     tutorial_user = current_user || Accounts.get_default_user!()
     workspace = current_workspace(current_user)

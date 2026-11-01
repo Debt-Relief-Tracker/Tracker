@@ -6,6 +6,9 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   This page only owns shared state and layout; every feature lives in a
   component under `Holo.Components.*` (see docs/holo-ui-conventions.md):
 
+    * `:e2ee` -- true in E2EE mode: the server never loads financial data, so
+      `:snapshot` is `nil` and the page renders only a locked shell.
+    * `:vault` -- E2EE only: `%{exists: boolean}` (never the blob).
     * `:snapshot` -- a `Storage` snapshot, the single source of truth for all
       financial data. Everything displayed is derived from it by the shared
       integer engine.
@@ -28,6 +31,9 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   alias DebtReliefTrackerWeb.Holo.Components.RetirementModal
   alias DebtReliefTrackerWeb.Holo.Components.SettingsModal
   alias DebtReliefTrackerWeb.Holo.Components.TutorialOverlay
+  alias DebtReliefTrackerWeb.Holo.Components.VaultGate
+  alias DebtReliefTracker.E2EE
+  alias DebtReliefTracker.E2EE.Vaults
   alias DebtReliefTrackerWeb.Holo.Context
 
   route "/app"
@@ -35,23 +41,56 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
   middleware DebtReliefTrackerWeb.Holo.Auth
 
-  # Server, first render. In E2EE mode this will render a locked shell
-  # instead and never touch plaintext.
+  # Server, first render. In E2EE mode this renders a locked shell and never
+  # touches plaintext: no snapshot is loaded (Storage.Vault could not anyway),
+  # only whether a vault exists.
   def init(_params, component, server) do
-    {:ok, snapshot} = Context.load(server)
+    if E2EE.enabled?() do
+      vault = %{exists: Vaults.exists?(Context.workspace(server))}
 
-    component
-    |> put_state(:snapshot, snapshot)
-    |> put_state(:account, Context.account(server))
-    |> put_state(:strategy, :cash_flow)
-    |> put_state(:modal, nil)
-    |> put_state(:error, nil)
-    |> put_state(:notice, nil)
+      component
+      |> put_state(:e2ee, true)
+      |> put_state(:vault, vault)
+      |> put_state(:vault_result, nil)
+      |> put_state(:snapshot, nil)
+      |> put_state(:account, Context.account(server))
+      |> put_state(:strategy, :cash_flow)
+      |> put_state(:modal, nil)
+      |> put_state(:error, nil)
+      |> put_state(:notice, nil)
+    else
+      {:ok, snapshot} = Context.load(server)
+
+      component
+      |> put_state(:e2ee, false)
+      |> put_state(:vault, nil)
+      |> put_state(:vault_result, nil)
+      |> put_state(:snapshot, snapshot)
+      |> put_state(:account, Context.account(server))
+      |> put_state(:strategy, :cash_flow)
+      |> put_state(:modal, nil)
+      |> put_state(:error, nil)
+      |> put_state(:notice, nil)
+    end
   end
 
   def template do
     ~HOLO"""
     <div id="holo-dashboard" class="flex flex-col min-h-screen">
+      {%if @e2ee}
+        <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-center">
+          <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
+          <p id="e2ee-locked-status" class="text-base-content/70 max-w-md">
+            {%if @vault.exists}
+              Your encrypted vault is locked. Unlocking happens in this browser; the server never sees your data.
+            {%else}
+              End-to-end encryption is on, but no vault has been created yet. Vault setup is coming in a later release.
+            {/if}
+          </p>
+          <VaultGate cid="vault_gate" />
+        </main>
+        <Footer cid="footer" account={@account} />
+      {%else}
       <HeaderBar cid="header_bar" snapshot={@snapshot} account={@account} />
 
       <div class="flex flex-col sm:flex-row flex-1 min-h-0">
@@ -99,6 +138,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
           <RetirementModal cid="retirement_modal" snapshot={@snapshot} account={@account} modal={@modal} />
         {/if}
       {/if}
+      {/if}
     </div>
     """
   end
@@ -142,6 +182,9 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     |> put_state(:error, nil)
     |> put_state(:notice, Map.get(params, :notice))
   end
+
+  # Outcome of a VaultGate command (E2EE mode); kept for the Phase 7 flows.
+  def action(:vault_result, params, component), do: put_state(component, :vault_result, params)
 
   def action(:dismiss_notice, _params, component), do: put_state(component, :notice, nil)
 
