@@ -9,9 +9,13 @@ defmodule DebtReliefTrackerWeb.Holo.CsvDownload do
 
   js_import from: "../../../assets/js/csv_download.mjs", as: :CsvDownload
 
-  @doc "Starts a download of `text` named `filename` (`text/csv`)."
-  def download(filename, text) do
-    JS.call(:CsvDownload, :download, [filename, text, "text/csv;charset=utf-8"])
+  @doc """
+  Starts a download of `text` named `filename` (`text/csv`). `container` is a
+  CSS selector of the open dialog the temporary anchor is clicked in (so the
+  click does not count as a click outside it).
+  """
+  def download(filename, text, container \\ nil) do
+    JS.call(:CsvDownload, :download, [filename, text, "text/csv;charset=utf-8", container])
     :ok
   end
 end

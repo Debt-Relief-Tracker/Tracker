@@ -53,6 +53,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
     <div id="settings-modal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 sm:p-0 z-50">
       <window $key_down.escape={action: :close_modal, target: "page"} />
       <div
+        id="settings-dialog"
         class="bg-base-100 rounded-lg p-4 sm:p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         $click_outside={action: :close_modal, target: "page"}
       >
@@ -333,12 +334,22 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
   end
 
   def action(:export_debts, _params, component) do
-    CsvDownload.download("debts.csv", CsvExport.debts(component.props.snapshot))
+    CsvDownload.download(
+      "debts.csv",
+      CsvExport.debts(component.props.snapshot),
+      "#settings-dialog"
+    )
+
     component
   end
 
   def action(:export_payments, _params, component) do
-    CsvDownload.download("payments.csv", CsvExport.payments(component.props.snapshot))
+    CsvDownload.download(
+      "payments.csv",
+      CsvExport.payments(component.props.snapshot),
+      "#settings-dialog"
+    )
+
     component
   end
 

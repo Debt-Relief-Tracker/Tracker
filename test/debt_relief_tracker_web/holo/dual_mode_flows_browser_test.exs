@@ -659,7 +659,9 @@ defmodule DebtReliefTrackerWeb.Holo.DualModeFlowsBrowserTest do
       assert debts =~ "Name,Type,Balance,APR,Status"
       assert debts =~ ~s("ZQXCsv, ""Visa""",revolving,990.00,20.00,active)
       assert payments =~ "Debt,Amount,Principal Portion,Interest Portion,Paid On,Note"
-      assert payments =~ "\"=SUM(A1), \"\"quoted\"\"\nline2\""
+      # (a single-line input turns the typed newline into a space; CRLF/LF quoting
+      # is covered byte for byte by CsvExportTest)
+      assert payments =~ "\"=SUM(A1), \"\"quoted\"\" line2\""
       assert errors(ctx) == []
       finish(ctx, :e2ee, ["ZQXCsv"])
     end

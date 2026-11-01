@@ -3,17 +3,19 @@
 // browser from the decrypted vault and never touches the server. No inline
 // script, no network.
 
-export function download(filename, text, mime) {
+export function download(filename, text, mime, containerSelector) {
   const blob = new Blob([String(text)], { type: String(mime || "text/csv;charset=utf-8") })
   const url = URL.createObjectURL(blob)
   const a = document.createElement("a")
   a.href = url
   a.download = String(filename)
   a.style.display = "none"
-  document.body.appendChild(a)
-  // Non-bubbling: a bubbling click on an element outside the open modal would
-  // reach Hologram's `$click_outside` handler and close the settings modal.
-  a.dispatchEvent(new MouseEvent("click", { bubbles: false, cancelable: true }))
+  // The anchor lives INSIDE the caller's dialog: a click on an element outside
+  // it would count as a click-outside (Hologram's `$click_outside`) and close
+  // the open modal.
+  const host = (containerSelector && document.querySelector(containerSelector)) || document.body
+  host.appendChild(a)
+  a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 10000)
   return "ok"
