@@ -87,6 +87,14 @@ defmodule DebtReliefTrackerWeb.Holo.TutorialFooterBrowserTest do
                "fixed"
     end
 
+    test "is not part of the server-rendered HTML (starts on client mount only)", ctx do
+      seen!(false)
+
+      html = Req.get!(ctx.base_url <> "/app").body
+      assert html =~ ~s(id="tutorial-overlay")
+      refute html =~ ~s(id="tutorial-card")
+    end
+
     test "does not start for a user who has seen it", ctx do
       seen!(true)
 
