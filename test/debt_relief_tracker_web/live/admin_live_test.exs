@@ -157,6 +157,60 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
     end
   end
 
+  describe "encryption visibility (users tab)" do
+    setup %{conn: conn} do
+      Application.put_env(:debt_relief_tracker, :oidc,
+        issuer: "https://idp.example.com",
+        client_id: "test-client",
+        client_secret: "test-secret",
+        roles_claim: "https://example.com/roles"
+      )
+
+      on_exit(fn -> Application.put_env(:debt_relief_tracker, :oidc, nil) end)
+
+      admin =
+        Accounts.get_or_create_user_from_oidc!(%{
+          "sub" => "admin",
+          "email" => "admin@example.com",
+          "name" => "Admin",
+          "https://example.com/roles" => ["admin"]
+        })
+
+      %{conn: Plug.Test.init_test_session(conn, user_id: admin.id), admin: admin}
+    end
+
+    test "shows counts and a per-user status, and no financial data", %{conn: conn, admin: admin} do
+      import DebtReliefTracker.MigrationHelpers
+
+      # admin: empty workspace; u1: unmigrated; u2: encrypted; u3: in progress
+      u1 = Accounts.get_or_create_user_from_oidc!(%{"sub" => "u1", "name" => "Una Plain"})
+      u2 = Accounts.get_or_create_user_from_oidc!(%{"sub" => "u2", "name" => "Eve Crypt"})
+      u3 = Accounts.get_or_create_user_from_oidc!(%{"sub" => "u3", "name" => "Pat Mid"})
+      populate!(Accounts.current_workspace_for_user(u1), u1, "SECRETDEBTNAME")
+      create_vault!(Accounts.current_workspace_for_user(u2))
+      populate!(Accounts.current_workspace_for_user(u3), u3, "SECRETDEBTNAME")
+      create_vault!(Accounts.current_workspace_for_user(u3))
+
+      {:ok, view, html} = live(conn, ~p"/admin?tab=users")
+
+      assert has_element?(view, "#encryption-count-unmigrated", "1")
+      assert has_element?(view, "#encryption-count-encrypted", "1")
+      assert has_element?(view, "#encryption-count-in-progress", "1")
+      assert has_element?(view, "#encryption-count-empty", "1")
+
+      assert has_element?(view, "#encryption-#{u1.id}", "Not migrated")
+      assert has_element?(view, "#encryption-#{u2.id}", "Encrypted")
+      assert has_element?(view, "#encryption-#{u3.id}", "In progress")
+      assert has_element?(view, "#encryption-#{admin.id}", "No data")
+
+      refute html =~ "SECRETDEBTNAME"
+      refute html =~ "1234"
+
+      # mobile-first: the counts grid is 2 columns by default, 4 from sm up
+      assert has_element?(view, "#encryption-counts.grid-cols-2.sm\\:grid-cols-4")
+    end
+  end
+
   describe "support emails tab" do
     test "lists logged support emails and shows detail in a modal", %{conn: conn} do
       {:ok, _support_email} =

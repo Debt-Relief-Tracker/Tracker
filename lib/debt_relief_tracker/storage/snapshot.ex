@@ -17,6 +17,9 @@ defmodule DebtReliefTracker.Storage.Snapshot do
 
   def schema_version, do: @schema_version
 
+  @doc "The most activity entries `build/1` includes (see `E2EE.Migration`)."
+  def activity_limit, do: @activity_limit
+
   def build(workspace) do
     %{
       schema_version: @schema_version,
