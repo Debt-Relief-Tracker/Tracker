@@ -199,8 +199,18 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
     end
   end
 
-  def action(:migration_event, %{event: {:fetched, reply}}, component),
-    do: step(component, {:vault_downloaded, decode_download(reply, component.props)})
+  # Resumed after a reload (status :both): the stored vault may be older than
+  # the fresh export. The first mismatch is repaired by itself (rebuild once);
+  # anything after that is shown to the user.
+  def action(:migration_event, %{event: {:fetched, reply}}, component) do
+    component = step(component, {:vault_downloaded, decode_download(reply, component.props)})
+    flow = component.state.flow
+
+    if flow.step == :failed and flow.reason == :verification_mismatch and flow.resume and
+         flow.rebuilds == 0,
+       do: step(component, :rebuild),
+       else: component
+  end
 
   def action(:migration_event, %{event: event}, component), do: step(component, event)
 
