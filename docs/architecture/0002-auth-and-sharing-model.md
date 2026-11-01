@@ -72,13 +72,13 @@ than to a single mutable global table everyone writes into.
 - `DebtReliefTrackerWeb.OIDC` wraps `Assent.Strategy.OIDC`; `enabled?/0` reads
   `Application.get_env(:debt_relief_tracker, :oidc)`, which `config/runtime.exs`
   sets (or sets to `nil`) from the three env vars. Every other OIDC-aware
-  piece — `AuthController`, `DashboardLive` — checks `enabled?/0` rather than
+  piece — `AuthController`, `Holo.Auth` (formerly `DashboardLive`) — checks `enabled?/0` rather than
   reading env vars itself.
 - Routes (`/auth/login`, `/auth/callback`, `/auth/logout` in `AuthController`)
-  always exist; they no-op back to `/` when OIDC isn't enabled, rather than
+  always exist; they no-op back to `/app` when OIDC isn't enabled, rather than
   being conditionally defined in the router. Simpler than trying to make the
   router itself conditional on a runtime value.
-- `DashboardLive.mount/3` is the actual login gate: if OIDC is enabled and
+- `Holo.Auth` (the Hologram middleware; formerly `DashboardLive.mount/3`) is the actual login gate: if OIDC is enabled and
   the plug session has no `user_id`, it redirects to `/auth/login` before
   rendering anything. There's no separate `:require_auth` plug in the
   browser pipeline — with only one route in the whole app, gating in

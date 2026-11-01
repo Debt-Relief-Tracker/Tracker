@@ -75,7 +75,7 @@ real ownership + sharing without a later schema migration:
 
 ### Phase 5 — LiveView UI
 
-One primary interface: a single `DashboardLive` LiveView laid out as a
+One primary interface (originally a `DashboardLive` LiveView, since replaced by the Hologram page `/app` -- see roadmap Phase 4 cutover) laid out as a
 persistent narrow left rail (~1/5 width, simplified debt list + add/edit/mark
 paid/log payment actions) plus a large main panel (graph-first: a chart-type
 switcher across strategy comparison, month-by-month simulation, cash-flow-freed

@@ -16,7 +16,7 @@ defmodule DebtReliefTracker.DuePayments.Scheduler do
   skipping that cycle.
 
   `:confirm`-mode debts need no scheduler involvement at all: their "payment
-  due" prompt is computed fresh by `DashboardLive` on every mount/refresh
+  due" prompt is computed fresh by the Hologram dashboard on every load/refresh
   using the same `DueSchedule.due?/2`.
   """
 

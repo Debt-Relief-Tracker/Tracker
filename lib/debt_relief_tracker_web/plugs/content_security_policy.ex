@@ -26,7 +26,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   (the browser blocks them; a warning is logged), so a script injected into
   the page can never inherit the nonce.
 
-  The LiveView pages (`/`, `/admin`, `/auth/*`) get a sibling, nonce-less
+  The LiveView pages (`/admin`, `/auth/*`; `/` only redirects to `/app`) get a sibling, nonce-less
   policy (`liveview_policy/0`): they have no inline scripts (the theme boot
   lives in `assets/js/theme_boot.js`), so `script-src 'self'` suffices. They
   share an origin -- and so IndexedDB with the remembered vault key -- with
@@ -54,7 +54,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   def applies_to?(path), do: path == "/app" or String.starts_with?(path, ["/app/", "/hologram/"])
 
   @doc "True for the LiveView / browser-pipeline HTML paths (static policy)."
-  def liveview_applies?(path), do: path in ["/", "/admin"] or String.starts_with?(path, "/auth/")
+  def liveview_applies?(path), do: path in ["/admin"] or String.starts_with?(path, "/auth/")
 
   @impl Plug
   def init(opts), do: opts

@@ -1,7 +1,7 @@
 defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   @moduledoc """
   The Hologram dashboard (docs/architecture/0007-e2ee.md, roadmap Phase 10).
-  Served at `/app` alongside the LiveView at `/` until it reaches parity.
+  This is THE dashboard: served at `/app`; `/` redirects here (`PageController`).
 
   This page only owns shared state and layout; every feature lives in a
   component under `Holo.Components.*` (see docs/holo-ui-conventions.md):

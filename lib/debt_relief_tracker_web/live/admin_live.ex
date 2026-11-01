@@ -5,7 +5,7 @@ defmodule DebtReliefTrackerWeb.AdminLive do
   log with resend, the inbound support-email log, and API token management
   (docs/architecture/0006-support-api-and-tokens.md). Gated by
   `DebtReliefTrackerWeb.UserAuth`'s `:require_admin_scope` on_mount. A
-  deliberate exception to "everything lives in DashboardLive" (CLAUDE.md) --
+  deliberate exception to "everything lives in the dashboard" (CLAUDE.md) --
   this is a site-config surface, not a debt/payment feature.
   """
 
@@ -276,7 +276,7 @@ defmodule DebtReliefTrackerWeb.AdminLive do
         Admin
         <:subtitle>Site settings, users, email logs, and API tokens.</:subtitle>
         <:actions>
-          <.link navigate={~p"/"} class="btn btn-ghost btn-sm">← Dashboard</.link>
+          <.link href="/app" class="btn btn-ghost btn-sm">← Dashboard</.link>
         </:actions>
       </.header>
 

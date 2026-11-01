@@ -109,8 +109,8 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
   end
 
   describe "LiveView pages (static policy, no nonce)" do
-    test "/, /admin and /auth/* get the strict nonce-less policy" do
-      for path <- ["/", "/admin", "/auth/login"] do
+    test "/admin and /auth/* get the strict nonce-less policy" do
+      for path <- ["/admin", "/auth/login"] do
         conn = run(path, @page)
         [csp] = get_resp_header(conn, "content-security-policy")
         directives = String.split(csp, "; ")
@@ -175,10 +175,10 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
       assert "connect-src 'self' https://stats.example.com" in directives
     end
 
-    test "real endpoint: / and /admin carry the header and contain no inline <script>", %{
+    test "real endpoint: /admin carries the header and contain no inline <script>", %{
       conn: conn
     } do
-      for path <- ["/", "/admin"] do
+      for path <- ["/admin"] do
         conn = get(conn, path)
         assert [_] = get_resp_header(conn, "content-security-policy")
 
@@ -193,7 +193,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
     end
 
     test "real endpoint: theme boot is an external file that exists", %{conn: conn} do
-      html = html_response(get(conn, "/"), 200)
+      html = html_response(get(conn, "/admin"), 200)
       assert html =~ ~r/<script[^>]*src="\/assets\/js\/theme_boot\.js[^"]*"/
       refute html =~ ~r/<script[^>]*src="\/assets\/js\/theme_boot\.js[^>]*defer/
       assert File.exists?("assets/js/theme_boot.js")
@@ -268,8 +268,8 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
       assert other != nonce
     end
 
-    test "the LiveView / is left alone" do
-      conn = Phoenix.ConnTest.get(Phoenix.ConnTest.build_conn(), "/")
+    test "the LiveView /admin is left alone" do
+      conn = Phoenix.ConnTest.get(Phoenix.ConnTest.build_conn(), "/admin")
       refute get_resp_header(conn, "content-security-policy") |> Enum.join() =~ "nonce-"
       refute conn.resp_body =~ "script nonce"
       assert get_resp_header(conn, "cache-control") != ["no-store"]

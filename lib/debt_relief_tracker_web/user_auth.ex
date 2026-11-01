@@ -2,8 +2,9 @@ defmodule DebtReliefTrackerWeb.UserAuth do
   @moduledoc """
   `on_mount` hooks that resolve the session into an `Accounts.Scope` and
   assign it as `current_scope` (per the project's Phoenix 1.8 guidelines and
-  `Layouts.app/1`'s `current_scope` attr), used by the router's `live_session`
-  blocks.
+  `Layouts.app/1`'s `current_scope` attr), used by the router's `:admin`
+  `live_session`. The dashboard is a Hologram page and uses
+  `DebtReliefTrackerWeb.Holo.Auth` instead.
   """
 
   use DebtReliefTrackerWeb, :verified_routes
@@ -15,20 +16,10 @@ defmodule DebtReliefTrackerWeb.UserAuth do
   alias DebtReliefTracker.Accounts.Scope
   alias DebtReliefTrackerWeb.OIDC
 
-  @doc """
-  Assigns `current_scope`; redirects to `/auth/login` when OIDC is enabled
-  and the session has no logged-in user. In no-auth mode everyone resolves
-  to a `nil`-user scope, same as everywhere else in the app (ADR 0002).
-  """
-  def on_mount(:mount_current_scope, _params, session, socket) do
-    case resolve_scope(session) do
-      {:ok, scope} -> {:cont, assign_scope(socket, scope)}
-      :redirect -> {:halt, redirect(socket, to: ~p"/auth/login")}
-    end
-  end
-
-  # Same as :mount_current_scope, but additionally requires Accounts.admin?/1
-  # -- unless OIDC is disabled, since no-auth dev mode is already fully
+  # Assigns `current_scope`; redirects to /auth/login when OIDC is enabled and
+  # the session has no logged-in user (in no-auth mode everyone resolves to a
+  # nil-user scope, ADR 0002). Additionally requires Accounts.admin?/1 --
+  # unless OIDC is disabled, since no-auth dev mode is already fully
   # trusted and should stay reachable without an IdP configured.
   @doc false
   def on_mount(:require_admin_scope, _params, session, socket) do
@@ -40,7 +31,7 @@ defmodule DebtReliefTrackerWeb.UserAuth do
           {:halt,
            socket
            |> put_flash(:error, "You don't have access to that page.")
-           |> redirect(to: ~p"/")}
+           |> redirect(to: "/app")}
         end
 
       :redirect ->

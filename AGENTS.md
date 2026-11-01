@@ -2,9 +2,11 @@ This is a web application written using the Phoenix web framework.
 
 ## THIS APP IS LIVE -- MIGRATIONS MUST BE PERFECT
 
-This is not a toy project. It is deployed and in active use, and its database
-holds the user's own real personal financial data (loans, payments,
-retirement info) -- not seed/fixture data. There is no staging environment.
+This is not a toy project. It is deployed and in active use, and the deployed
+Render app holds real users' personal financial data (loans, payments,
+retirement info). The local dev database on this machine is dev/play data
+only; real data exists only in production. There is no staging environment,
+so hold the production bar for every migration.
 
 - **Never** write a migration you have not fully verified. Read it back after
   writing it and confirm: the direction is correct, it is reversible (or
@@ -15,7 +17,7 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   (`mix ecto.reset`, `mix ecto.drop`, manual `DROP`/`TRUNCATE`, editing rows
   by hand) without explicit, in-the-moment user confirmation.
 - **Never** start or stop the dev server (`mix phx.server`) -- the user runs
-  it themselves and uses it concurrently with real data while you work.
+  it themselves and uses it concurrently (with play data) while you work.
 - Running a newly written migration (`mix ecto.migrate`) against the dev
   database to verify it is fine to do on your own, without pausing to ask
   first -- go ahead once you've done the verification above, then report
@@ -29,20 +31,19 @@ retirement info) -- not seed/fixture data. There is no staging environment.
 
 - See `docs/plan.md`, `docs/roadmap.md`, and `docs/architecture/*.md` for the
   why behind this app's non-standard bits before changing them.
-- `DashboardLive` intentionally does **not** wrap its content in
-  `<Layouts.app>` (see the "Always begin your LiveView templates with
-  `<Layouts.app>`" guideline below) -- it's a full-width dashboard layout
-  (left rail + main panel), not a centered marketing-style page, and
-  `Layouts.app`'s nav/`max-w-2xl` container don't fit that. It does reuse
-  `Layouts.theme_toggle` and `Layouts.flash_group` directly. This is a
-  deliberate exception, not an oversight.
-- The app has exactly one real route (`/`, `DashboardLive`) plus the OIDC
-  auth routes (`/auth/*`). Don't assume a growing set of pages/CRUD routes is
-  coming -- new debt/payment features go into `DashboardLive` as modals per
-  docs/architecture, not new LiveViews.
+- The dashboard is the **Hologram** page `/app` (`Holo.DashboardPage`); the
+  old `DashboardLive` LiveView was deleted in the Phase 4 cutover and `/` now
+  just redirects to `/app` (`PageController`). Because `/app` is not in the
+  Phoenix router, don't use `~p"/app"` (verified routes warn); use the plain
+  string `"/app"`.
+- The app has exactly one real page (`/app`) plus `/admin` (`AdminLive`), the
+  OIDC auth routes (`/auth/*`) and the `/` redirect. Don't assume a growing
+  set of pages/CRUD routes is coming -- new debt/payment features go into the
+  dashboard as modals (Hologram components) per docs/architecture, not new
+  pages.
 - **All UI must be mobile-responsive**, including admin/internal-only pages
   like `AdminLive` -- don't scope responsive work to just the main dashboard.
-  Follow the pattern already established in `DashboardLive`/`Layouts`/
+  Follow the pattern already established in the Hologram dashboard/`Layouts`/
   `CoreComponents`: unprefixed Tailwind classes are the mobile-default value,
   and the *current* desktop look gets moved behind an `sm:` prefix, so
   desktop is provably unchanged. Watch for `.join` button rows and `<.table>`
@@ -59,8 +60,8 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   `kdf_params`) stay in `:filter_parameters`. A new feature that needs to read financial
   data must do it in the browser (shared `Engine.*`), not on the server.
 - `/app` (`Holo.DashboardPage`) is a **Hologram** page, not a LiveView; the
-  `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` stays the
-  LiveView until the owner decides the cutover; `AdminLive` stays a LiveView
+  `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` redirects
+  to it (cutover done); `AdminLive` stays a LiveView
   (it never touches financial data).
 - **Raw key material never enters Elixir.** E2EE crypto is the opaque-handle
   `DebtReliefTracker.Crypto` API (facade `assets/js/crypto_facade.mjs`); Elixir

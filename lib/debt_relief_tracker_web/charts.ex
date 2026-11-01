@@ -1,9 +1,10 @@
 defmodule DebtReliefTrackerWeb.Charts do
   @moduledoc """
   Builds Chart.js config maps for each payoff-plan chart type (docs/plan.md
-  Phase 5). Pure data-shaping -- no Ecto, no rendering. `DashboardLive`
-  pushes the result straight to the `PlanChart` JS hook via `push_event/3`;
-  the hook just does `new Chart(canvas, config)`.
+  Phase 5). Pure data-shaping -- no Ecto, no rendering. No longer used by the
+  app (the LiveView dashboard is gone); kept as the Decimal reference
+  implementation that `DebtReliefTracker.Engine.Charts` is parity-tested
+  against.
   """
 
   alias DebtReliefTracker.Debts.Calculations
@@ -12,11 +13,9 @@ defmodule DebtReliefTrackerWeb.Charts do
 
   @strategies [:cash_flow, :snowball, :avalanche]
 
-  # A small fixed palette, in the app's light-theme colors -- the PlanChart
-  # JS hook (assets/js/plan_chart_hook.js) recolors these client-side for
-  # dark mode by matching these exact hex values, so if this list (or the
-  # two one-off colors below) ever changes, the JS-side LIGHT_PALETTE/
-  # LIGHT_TOTAL_LINE/LIGHT_FILL constants must be updated to match.
+  # A small fixed palette, in the app's light-theme colors -- the Hologram
+  # chart code recolors these client-side for dark mode by matching these
+  # exact hex values, so keep them in sync with Engine.Charts.
   @palette [
     "#2563eb",
     "#f97316",

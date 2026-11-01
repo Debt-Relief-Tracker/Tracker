@@ -59,7 +59,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
     <% else %>
       <header class="navbar px-4 sm:px-6 lg:px-8 border-b border-base-300">
         <div class="flex-1">
-          <.link navigate={~p"/"} class="font-semibold">Debt Relief Tracker</.link>
+          <.link href="/app" class="font-semibold">Debt Relief Tracker</.link>
         </div>
         <div class="flex-none">
           <.theme_toggle />

@@ -159,8 +159,8 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
       assert doc |> LazyHTML.query("#this-month-card") |> LazyHTML.text() =~ @marker
     end
 
-    test "GET / is the LiveView, exports work", %{conn: conn} do
-      assert html_response(get(conn, ~p"/"), 200) =~ @marker
+    test "GET / redirects to /app, exports work", %{conn: conn} do
+      assert redirected_to(get(conn, ~p"/")) == "/app"
       assert response(get(conn, "/export/debts.csv"), 200) =~ @marker
     end
   end

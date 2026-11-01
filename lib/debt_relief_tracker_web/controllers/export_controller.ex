@@ -48,7 +48,7 @@ defmodule DebtReliefTrackerWeb.ExportController do
     end
   end
 
-  # Mirrors DashboardLive.mount/3's current_user/current_workspace
+  # Mirrors the dashboard page's current_user/current_workspace
   # resolution -- a plain controller route has no LiveView session assigns
   # to reuse directly. Kept here (rather than moved into Accounts) since it
   # depends on DebtReliefTrackerWeb.OIDC, a web-layer concern the Accounts

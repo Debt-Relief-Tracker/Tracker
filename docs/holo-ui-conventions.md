@@ -1,10 +1,10 @@
 # Hologram UI conventions (roadmap Phase 10, ADR 0007)
 
 The new dashboard is `DebtReliefTrackerWeb.Holo.DashboardPage` at `/app`
-(the LiveView at `/` stays until parity). It only owns shared state and
+(`/` redirects here; the old `DashboardLive` was deleted at cutover -- see git history for the historical reference). It only owns shared state and
 layout; each feature is a stateful component under
-`lib/debt_relief_tracker_web/holo/components/`. **Port behavior from
-`lib/debt_relief_tracker_web/live/dashboard_live.ex`** (its `handle_event`s,
+`lib/debt_relief_tracker_web/holo/components/`. **(Historical: ported from the deleted
+`live/dashboard_live.ex`, see git history.)** (its `handle_event`s,
 template section and `*_modal` functions) and match its look (same Tailwind /
 daisyUI classes; mobile-default classes unprefixed, desktop behind `sm:`).
 
@@ -143,8 +143,7 @@ math (no Decimal/float). Put reusable parse/format helpers in
   needed; if you believe a migration is required, STOP and report instead.
 - Do not edit files outside your ownership list except additive edits to
   shared helpers (`Holo.Format`, `Storage`, `Storage.Plain`, `Engine.*`).
-- Do not touch `live/dashboard_live.ex` or the LiveView tests (they remain
-  the reference). Keep `mix test` green and `mix compile --warning-as-errors`
+- `live/dashboard_live.ex` and its tests were deleted at the cutover. Keep `mix test` green and `mix compile --warning-as-errors`
   clean before committing.
 - Commit to your worktree branch with
   `Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>`. Final report:

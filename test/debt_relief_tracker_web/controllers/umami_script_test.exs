@@ -20,7 +20,7 @@ defmodule DebtReliefTrackerWeb.UmamiScriptTest do
       website_id: "site-123"
     )
 
-    tags = conn |> get(~p"/") |> script_tags()
+    tags = conn |> get("/admin") |> script_tags()
 
     assert LazyHTML.attribute(tags, "src") == ["https://umami.example.com/script.js"]
     assert LazyHTML.attribute(tags, "data-website-id") == ["site-123"]
@@ -29,7 +29,7 @@ defmodule DebtReliefTrackerWeb.UmamiScriptTest do
   test "renders no Umami script when unconfigured", %{conn: conn} do
     Application.put_env(:debt_relief_tracker, :umami, nil)
 
-    assert conn |> get(~p"/") |> script_tags() |> Enum.count() == 0
+    assert conn |> get("/admin") |> script_tags() |> Enum.count() == 0
   end
 
   test "E2EE mode never loads the analytics script and never allows its origin", %{conn: conn} do

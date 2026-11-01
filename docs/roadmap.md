@@ -444,8 +444,13 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 - [ ] Run `mix drt.audit_snapshot` against a COPY of production data.
 - [ ] Docker/Render build of the image (never built here) and the
       `docs/deploy-e2ee.md` two-step deploy with a Render backup first.
-- [ ] Decide: `activity_logs.inserted_at` precision migration (Postgres),
-      cutting `/` over to `/app`, and the stale `CLAUDE.md` dev-DB line.
+- [ ] Decide: `activity_logs.inserted_at` precision migration (Postgres).
+- [x] Phase 4 cutover: `/app` is THE dashboard. `/` redirects to it
+      (`PageController`), `DashboardLive`, its tests, the `PlanChart` /
+      `TutorialOverlay` LiveView hooks and the LiveView-vs-Hologram parity
+      browser test are deleted (coverage mapping: `docs/cutover-test-coverage.md`);
+      links/redirects in auth, `UserAuth`, admin, layouts now point at `/app`.
+      The stale `CLAUDE.md` dev-DB line is fixed.
 
 ## Verification
 
