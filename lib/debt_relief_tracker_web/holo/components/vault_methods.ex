@@ -20,7 +20,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultMethods do
   use Hologram.Component
 
   alias DebtReliefTracker.{Crypto, VaultEnv}
-  alias DebtReliefTracker.VaultClient.{Recovery, Strength}
+  alias DebtReliefTracker.VaultClient.Recovery
+  alias DebtReliefTrackerWeb.Holo.VaultFlow
 
   prop :vault, :map
   prop :account, :map
@@ -209,6 +210,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultMethods do
     do: "That passphrase is too easy to guess. Try a longer, more unusual one."
 
   def message_text(:wrong_passphrase), do: "The current passphrase is not correct."
+
+  def message_text(:uv_required),
+    do:
+      "Passkeys here must verify you (PIN, biometric or device lock). This authenticator cannot, so use another method."
+
   def message_text(:cancelled), do: "The passkey prompt was cancelled."
 
   def message_text(:unsupported),
@@ -427,13 +433,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultMethods do
   # --- internals -------------------------------------------------------------------------
 
   defp check_new(pass, confirm) do
-    strength = Strength.estimate(pass)
-
-    cond do
-      not strength.long_enough? -> {:error, :too_short}
-      pass != confirm -> {:error, :mismatch}
-      not strength.acceptable? -> {:error, :weak}
-      true -> :ok
+    case VaultFlow.check_new_passphrase(pass) do
+      {:error, :passphrase_too_short} -> {:error, :too_short}
+      _ when pass != confirm -> {:error, :mismatch}
+      {:error, :passphrase_weak} -> {:error, :weak}
+      :ok -> :ok
     end
   end
 
@@ -453,6 +457,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultMethods do
 
   defp error_for(:passkey_cancelled), do: :cancelled
   defp error_for(:passkey_unsupported), do: :unsupported
+  defp error_for(:passkey_uv_unsupported), do: :uv_required
+  defp error_for(:passphrase_too_short), do: :too_short
   defp error_for(:wrong_passphrase), do: :wrong_passphrase
   defp error_for(:locked), do: :locked
   defp error_for(_), do: :failed

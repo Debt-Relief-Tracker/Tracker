@@ -47,7 +47,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     only: [put_state: 3, put_action: 2]
 
   alias DebtReliefTracker.{Crypto, VaultDoc, VaultEnv}
-  alias DebtReliefTracker.VaultClient.SaveLoop
+  alias DebtReliefTracker.VaultClient.{Delay, SaveLoop, Strength}
   alias DebtReliefTracker.VaultDoc.{Ledger, Merge, Stamp}
   alias DebtReliefTrackerWeb.Holo.QuietJS
 
@@ -66,6 +66,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       busy: nil,
       flow: nil,
       error: nil,
+      unlock_delay: Delay.new(),
       rollback: nil,
       pending: nil,
       creating: nil,
@@ -115,6 +116,39 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
     end
   end
 
+  # --- unlock throttle + passphrase rule (enforced here, not only in the UI) ----------
+
+  @doc """
+  Records a failed unlock attempt in page state (`vault.unlock_delay`,
+  `VaultClient.Delay`: free for 3 failures, then 1, 2, 4 ... capped at 30 s).
+  It lives in the page, not in the unlock component, so it survives the
+  component being re-rendered or re-mounted; it resets on a successful unlock
+  (`opened/2`). A page reload still clears it (documented limit, ADR 0007).
+  """
+  def unlock_failed(c), do: unlock_failed(c, VaultEnv.now_ms())
+
+  def unlock_failed(c, now_ms),
+    do: merge(c, %{unlock_delay: Delay.failed(c.state.vault.unlock_delay, now_ms)})
+
+  @doc "Whole seconds the unlock must still wait (0 = free to try)."
+  def unlock_wait(vault, now_ms), do: Delay.remaining_seconds(vault.unlock_delay, now_ms)
+
+  @doc """
+  `:ok` or `{:error, :passphrase_too_short | :passphrase_weak}`. Every flow that
+  is about to create a passphrase wrap (setup, add method, change passphrase)
+  calls this before touching `Crypto`; `Crypto.wrap_passphrase/4` and the
+  facade enforce the length floor again.
+  """
+  def check_new_passphrase(passphrase) do
+    strength = Strength.estimate(passphrase)
+
+    cond do
+      not strength.long_enough? -> {:error, :passphrase_too_short}
+      not strength.acceptable? -> {:error, :passphrase_weak}
+      true -> :ok
+    end
+  end
+
   # --- unlocking -------------------------------------------------------------------------
 
   @doc "An unlock method produced a session handle: fetch the vault and decrypt it."
@@ -130,7 +164,8 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
       device: Crypto.device_remembered?(ws),
       busy: :opening,
       flow: :open,
-      error: nil
+      error: nil,
+      unlock_delay: Delay.new()
     })
     |> put_action(name: :fetch_vault, target: "vault_gate")
   end

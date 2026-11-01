@@ -22,6 +22,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
 
   alias DebtReliefTracker.{Crypto, VaultEnv}
   alias DebtReliefTracker.VaultClient.Delay
+  alias DebtReliefTrackerWeb.Holo.VaultFlow
 
   prop :vault, :map
   prop :account, :map
@@ -131,6 +132,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
 
   def error_text(:cancelled), do: "The passkey prompt was cancelled."
   def error_text(:unavailable), do: "Passkeys are not available in this browser."
+
+  def error_text(:uv_required),
+    do:
+      "This passkey must verify you (PIN, biometric or device lock). Set one up on the authenticator, or use another method."
+
   def error_text(:empty), do: "Enter your secret first."
   def error_text(_), do: "Could not unlock. Check what you entered and try again."
 
@@ -177,7 +183,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
 
   defp start(component, method, secret) do
     now = VaultEnv.now_ms()
-    wait = Delay.remaining_seconds(component.state.delay, now)
+    # The page-level throttle (VaultFlow) survives this component being
+    # re-mounted; the local one covers the round trip before the page updates.
+    wait =
+      max(
+        Delay.remaining_seconds(component.state.delay, now),
+        VaultFlow.unlock_wait(component.props.vault, now)
+      )
 
     cond do
       component.state.busy != nil ->
@@ -269,6 +281,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
       :passkey_unsupported ->
         component |> put_state(busy: nil, error: :unavailable)
 
+      :passkey_uv_unsupported ->
+        component |> put_state(busy: nil, error: :uv_required)
+
       _ ->
         delay = Delay.failed(component.state.delay, VaultEnv.now_ms())
         shown = if code == :too_many_passphrases, do: code, else: :failed
@@ -276,6 +291,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultUnlock do
         component
         |> put_state(busy: nil, error: shown, delay: delay)
         |> put_state(:wait, Delay.remaining_seconds(delay, VaultEnv.now_ms()))
+        |> put_action(name: :vault_unlock_failed, target: "page")
     end
   end
 end
