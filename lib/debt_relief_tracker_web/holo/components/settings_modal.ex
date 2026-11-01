@@ -22,6 +22,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
 
   alias DebtReliefTrackerWeb.Holo.AccountOps
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.CsvDownload
+  alias DebtReliefTrackerWeb.Holo.CsvExport
+  alias DebtReliefTrackerWeb.Holo.DataPath
   alias DebtReliefTrackerWeb.Holo.Format
 
   middleware DebtReliefTrackerWeb.Holo.Auth
@@ -29,6 +32,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
   prop :snapshot, :map
   prop :account, :map
   prop :modal, :map, default: nil
+  prop :e2ee, :boolean, from_context: :e2ee
 
   def init(props, component) do
     put_state(component,
@@ -131,12 +135,21 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
         <section class="mb-6">
           <h3 class="font-medium mb-2">Export</h3>
           <div class="flex flex-col gap-2">
-            <a id="export-debts" href="/export/debts.csv" class="btn btn-soft btn-sm w-full">
-              Export debts (CSV)
-            </a>
-            <a id="export-payments" href="/export/payments.csv" class="btn btn-soft btn-sm w-full">
-              Export payments (CSV)
-            </a>
+            {%if @e2ee}
+              <button id="export-debts" type="button" class="btn btn-soft btn-sm w-full" $click="export_debts">
+                Export debts (CSV)
+              </button>
+              <button id="export-payments" type="button" class="btn btn-soft btn-sm w-full" $click="export_payments">
+                Export payments (CSV)
+              </button>
+            {%else}
+              <a id="export-debts" href="/export/debts.csv" class="btn btn-soft btn-sm w-full">
+                Export debts (CSV)
+              </a>
+              <a id="export-payments" href="/export/payments.csv" class="btn btn-soft btn-sm w-full">
+                Export payments (CSV)
+              </a>
+            {/if}
           </div>
         </section>
 
@@ -164,6 +177,17 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
           </button>
         </section>
 
+        {%if @e2ee}
+          {%if @account.oidc_enabled}
+            <section id="settings-people-e2ee">
+              <h3 class="font-medium mb-2">People</h3>
+              <p class="text-sm opacity-70">
+                Sharing is not available with end-to-end encryption: only you can open this vault,
+                because the key never leaves your browser.
+              </p>
+            </section>
+          {/if}
+        {%else}
         {%if @account.oidc_enabled}
           {%if @modal.is_owner}
             <section id="settings-people">
@@ -219,6 +243,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
             </section>
           {/if}
         {/if}
+        {/if}
 
         <div class="flex justify-end gap-2 mt-4">
           <button
@@ -255,17 +280,64 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
     do: put_state(component, :share_email, value)
 
   # The single Save. The server decides which sections this user may write.
+  # E2EE: the currency lives in the vault, so the server saves only the
+  # account part (`:save_account`) and `:account_saved` applies the currency
+  # through the ledger.
   def action(:save, _params, component) do
     state = component.state
+    component = put_state(component, display_name_error: nil, ws_name_error: nil, general_error: nil)
 
-    component
-    |> put_state(display_name_error: nil, ws_name_error: nil, general_error: nil)
-    |> put_command(:save_settings,
-      display_name: state.name_input,
-      workspace_name: state.ws_name_input,
-      currency: state.currency_input
-    )
+    if DataPath.e2ee?(component) do
+      put_command(component, :save_account,
+        display_name: state.name_input,
+        workspace_name: state.ws_name_input
+      )
+    else
+      put_command(component, :save_settings,
+        display_name: state.name_input,
+        workspace_name: state.ws_name_input,
+        currency: state.currency_input
+      )
+    end
   end
+
+  def action(:account_saved, %{account: account}, component) do
+    currency = component.state.currency_input
+
+    if component.props.modal.is_owner and currency in Format.currency_codes() and
+         currency != component.props.snapshot.settings.currency do
+      DataPath.save(component, :unused, %{},
+        changes: [{:update_settings, %{currency: currency}}],
+        ok: DataPath.ok(:account_changed, "page", %{account: account, modal: nil, notice: "Settings saved."}),
+        error: DataPath.error(:save_failed, "settings_modal")
+      )
+    else
+      put_action(component,
+        name: :account_changed,
+        target: "page",
+        params: %{
+          account: account,
+          snapshot: component.props.snapshot,
+          modal: nil,
+          notice: "Settings saved."
+        }
+      )
+    end
+  end
+
+  def action(:export_debts, _params, component) do
+    CsvDownload.download("debts.csv", CsvExport.debts(component.props.snapshot))
+    component
+  end
+
+  def action(:export_payments, _params, component) do
+    CsvDownload.download("payments.csv", CsvExport.payments(component.props.snapshot))
+    component
+  end
+
+  # A ledger failure (E2EE currency change) arrives as `%{error: error}`.
+  def action(:save_failed, %{error: _error}, component),
+    do: put_state(component, :general_error, "Couldn't save the currency.")
 
   def action(:save_failed, %{errors: errors}, component) do
     put_state(component,
@@ -312,6 +384,22 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
 
       {:error, errors} ->
         put_action(server, :save_failed, errors: errors)
+    end
+  end
+
+  def command(:save_account, params, server) do
+    user = Context.user(server)
+    workspace = Context.workspace(server)
+
+    # No "currency": that is vault data, saved in the browser.
+    attrs = %{
+      "display_name" => params.display_name,
+      "workspace_name" => params.workspace_name
+    }
+
+    case AccountOps.save_settings(user, workspace, attrs) do
+      {:ok, _} -> put_action(server, :account_saved, account: Context.account(server))
+      {:error, errors} -> put_action(server, :save_failed, errors: errors)
     end
   end
 

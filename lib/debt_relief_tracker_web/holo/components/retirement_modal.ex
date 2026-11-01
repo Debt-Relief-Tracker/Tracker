@@ -31,6 +31,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
 
   alias DebtReliefTracker.Accounts
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.DataPath
   alias DebtReliefTrackerWeb.Holo.RetirementForm
 
   middleware DebtReliefTrackerWeb.Holo.Auth
@@ -38,6 +39,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
   prop :snapshot, :map
   prop :account, :map
   prop :modal, :map, default: nil
+  prop :e2ee, :boolean, from_context: :e2ee
 
   @doc "The page modal map that opens the roster."
   def onboarding_modal, do: %{type: :retirement_onboarding}
@@ -348,7 +350,14 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
 
     case RetirementForm.build_change(mode, state.form) do
       {:ok, change} ->
-        component |> put_state(:errors, %{}) |> put_command(:save, change: change)
+        component
+        |> put_state(:errors, %{})
+        |> DataPath.save(:save, %{change: change},
+          changes: [change],
+          ok: DataPath.ok(:saved, "retirement_modal"),
+          error: DataPath.error(:save_failed, "retirement_modal"),
+          members: member_names(state.members)
+        )
 
       {:error, errors} ->
         put_state(component, :errors, errors)
@@ -369,16 +378,32 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementModal do
   end
 
   def action(:delete_profile, %{id: id}, component) do
-    put_command(component, :delete, id: id)
+    DataPath.save(component, :delete, %{id: id},
+      changes: [{:delete_retirement_profile, id}],
+      ok: DataPath.ok(:snapshot_updated, "page"),
+      error: DataPath.error(:change_failed, "page")
+    )
   end
 
   # The modal closes right away (that is what "Skip" means); the command's
   # single follow-up action delivers the snapshot with the flag set.
   def action(:dismiss_prompt, _params, component) do
-    component
-    |> put_command(:dismiss)
-    |> put_action(name: :close_modal, target: "page")
+    component =
+      DataPath.save(component, :dismiss, %{},
+        changes: [{:update_settings, %{retirement_onboarding_dismissed: true}}],
+        ok: DataPath.ok(:snapshot_updated, "page", %{close_modal: true}),
+        error: DataPath.error(:change_failed, "page")
+      )
+
+    # E2EE: the ledger reply is the one follow-up and closes the modal itself.
+    if DataPath.e2ee?(component),
+      do: component,
+      else: put_action(component, name: :close_modal, target: "page")
   end
+
+  # `%{user_id => display_name}` for the ledger's member check (account data
+  # the vault does not hold); the picker only offers confirmed members.
+  defp member_names(members), do: Map.new(members, fn m -> {m.id, m.display_name} end)
 
   # --- commands (server) -----------------------------------------------------
 

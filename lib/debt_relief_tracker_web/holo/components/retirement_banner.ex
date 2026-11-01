@@ -15,10 +15,12 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementBanner do
   use Hologram.Component
 
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.DataPath
 
   middleware DebtReliefTrackerWeb.Holo.Auth
 
   prop :snapshot, :map
+  prop :e2ee, :boolean, from_context: :e2ee
 
   @doc "True when the banner should show: no profiles yet and not dismissed."
   def show?(snapshot) do
@@ -57,7 +59,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.RetirementBanner do
     """
   end
 
-  def action(:dismiss, _params, component), do: put_command(component, :dismiss)
+  def action(:dismiss, _params, component) do
+    DataPath.save(component, :dismiss, %{},
+      changes: [{:update_settings, %{retirement_onboarding_dismissed: true}}],
+      ok: DataPath.ok(:snapshot_updated, "page"),
+      error: DataPath.error(:change_failed, "page")
+    )
+  end
 
   def command(:dismiss, _params, server) do
     case Context.apply_change(

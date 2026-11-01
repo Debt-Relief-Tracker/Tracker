@@ -11,6 +11,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.LogAllBalancesModal do
 
   alias DebtReliefTrackerWeb.Holo.Auth
   alias DebtReliefTrackerWeb.Holo.Components.DebtModalFrame
+  alias DebtReliefTrackerWeb.Holo.DataPath
   alias DebtReliefTrackerWeb.Holo.DebtCommands
   alias DebtReliefTrackerWeb.Holo.DebtLogic
   alias DebtReliefTrackerWeb.Holo.Format
@@ -20,6 +21,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.LogAllBalancesModal do
   prop :snapshot, :map
   prop :account, :map
   prop :modal, :map, default: nil
+  prop :e2ee, :boolean, from_context: :e2ee
 
   def init(props, component), do: init_state(props, component)
   def init(props, component, _server), do: init_state(props, component)
@@ -93,7 +95,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.LogAllBalancesModal do
       {:ok, changes} ->
         component
         |> put_state(:error, nil)
-        |> put_command(:save, changes: changes, notice: "Balances updated.")
+        |> DataPath.save(:save, %{changes: changes, notice: "Balances updated."},
+          changes: changes,
+          ok: DataPath.synced("Balances updated.", true),
+          error: DataPath.error(:save_failed, "log_all_balances_modal")
+        )
 
       {:error, errors} ->
         entries =

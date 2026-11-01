@@ -23,8 +23,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
 
   use Hologram.Component
 
+  alias DebtReliefTracker.VaultEnv
   alias DebtReliefTrackerWeb.Holo.Auth
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.DataPath
   alias DebtReliefTrackerWeb.Holo.DebtCommands
   alias DebtReliefTrackerWeb.Holo.DebtLogic
   alias DebtReliefTrackerWeb.Holo.Format
@@ -33,10 +35,16 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
 
   prop :snapshot, :map
   prop :account, :map
+  prop :e2ee, :boolean, from_context: :e2ee
 
-  def init(_props, component, _server) do
+  # Plaintext: server first render (UTC date). E2EE: mounted in the browser
+  # after unlock (`init/2`), so the user's local date comes from the clock facade.
+  def init(_props, component, _server), do: init_state(component, Context.today_iso())
+  def init(_props, component), do: init_state(component, VaultEnv.today_iso())
+
+  defp init_state(component, today) do
     put_state(component,
-      today: Context.today_iso(),
+      today: today,
       list_open: false,
       confirm_paid_id: nil,
       notice: nil,
@@ -199,9 +207,16 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
   def action(:mark_paid, %{id: id}, component) do
     name = debt_name(component, id)
 
+    notice = "#{name} marked as paid off."
+    changes = [{:mark_paid_off, id}]
+
     component
     |> put_state(:confirm_paid_id, nil)
-    |> put_command(:apply, changes: [{:mark_paid_off, id}], notice: "#{name} marked as paid off.")
+    |> DataPath.save(:apply, %{changes: changes, notice: notice},
+      changes: changes,
+      ok: DataPath.synced(notice, false),
+      error: DataPath.error(:failed, "debt_sidebar")
+    )
   end
 
   def action(:due_decision, %{id: id, decision: decision, cycle: cycle}, component) do
@@ -213,7 +228,13 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
         :skip -> "Skipped #{name} this month."
       end
 
-    put_command(component, :apply, changes: [{:handle_due, id, decision, cycle}], notice: notice)
+    changes = [{:handle_due, id, decision, cycle}]
+
+    DataPath.save(component, :apply, %{changes: changes, notice: notice},
+      changes: changes,
+      ok: DataPath.synced(notice, false),
+      error: DataPath.error(:failed, "debt_sidebar")
+    )
   end
 
   # Result of any debt command (this component's or a modal's): remember the

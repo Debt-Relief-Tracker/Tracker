@@ -66,6 +66,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
         )
 
       component
+      |> put_context(:e2ee, true)
       |> put_state(:e2ee, true)
       |> put_state(:vault, vault)
       |> put_state(:vault_result, nil)
@@ -83,6 +84,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
       {:ok, snapshot} = Context.load(server)
 
       component
+      |> put_context(:e2ee, false)
       |> put_state(:e2ee, false)
       |> put_state(:vault, nil)
       |> put_state(:vault_result, nil)
@@ -100,100 +102,102 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def template do
     ~HOLO"""
     <div id="holo-dashboard" class="flex flex-col min-h-screen">
-      {%if @e2ee}
-        {%if @vault.rollback}
+      {%if @e2ee and @vault.rollback}
+        <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
+          <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
+          <div id="vault-rollback" role="alert" class="alert alert-warning max-w-lg flex flex-col gap-2 text-left">
+            <strong>Your vault may have been rolled back or tampered with.</strong>
+            <span>
+              The server returned an older version of your encrypted data than this browser has seen before, or a
+              different one with the same version number. This can happen after a restore from backup, but it can
+              also mean someone is replaying old data. Continue only if you expect this.
+            </span>
+            <div class="flex flex-wrap gap-2">
+              <button id="vault-rollback-ack" type="button" class="btn btn-sm btn-warning" $click={:vault_rollback_ack}>I understand, continue</button>
+              <button id="vault-rollback-lock" type="button" class="btn btn-sm btn-outline" $click={:vault_lock}>Lock</button>
+            </div>
+          </div>
+        </main>
+      {%else}
+        {%if @e2ee and @vault.phase != :unlocked}
           <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
             <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
-            <div id="vault-rollback" role="alert" class="alert alert-warning max-w-lg flex flex-col gap-2 text-left">
-              <strong>Your vault may have been rolled back or tampered with.</strong>
-              <span>
-                The server returned an older version of your encrypted data than this browser has seen before, or a
-                different one with the same version number. This can happen after a restore from backup, but it can
-                also mean someone is replaying old data. Continue only if you expect this.
-              </span>
-              <div class="flex flex-wrap gap-2">
-                <button id="vault-rollback-ack" type="button" class="btn btn-sm btn-warning" $click={:vault_rollback_ack}>I understand, continue</button>
-                <button id="vault-rollback-lock" type="button" class="btn btn-sm btn-outline" $click={:vault_lock}>Lock</button>
-              </div>
-            </div>
+            <p id="e2ee-locked-status" class="text-base-content/70 max-w-md">
+              {%if @vault.phase == :locked}
+                Your encrypted vault is locked. Unlocking happens in this browser; the server never sees your data.
+              {%else}
+                End-to-end encryption is on, but no vault has been created yet.
+              {/if}
+            </p>
+            {%if @vault.phase == :locked}
+              <VaultUnlock cid="vault_unlock" vault={@vault} account={@account} />
+            {%else}
+              <VaultSetup cid="vault_setup" vault={@vault} account={@account} />
+            {/if}
           </main>
         {%else}
-          {%if @vault.phase == :unlocked}
+          {%if @e2ee}
             <VaultHome snapshot={@snapshot} vault={@vault} sync={@sync} account={@account} />
-          {%else}
-            <main id="e2ee-locked" class="flex-1 flex flex-col items-center justify-center gap-4 p-6 text-center">
-              <h1 class="text-2xl font-semibold">Debt Relief Tracker</h1>
-              <p id="e2ee-locked-status" class="text-base-content/70 max-w-md">
-                {%if @vault.phase == :locked}
-                  Your encrypted vault is locked. Unlocking happens in this browser; the server never sees your data.
-                {%else}
-                  End-to-end encryption is on, but no vault has been created yet.
-                {/if}
-              </p>
-              {%if @vault.phase == :locked}
-                <VaultUnlock cid="vault_unlock" vault={@vault} account={@account} />
-              {%else}
-                <VaultSetup cid="vault_setup" vault={@vault} account={@account} />
-              {/if}
+          {/if}
+
+          <HeaderBar cid="header_bar" snapshot={@snapshot} account={@account} />
+
+          <div class="flex flex-col sm:flex-row flex-1 min-h-0">
+            <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-b sm:border-b-0 sm:border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
+              <DebtSidebar cid="debt_sidebar" snapshot={@snapshot} account={@account} />
+            </aside>
+
+            <main class="flex-1 p-4 min-w-0 flex flex-col gap-4">
+              <RetirementBanner cid="retirement_banner" snapshot={@snapshot} />
+              <PlanPanel cid="plan_panel" snapshot={@snapshot} account={@account} strategy={@strategy} />
             </main>
+          </div>
+
+          {%if @notice}
+            <div id="page-notice" role="status" class="toast toast-top toast-end z-50">
+              <div class="alert alert-info">
+                <span id="page-notice-text">{@notice}</span>
+                <button id="page-notice-dismiss" type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss" $click={:dismiss_notice}>
+                  <span class="hero-x-mark w-4 h-4"></span>
+                </button>
+              </div>
+            </div>
+          {/if}
+
+          <TutorialOverlay cid="tutorial_overlay" snapshot={@snapshot} account={@account} />
+
+          {%if @modal}
+            {%if @modal.type == :add_debt || @modal.type == :edit_debt}
+              <DebtFormModal cid="debt_form_modal" snapshot={@snapshot} account={@account} modal={@modal} />
+            {/if}
+            {%if @modal.type == :log_payment}
+              <PaymentModal cid="payment_modal" snapshot={@snapshot} account={@account} modal={@modal} />
+            {/if}
+            {%if @modal.type == :log_all_balances}
+              <LogAllBalancesModal cid="log_all_balances_modal" snapshot={@snapshot} account={@account} modal={@modal} />
+            {/if}
+            {%if @modal.type == :activity_log}
+              <ActivityLogModal cid="activity_log_modal" snapshot={@snapshot} account={@account} modal={@modal} />
+            {/if}
+            {%if @modal.type == :settings}
+              <SettingsModal cid="settings_modal" snapshot={@snapshot} account={@account} modal={@modal} />
+            {/if}
+            {%if @modal.type == :retirement_onboarding || @modal.type == :retirement_profile_form}
+              <RetirementModal cid="retirement_modal" snapshot={@snapshot} account={@account} modal={@modal} />
+            {/if}
           {/if}
         {/if}
+      {/if}
+
+      {%if @e2ee}
         <VaultGate cid="vault_gate" />
         {%if @modal}
           {%if @modal.type == :vault_methods}
             <VaultMethods cid="vault_methods" vault={@vault} account={@account} />
           {/if}
         {/if}
-        <Footer cid="footer" account={@account} />
-      {%else}
-      <HeaderBar cid="header_bar" snapshot={@snapshot} account={@account} />
-
-      <div class="flex flex-col sm:flex-row flex-1 min-h-0">
-        <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-b sm:border-b-0 sm:border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
-          <DebtSidebar cid="debt_sidebar" snapshot={@snapshot} account={@account} />
-        </aside>
-
-        <main class="flex-1 p-4 min-w-0 flex flex-col gap-4">
-          <RetirementBanner cid="retirement_banner" snapshot={@snapshot} />
-          <PlanPanel cid="plan_panel" snapshot={@snapshot} account={@account} strategy={@strategy} />
-        </main>
-      </div>
-
-      {%if @notice}
-        <div id="page-notice" role="status" class="toast toast-top toast-end z-50">
-          <div class="alert alert-info">
-            <span id="page-notice-text">{@notice}</span>
-            <button id="page-notice-dismiss" type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss" $click={:dismiss_notice}>
-              <span class="hero-x-mark w-4 h-4"></span>
-            </button>
-          </div>
-        </div>
       {/if}
-
       <Footer cid="footer" account={@account} />
-      <TutorialOverlay cid="tutorial_overlay" snapshot={@snapshot} account={@account} />
-
-      {%if @modal}
-        {%if @modal.type == :add_debt || @modal.type == :edit_debt}
-          <DebtFormModal cid="debt_form_modal" snapshot={@snapshot} account={@account} modal={@modal} />
-        {/if}
-        {%if @modal.type == :log_payment}
-          <PaymentModal cid="payment_modal" snapshot={@snapshot} account={@account} modal={@modal} />
-        {/if}
-        {%if @modal.type == :log_all_balances}
-          <LogAllBalancesModal cid="log_all_balances_modal" snapshot={@snapshot} account={@account} modal={@modal} />
-        {/if}
-        {%if @modal.type == :activity_log}
-          <ActivityLogModal cid="activity_log_modal" snapshot={@snapshot} account={@account} modal={@modal} />
-        {/if}
-        {%if @modal.type == :settings}
-          <SettingsModal cid="settings_modal" snapshot={@snapshot} account={@account} modal={@modal} />
-        {/if}
-        {%if @modal.type == :retirement_onboarding || @modal.type == :retirement_profile_form}
-          <RetirementModal cid="retirement_modal" snapshot={@snapshot} account={@account} modal={@modal} />
-        {/if}
-      {/if}
-      {/if}
     </div>
     """
   end
@@ -259,6 +263,10 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
   def action(:vault_apply_change, %{change: change}, component),
     do: VaultFlow.apply_change(component, change)
+
+  # A feature component's change (`Holo.DataPath.save/4`): ledger + encrypted save + reply.
+  def action(:vault_apply_request, request, component),
+    do: VaultFlow.apply_request(component, request)
 
   # Minimal editing hook (test_hook config) until feature components use the ledger.
   def action(:vault_hook_add, %{event: %{"name" => name}}, component) when name != "",
