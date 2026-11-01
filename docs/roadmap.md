@@ -405,6 +405,16 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
       plaintext until next login (forced wizard, admin count of unmigrated);
       delete requires the export digest; two-step deploy; Postgres-verified.
       See ADR 0007 'Production rollout'.
+  - [x] Server half (ADR 0007 "Migration server contract"):
+        `E2EE.Migration` (`status`/`export`/`dry_run`/`finalize`, canonical
+        SHA-256 digest, one-transaction owner-only delete with Postgres row
+        locks / SQLite write lock), `Holo.Components.MigrationGate` commands
+        (strict rate limit; NOT yet mounted in `DashboardPage`),
+        `DuePayments.Scheduler` skips any workspace with a vault, admin
+        encryption counts/column. Tested on SQLite and Postgres incl. racing
+        finalizes and rollback.
+  - [ ] Browser half: build vault from the export, verify by re-download,
+        call finalize (confirmation UI listing members), mount `MigrationGate`.
 - [ ] 10. Security review.
 
 ## Verification

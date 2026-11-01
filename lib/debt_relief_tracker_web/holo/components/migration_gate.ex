@@ -37,7 +37,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
       boolean}`) -> `:migration_finalize_result`: `%{ok: true, already_clean:
       true}` or `%{ok: true, deleted: %{debts, payments, activity,
       retirement_profiles}, removed_members: n, canceled_invitations: n}`;
-      errors `:forbidden | :no_vault | :changed | :members_present`.
+      errors `:forbidden | :no_vault | :changed | :members_present | :busy`
+      (`:busy`: lost a lock fight, nothing deleted, retry).
       Only the browser may send this, and only after it has re-downloaded
       and verified the vault.
   """
