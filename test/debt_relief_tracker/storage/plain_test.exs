@@ -49,6 +49,54 @@ defmodule DebtReliefTracker.Storage.PlainTest do
     assert Enum.map(snapshot.activity, & &1.action) == ["debt_added"]
   end
 
+  test "settings, debts, payments and retirement profiles carry updated_at for sync", %{
+    workspace: workspace
+  } do
+    debt = add_card(workspace)
+
+    {:ok, _} =
+      Plain.apply_change(
+        workspace,
+        nil,
+        {:log_payment, debt.id, %{amount: 10_000, paid_on: "2026-01-02"}}
+      )
+
+    {:ok, snapshot} =
+      Plain.apply_change(
+        workspace,
+        nil,
+        {:add_manual_retirement_profile,
+         %{
+           name: "Pat",
+           current_age: 30,
+           retirement_age: 65,
+           current_retirement_savings: 0,
+           monthly_retirement_contribution: 0,
+           monthly_gross_income: 500_000,
+           post_debt_investment_bp: 1000,
+           expected_annual_return_bp: 700
+         }}
+      )
+
+    rows = [
+      snapshot.settings,
+      hd(snapshot.debts),
+      hd(snapshot.payments),
+      hd(snapshot.retirement_profiles)
+    ]
+
+    for row <- rows do
+      assert is_binary(row.updated_at)
+
+      assert {:ok, _, _} =
+               DateTime.from_iso8601(
+                 row.updated_at <> if(String.ends_with?(row.updated_at, "Z"), do: "", else: "Z")
+               )
+    end
+
+    assert {:ok, _json} = Jason.encode(snapshot)
+  end
+
   test "snapshot values match what the Decimal contexts store", %{workspace: workspace} do
     debt = add_card(workspace)
     stored = Debts.get_debt!(workspace, debt.id)

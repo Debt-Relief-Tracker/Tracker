@@ -34,7 +34,8 @@ defmodule DebtReliefTracker.Storage.Snapshot do
       monthly_budget: Convert.to_cents(setting.monthly_budget),
       currency: setting.currency,
       budget_mode: to_string(setting.budget_mode),
-      retirement_onboarding_dismissed: setting.retirement_onboarding_dismissed
+      retirement_onboarding_dismissed: setting.retirement_onboarding_dismissed,
+      updated_at: iso(setting.updated_at)
     }
   end
 
@@ -73,7 +74,8 @@ defmodule DebtReliefTracker.Storage.Snapshot do
       paid_on: iso(payment.paid_on),
       note: payment.note,
       logged_by_user_id: payment.logged_by_user_id,
-      inserted_at: iso(payment.inserted_at)
+      inserted_at: iso(payment.inserted_at),
+      updated_at: iso(payment.updated_at)
     }
   end
 
@@ -107,7 +109,8 @@ defmodule DebtReliefTracker.Storage.Snapshot do
       monthly_gross_income: Convert.to_cents(profile.monthly_gross_income),
       post_debt_investment_bp: Convert.percent_to_bp(profile.post_debt_investment_pct),
       expected_annual_return_bp: Convert.percent_to_bp(profile.expected_annual_return_pct),
-      inserted_at: iso(profile.inserted_at)
+      inserted_at: iso(profile.inserted_at),
+      updated_at: iso(profile.updated_at)
     }
   end
 
