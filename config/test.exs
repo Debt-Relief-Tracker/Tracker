@@ -8,6 +8,8 @@ import Config
 config :debt_relief_tracker, DebtReliefTracker.Repo.Sqlite,
   database: Path.expand("../data/debt_relief_tracker_test.db", __DIR__),
   pool_size: 5,
+  # Browser tests hit the file from the test process and the served app at once.
+  busy_timeout: 15_000,
   pool: Ecto.Adapters.SQL.Sandbox
 
 # Test-only encryption key -- fixed and checked in on purpose, same as

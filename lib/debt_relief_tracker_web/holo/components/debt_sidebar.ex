@@ -147,7 +147,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
                   <button id={"confirm-mark-paid-#{row.id}"} type="button" class="btn btn-primary btn-xs" $click={:mark_paid, id: row.id}>
                     Yes, mark paid
                   </button>
-                  <button type="button" class="btn btn-xs" $click="cancel_mark_paid">Cancel</button>
+                  <button id={"cancel-mark-paid-#{row.id}"} type="button" class="btn btn-xs" $click="cancel_mark_paid">Cancel</button>
                 </div>
               </div>
             {/if}

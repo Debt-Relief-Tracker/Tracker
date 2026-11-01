@@ -40,6 +40,19 @@ const context = await browser.newContext();
 const page = await context.newPage();
 page.setDefaultTimeout(TIMEOUT);
 
+// BROWSER_TEST_DEBUG=1 mirrors page console/errors/navigations to stderr.
+if (process.env.BROWSER_TEST_DEBUG) {
+  const log = (...a) => process.stderr.write("[browser] " + a.join(" ") + "\n");
+  page.on("console", (m) => { if (process.env.BROWSER_TEST_DEBUG === "all" || (m.type() !== "log" && m.type() !== "debug")) log("console." + m.type(), m.text()); });
+  page.on("pageerror", (e) => log("pageerror", e.message));
+  page.on("framenavigated", (f) => log("navigated", f.url()));
+  page.on("request", (r) => { if (r.isNavigationRequest()) log("nav-request", r.method(), r.url()); });
+  page.addInitScript(() => {
+    document.addEventListener("submit", (e) => console.warn("submit event; defaultPrevented-at-bubble=" + e.defaultPrevented), false);
+    document.addEventListener("submit", (e) => setTimeout(() => console.warn("submit after: prevented=" + e.defaultPrevented), 0), true);
+  });
+}
+
 const handlers = {
   async visit({ url }) {
     await page.goto(url, { waitUntil: "load" });
@@ -76,6 +89,21 @@ const handlers = {
   },
   async count({ selector }) {
     return await page.locator(selector).count();
+  },
+  async press({ key }) {
+    await page.keyboard.press(key);
+  },
+  async select({ selector, value }) {
+    await page.selectOption(selector, value);
+  },
+  async check({ selector }) {
+    await page.check(selector);
+  },
+  async value({ selector }) {
+    return await page.locator(selector).first().inputValue();
+  },
+  async click_at({ x, y }) {
+    await page.mouse.click(x, y);
   },
   async path() {
     return new URL(page.url()).pathname;

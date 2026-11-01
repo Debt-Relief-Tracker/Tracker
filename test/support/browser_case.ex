@@ -93,6 +93,35 @@ defmodule DebtReliefTracker.BrowserCase do
     ctx
   end
 
+  @doc "Presses a keyboard key (Playwright key name, e.g. \"Escape\")."
+  def press(%{driver: d} = ctx, key) do
+    Driver.call(d, "press", %{key: key})
+    ctx
+  end
+
+  @doc "Chooses the `<option value=...>` of a `<select>`."
+  def select(%{driver: d} = ctx, selector, value) do
+    Driver.call(d, "select", %{selector: selector, value: value})
+    ctx
+  end
+
+  def check(%{driver: d} = ctx, selector) do
+    Driver.call(d, "check", %{selector: selector})
+    ctx
+  end
+
+  @doc "Current value of an input."
+  def value(%{driver: d}, selector), do: Driver.call(d, "value", %{selector: selector})
+
+  @doc "Number of elements matching `selector` right now."
+  def count(%{driver: d}, selector), do: Driver.call(d, "count", %{selector: selector})
+
+  @doc "Mouse click at viewport coordinates (e.g. on the overlay outside a dialog)."
+  def click_at(%{driver: d} = ctx, x, y) do
+    Driver.call(d, "click_at", %{x: x, y: y})
+    ctx
+  end
+
   def text(%{driver: d}, selector), do: Driver.call(d, "text", %{selector: selector})
 
   def current_path(%{driver: d}), do: Driver.call(d, "path", %{})

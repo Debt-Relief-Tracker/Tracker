@@ -104,7 +104,10 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     |> put_state(:snapshot, snapshot)
     |> put_state(:error, nil)
     |> put_state(:modal, if(Map.get(params, :close_modal), do: nil, else: component.state.modal))
-    |> put_action(name: :plan_inputs_changed, target: "plan_panel")
+    # `delay` lets the browser paint (modal closed, new snapshot) first: the
+    # plan recompute runs the payoff simulation in JS for several seconds and
+    # an un-delayed chained action would hold that paint back until it ends.
+    |> put_action(name: :plan_inputs_changed, target: "plan_panel", delay: 50)
   end
 
   def action(:change_failed, %{error: error}, component), do: put_state(component, :error, error)
