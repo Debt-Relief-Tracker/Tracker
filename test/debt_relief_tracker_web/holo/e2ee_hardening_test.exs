@@ -68,7 +68,7 @@ defmodule DebtReliefTrackerWeb.Holo.E2EEHardeningTest do
       })
 
       owner_s = server_for(owner)
-      mem_s = server_for(member)
+      mem_s = %{server_for(member) | session: %{"workspace_id" => ws.id}}
 
       assert %Server{next_action: %{params: %{ok: true, rev: 1}}} =
                VaultGate.command(
