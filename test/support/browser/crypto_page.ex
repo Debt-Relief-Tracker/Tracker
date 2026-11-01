@@ -48,7 +48,10 @@ defmodule DebtReliefTracker.BrowserCase.CryptoPage do
   def action(:run_flow, _params, component) do
     {:ok, vk} = Crypto.generate_vault_key()
     {:ok, salt} = Crypto.new_salt()
-    {:ok, kek} = Crypto.derive_passphrase_kek("pässphrase", salt, Crypto.default_argon2_params())
+
+    {:ok, kek} =
+      Crypto.derive_new_passphrase_kek("pässphrase", salt, Crypto.default_argon2_params())
+
     {:ok, wrap} = Crypto.wrap_vault_key(kek, vk, "ws1", "w1", :passphrase)
     {:ok, vk2} = Crypto.unwrap_vault_key(kek, wrap, "ws1", "w1", :passphrase)
     {:ok, env} = Crypto.encrypt_document(vk, "ws1", 3, "{\"hello\":\"wörld\"}")

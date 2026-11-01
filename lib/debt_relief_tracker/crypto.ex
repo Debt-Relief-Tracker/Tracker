@@ -106,34 +106,52 @@ defmodule DebtReliefTracker.Crypto do
   # --- passphrase ---------------------------------------------------------------
 
   @doc """
-  Passphrase KEK (base64url) = Argon2id(NFKC(passphrase) as UTF-8, `salt`)
-  with the explicit `params` (see `default_argon2_params/0`), 32-byte output.
-  `salt` is base64url (at least 8 bytes; use `new_salt/0`). Slow by design.
+  Unwrap-time passphrase KEK (base64url) = Argon2id(NFKC(passphrase) as UTF-8,
+  `salt`) with the STORED `params` (see `default_argon2_params/0`), 32-byte
+  output. `salt` is base64url. Accepts any params within the sanity bounds
+  (at most 1 GiB, 20 passes, 16 lanes; at least Argon2's own minimums): a
+  malicious server can only make unwrap fail by lowering them, and the
+  passphrase never leaves the browser. Do NOT use this for a wrap you write;
+  use `derive_new_passphrase_kek/3`. Slow by design.
   """
-  def derive_passphrase_kek(passphrase, salt, %{
-        memory_kib: memory_kib,
-        iterations: iterations,
-        parallelism: parallelism
-      }),
-      do: run(:derivePassphraseKek, [passphrase, salt, memory_kib, iterations, parallelism])
+  def derive_passphrase_kek(passphrase, salt, params),
+    do: derive(:derivePassphraseKek, passphrase, salt, params)
+
+  @doc """
+  Creation-time passphrase KEK, for every wrap the app writes (new wrap or
+  re-wrap). Same as `derive_passphrase_kek/3` but returns `{:error,
+  :bad_params}` for memory below 65536 KiB, fewer than 3 iterations or a salt
+  under 16 bytes, so weak params can never be created.
+  """
+  def derive_new_passphrase_kek(passphrase, salt, params),
+    do: derive(:deriveNewPassphraseKek, passphrase, salt, params)
+
+  defp derive(function, passphrase, salt, %{
+         memory_kib: memory_kib,
+         iterations: iterations,
+         parallelism: parallelism
+       }),
+       do: run(function, [passphrase, salt, memory_kib, iterations, parallelism])
 
   # --- recovery key ---------------------------------------------------------------
 
   @doc """
   A new 256-bit recovery key as grouped base32 (RFC 4648 alphabet, no
-  padding): 13 dash-separated groups of 4 characters. Show it once; it is
-  never stored by the app.
+  padding): 52 characters of key plus a 4-character checksum (first 20 bits
+  of SHA-256("drt-recovery-check-v1" || key bytes)), shown as 14
+  dash-separated groups of 4. Show it once; it is never stored by the app.
   """
   def generate_recovery_key, do: run(:generateRecoveryKey, [])
 
   @doc """
   Parses a recovery key typed by a human (case, spaces and dashes are
-  ignored) to its 32 raw bytes, base64url. Wrong length or characters are
-  `{:error, :bad_recovery_key}`.
+  ignored) to its 32 raw bytes, base64url. Wrong length, bad characters or a
+  bad checksum are `{:error, :bad_recovery_key}` (a typo), distinct from a
+  correct-looking but wrong key, which later fails as `:decrypt_failed`.
   """
   def parse_recovery_key(text), do: run(:parseRecoveryKey, [text])
 
-  @doc "Canonical grouped display form of 32 raw recovery-key bytes (base64url)."
+  @doc "Canonical grouped display form (with checksum) of 32 raw recovery-key bytes (base64url)."
   def format_recovery_key(raw), do: run(:formatRecoveryKey, [raw])
 
   @doc """

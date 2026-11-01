@@ -135,30 +135,72 @@ test("base32 RFC 4648 vectors (unpadded) and round trip", () => {
     assert.deepEqual(Buffer.from(F.base32Decode(F.base32Encode(bytes))), bytes)
   }
 })
-test("recovery key: format, round trip, tolerant parse", async () => {
+const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+test("recovery key: format with checksum, round trip, tolerant parse", async () => {
   const text = await F.generateRecoveryKey()
-  assert.match(text, /^([A-Z2-7]{4}-){12}[A-Z2-7]{4}$/)
+  assert.match(text, /^([A-Z2-7]{4}-){13}[A-Z2-7]{4}$/)
   const raw = await F.parseRecoveryKey(text)
   assert.equal(unb64(raw).length, 32)
   assert.equal(await F.formatRecoveryKey(raw), text)
+  // checksum = first 20 bits of SHA-256("drt-recovery-check-v1" || key), base32
+  const digest = nodeCrypto.createHash("sha256").update(Buffer.concat([Buffer.from("drt-recovery-check-v1"), Buffer.from(unb64(raw))])).digest()
+  const bits = (digest[0] << 12) | (digest[1] << 4) | (digest[2] >> 4)
+  const check = [15, 10, 5, 0].map((sh) => B32[(bits >> sh) & 31]).join("")
+  assert.equal(text.replace(/-/g, "").slice(52), check)
+  assert.equal(text.replace(/-/g, "").slice(0, 52), F.base32Encode(unb64(raw)))
   for (const variant of [text.toLowerCase(), text.replace(/-/g, " "), text.replace(/-/g, ""), "  " + text.replace(/-/g, "\n") + " ", text.replace(/-/g, " - ")]) {
     assert.equal(await F.parseRecoveryKey(variant), raw)
   }
+  // KEK unchanged by the checksum: HKDF of the 32 key bytes.
   const kek = await F.deriveRecoveryKek(text)
   assert.equal(kek, await F.hkdfSha256B64u(raw, "", b64(utf8("drt-kek-v1")), 32))
   assert.notEqual(kek, await F.deriveRecoveryKek(await F.generateRecoveryKey()))
 })
-test("recovery key: wrong length / characters / non-canonical rejected", async () => {
-  const text = await F.generateRecoveryKey()
-  const flat = text.replace(/-/g, "")
+test("recovery key: every single-character substitution at every position is rejected", async () => {
+  const flat = (await F.generateRecoveryKey()).replace(/-/g, "")
+  assert.equal(flat.length, 56)
+  for (let i = 0; i < flat.length; i++) {
+    const others = [...B32].filter((c) => c !== flat[i])
+    for (const sub of [others[0], others[7], others[others.length - 1]]) {
+      await rejectsWith(F.parseRecoveryKey(flat.slice(0, i) + sub + flat.slice(i + 1)), "bad_recovery_key")
+    }
+  }
+})
+test("recovery key: transposed adjacent chars, wrong length, bad characters rejected", async () => {
+  const flat = (await F.generateRecoveryKey()).replace(/-/g, "")
+  let swapped = 0
+  for (let i = 0; i < flat.length - 1; i++) {
+    if (flat[i] === flat[i + 1]) continue
+    const t = flat.slice(0, i) + flat[i + 1] + flat[i] + flat.slice(i + 2)
+    await rejectsWith(F.parseRecoveryKey(t), "bad_recovery_key")
+    swapped++
+  }
+  assert.ok(swapped > 40)
   const bad = [
-    "", flat.slice(1), flat.slice(0, 51), flat + "A", flat.slice(0, 51) + "1", flat.slice(0, 51) + "0",
-    flat.slice(0, 51) + "8", flat.slice(0, 51) + "=", flat.slice(0, 50) + "!A", "A".repeat(52) + "A", "é".repeat(52),
-    flat.slice(0, 51) + "B", // last char has non-zero padding bits
+    "", flat.slice(1), flat.slice(0, 55), flat + "A", flat.slice(0, 52), // old 52-char form is not accepted
+    flat.slice(0, 55) + "1", flat.slice(0, 55) + "0", flat.slice(0, 55) + "8", flat.slice(0, 55) + "=",
+    flat.slice(0, 54) + "!A", "A".repeat(56), "\u00e9".repeat(56),
   ]
   for (const b of bad) await rejectsWith(F.parseRecoveryKey(b), "bad_recovery_key")
   await rejectsWith(F.deriveRecoveryKek("nope"), "bad_recovery_key")
+  await rejectsWith(F.deriveRecoveryKek(flat.slice(0, 55) + (flat[55] === "A" ? "B" : "A")), "bad_recovery_key")
   await rejectsWith(F.parseRecoveryKey(null), "bad_recovery_key")
+})
+test("passphrase KEK for NEW wraps enforces the floor; unwrap-time derivation does not", async () => {
+  const salt16 = b64(new Uint8Array(16).fill(5))
+  const ok = await F.deriveNewPassphraseKek("pw", salt16, 65536, 3, 1)
+  assert.equal(ok, await F.derivePassphraseKek("pw", salt16, 65536, 3, 1))
+  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65535, 3, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 2, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek("pw", b64(new Uint8Array(15)), 65536, 3, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 1048577, 3, 1), "bad_params") // sanity bound still applies
+  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 21, 1), "bad_params")
+  // above the floor is fine
+  await F.deriveNewPassphraseKek("pw", salt16, 65536, 4, 1)
+  // unwrap side: low stored params (within sanity bounds) still derive
+  assert.equal(unb64(await F.derivePassphraseKek("pw", salt16, 1024, 1, 1)).length, 32)
+  assert.equal(unb64(await F.derivePassphraseKek("pw", b64(new Uint8Array(8)), 1024, 1, 1)).length, 32)
+  assert.equal(await holo.deriveNewPassphraseKek("pw", salt16, 1024, 1, 1), "err:bad_params")
 })
 
 // ---- documents ----

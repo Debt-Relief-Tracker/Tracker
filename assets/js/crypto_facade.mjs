@@ -358,11 +358,32 @@ export async function derivePassphraseKek(passphrase, saltB64u, memoryKiB, itera
   return bytesToB64u(out)
 }
 
+// Creation-time entry point: the ONLY function the app should use for any
+// wrap it writes (new wrap or re-wrap). Enforces a floor on top of the sanity
+// bounds; unwrap-time derivePassphraseKek honours stored params instead (a
+// malicious server can only make unwrap fail by lowering them; the
+// passphrase never leaves the browser).
+export const ARGON2_FLOOR = { memoryKiB: 65536, iterations: 3, saltBytes: 16 }
+
+export async function deriveNewPassphraseKek(passphrase, saltB64u, memoryKiB, iterations, parallelism) {
+  const salt = b64uToBytes(saltB64u)
+  if (
+    Number(memoryKiB) < ARGON2_FLOOR.memoryKiB ||
+    Number(iterations) < ARGON2_FLOOR.iterations ||
+    salt.length < ARGON2_FLOOR.saltBytes
+  ) {
+    throw new CryptoError("bad_params")
+  }
+  return derivePassphraseKek(passphrase, saltB64u, memoryKiB, iterations, parallelism)
+}
+
 // ---- recovery key ----------------------------------------------------------
 
 const B32 = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
 const RECOVERY_BYTES = 32
 const RECOVERY_CHARS = 52 // ceil(256 / 5); the last char carries 4 zero pad bits
+const RECOVERY_CHECK_CHARS = 4
+const RECOVERY_CHECK_LABEL = "drt-recovery-check-v1"
 
 export function base32Encode(bytes) {
   let out = ""
@@ -406,37 +427,52 @@ function groupFive(s) {
   return s.match(/.{1,4}/g).join("-")
 }
 
-// New 256-bit recovery key as grouped base32: 13 groups of 4, dash separated.
+// Checksum: first 20 bits of SHA-256("drt-recovery-check-v1" || keyBytes) as
+// 4 base32 chars (20 bits = exactly 4 chars, no padding bits).
+async function recoveryChecksum(keyBytes) {
+  const d = await subtle().subtle.digest("SHA-256", concat(enc.encode(RECOVERY_CHECK_LABEL), keyBytes))
+  return base32Encode(new Uint8Array(d).subarray(0, 3)).slice(0, 4)
+}
+
+async function formatRecoveryBytes(bytes) {
+  return groupFive(base32Encode(bytes) + (await recoveryChecksum(bytes)))
+}
+
+// New 256-bit recovery key shown as 14 dash-separated groups of 4 base32 chars:
+// 52 chars of key + 4 chars of checksum (56 total).
 export async function generateRecoveryKey() {
   const bytes = new Uint8Array(RECOVERY_BYTES)
   subtle().getRandomValues(bytes)
-  return groupFive(base32Encode(bytes))
+  return formatRecoveryBytes(bytes)
 }
 
-function parseRecoveryBytes(text) {
+async function parseRecoveryBytes(text) {
   if (typeof text !== "string") throw new CryptoError("bad_recovery_key")
   const clean = text.replace(/[\s-]+/g, "").toUpperCase()
-  if (clean.length !== RECOVERY_CHARS) throw new CryptoError("bad_recovery_key")
-  const bytes = base32Decode(clean)
+  if (clean.length !== RECOVERY_CHARS + RECOVERY_CHECK_CHARS) throw new CryptoError("bad_recovery_key")
+  const bytes = base32Decode(clean.slice(0, RECOVERY_CHARS))
   if (bytes.length !== RECOVERY_BYTES) throw new CryptoError("bad_recovery_key")
+  if (clean.slice(RECOVERY_CHARS) !== (await recoveryChecksum(bytes))) throw new CryptoError("bad_recovery_key")
   return bytes
 }
 
-// Tolerant of case, spaces, dashes. Returns the 32 raw bytes as b64u.
+// Tolerant of case, spaces, dashes. Requires length 56 and a valid checksum
+// (so a typo is bad_recovery_key, distinct from a wrong key = decrypt_failed).
+// Returns the 32 raw key bytes as b64u.
 export async function parseRecoveryKey(text) {
-  return bytesToB64u(parseRecoveryBytes(text))
+  return bytesToB64u(await parseRecoveryBytes(text))
 }
 
-// Canonical grouped display form of a recovery key given as b64u raw bytes.
+// Canonical grouped display form (with checksum) of 32 raw key bytes (b64u).
 export async function formatRecoveryKey(rawB64u) {
   const bytes = b64uToBytes(rawB64u)
   if (bytes.length !== RECOVERY_BYTES) throw new CryptoError("bad_input")
-  return groupFive(base32Encode(bytes))
+  return formatRecoveryBytes(bytes)
 }
 
 // KEK (b64u) = HKDF-SHA256(recovery key bytes, salt empty, info "drt-kek-v1").
 export async function deriveRecoveryKek(recoveryText) {
-  return bytesToB64u(await kekFromIkm(parseRecoveryBytes(recoveryText)))
+  return bytesToB64u(await kekFromIkm(await parseRecoveryBytes(recoveryText)))
 }
 
 // ---- passkey (WebAuthn PRF) -------------------------------------------------
@@ -646,6 +682,7 @@ const PUBLIC = {
   unwrapVaultKey,
   newSaltB64u,
   derivePassphraseKek,
+  deriveNewPassphraseKek,
   generateRecoveryKey,
   parseRecoveryKey,
   formatRecoveryKey,
