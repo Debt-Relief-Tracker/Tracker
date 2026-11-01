@@ -5,6 +5,10 @@ defmodule DebtReliefTracker.CSVExport do
   `Payment` row have different shapes, and both `Debts.list_debts/1` and
   `Payments.list_payments_for_workspace/1` already return exactly the data
   needed with no reshaping.
+
+  Text cells (names, notes) that start with `=`, `+`, `-`, `@`, TAB or CR are
+  prefixed with a single quote so spreadsheets do not run them as formulas
+  (same rule as `DebtReliefTrackerWeb.Holo.CsvExport`).
   """
 
   alias NimbleCSV.RFC4180, as: CSV
@@ -36,7 +40,7 @@ defmodule DebtReliefTracker.CSVExport do
 
   defp debt_row(debt) do
     [
-      debt.name,
+      text(debt.name),
       to_string(debt.type),
       dec(debt.balance),
       dec(debt.apr),
@@ -50,13 +54,25 @@ defmodule DebtReliefTracker.CSVExport do
 
   defp payment_row(payment) do
     [
-      payment.debt.name,
+      text(payment.debt.name),
       dec(payment.amount),
       dec(payment.principal_portion),
       dec(payment.interest_portion),
       date(payment.paid_on),
-      payment.note
+      text(payment.note)
     ]
+  end
+
+  # Spreadsheet formula-injection guard for TEXT cells (names, notes): a leading
+  # `=`, `+`, `-`, `@`, TAB or CR gets a single quote prefix so Excel/Sheets
+  # treat it as text. IDENTICAL in `DebtReliefTrackerWeb.Holo.CsvExport`
+  # (byte parity is tested). Numeric/date columns are never touched.
+  defp text(nil), do: ""
+
+  defp text(value) do
+    if String.starts_with?(value, ["=", "+", "-", "@", "\t", "\r"]),
+      do: "'" <> value,
+      else: value
   end
 
   defp dec(nil), do: ""

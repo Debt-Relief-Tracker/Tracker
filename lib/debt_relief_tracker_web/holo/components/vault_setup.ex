@@ -154,6 +154,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
         <button id="setup-copy" type="button" class="btn btn-sm btn-outline self-start" $click="copy_key">
           {%if @copied}Copied{%else}Copy recovery key{/if}
         </button>
+        <p id="setup-copy-note" class="text-xs opacity-70">
+          Paste it into your password manager now. About 60 seconds after you copy it, this page tries to clear
+          your clipboard (best effort: your browser may not allow it, and clipboard history tools may keep a copy).
+        </p>
         <label class="flex items-start gap-2 text-sm">
           <input id="setup-ack-saved" type="checkbox" class="checkbox checkbox-sm mt-0.5" checked={@ack_saved} $change={:set_field, field: :ack_saved} />
           <span>I have saved my recovery key somewhere safe.</span>

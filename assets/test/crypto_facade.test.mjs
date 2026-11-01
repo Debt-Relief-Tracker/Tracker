@@ -117,7 +117,7 @@ test("Argon2id: passphrase is NFKC-normalised; params as numeric strings work", 
 test("Argon2id: absurd or invalid params are rejected", async () => {
   const salt = b64(new Uint8Array(16).fill(1))
   const bad = [
-    [1048577, 3, 1], [65536, 21, 1], [65536, 3, 17], [0, 3, 1], [65536, 0, 1], [65536, 3, 0],
+    [262145, 3, 1], [1048577, 3, 1], [65536, 11, 1], [65536, 3, 5], [65536, 21, 1], [65536, 3, 17], [0, 3, 1], [65536, 0, 1], [65536, 3, 0],
     [-1, 3, 1], [65536, 1.5, 1], [NaN, 3, 1], ["abc", 3, 1], [4, 3, 1], [Infinity, 3, 1],
   ]
   for (const [m, t, p] of bad) await rejectsWith(F.derivePassphraseKek("pw", salt, m, t, p), "bad_params")
@@ -193,8 +193,8 @@ test("passphrase KEK for NEW wraps enforces the floor; unwrap-time derivation do
   await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65535, 3, 1), "bad_params")
   await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 2, 1), "bad_params")
   await rejectsWith(F.deriveNewPassphraseKek("pw", b64(new Uint8Array(15)), 65536, 3, 1), "bad_params")
-  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 1048577, 3, 1), "bad_params") // sanity bound still applies
-  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 21, 1), "bad_params")
+  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 262145, 3, 1), "bad_params") // sanity bound still applies
+  await rejectsWith(F.deriveNewPassphraseKek("pw", salt16, 65536, 11, 1), "bad_params")
   // above the floor is fine
   await F.deriveNewPassphraseKek("pw", salt16, 65536, 4, 1)
   // unwrap side: low stored params (within sanity bounds) still derive
@@ -451,8 +451,20 @@ test("handles: remembered device session decrypts but cannot manage methods", as
   assert.equal(await holo.vaultCanManage(d), "ok:false")
   assert.equal(await holo.vaultWrapRecovery(d, WS, "r"), "err:locked")
   assert.equal(await holo.vaultWrapPassphrase(d, "long enough passphrase", WS, "p"), "err:locked")
-  assert.equal(await holo.deviceForget(WS), "ok:forgotten")
+  // locked marker: non-secret, per workspace, independent of the rev/hash record
+  assert.equal(await holo.deviceIsLocked(WS), "ok:false")
+  await holo.seenRecord(WS, 5, "blobM")
+  assert.equal(await holo.deviceMarkLocked(WS), "ok:marked")
+  assert.equal(await holo.deviceIsLocked(WS), "ok:true")
+  assert.equal(await holo.deviceIsLocked("other-ws"), "ok:false")
+  assert.equal(await holo.seenCheck(WS, 5, "blobM"), "ok:ok") // rev/hash record untouched
+  assert.equal(await holo.deviceClearLocked(WS), "ok:cleared")
+  assert.equal(await holo.deviceIsLocked(WS), "ok:false")
+  assert.equal(await holo.seenCheck(WS, 5, "blobM"), "ok:ok")
+  await holo.deviceMarkLocked(WS)
+  assert.equal(await holo.deviceForget(WS), "ok:forgotten") // removes key AND marker
   assert.equal(await holo.deviceHas(WS), "ok:false")
+  assert.equal(await holo.deviceIsLocked(WS), "ok:false")
   await holo.vaultLockAll()
 })
 

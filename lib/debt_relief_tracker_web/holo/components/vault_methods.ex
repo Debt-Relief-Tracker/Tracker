@@ -197,6 +197,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultMethods do
     do: "You cannot remove your only unlock method. Add another one first."
 
   def message_text(:too_many_wraps), do: "There are too many unlock methods. Remove one first."
+
+  def message_text(:too_many_passphrase_wraps),
+    do: "There are already 3 passphrases. Remove one first."
+
   def message_text(:rate_limited), do: "Too many requests. Wait a moment and try again."
   def message_text(:too_short), do: "Use at least 12 characters."
   def message_text(:mismatch), do: "The two passphrases do not match."

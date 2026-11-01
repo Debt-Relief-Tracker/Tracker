@@ -2,6 +2,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import env, { idleRemaining, nowIso, todayIso, randomUuid, setDirty, broadcast } from "../js/vault_env.mjs"
+import { copyText, CLIPBOARD_CLEAR_MS } from "../js/vault_env.mjs"
 import { readFileSync } from "node:fs"
 
 test("idleRemaining counts down to the timeout", () => {
@@ -31,4 +32,24 @@ test("source hygiene: no storage, cookies, eval or secrets API", () => {
   const code = readFileSync(new URL("../js/vault_env.mjs", import.meta.url), "utf8").replace(/\/\/.*$/gm, "")
   for (const banned of [/localStorage/, /sessionStorage/, /document\.cookie/, /\beval\s*\(/, /new Function/, /indexedDB/, /console\./])
     assert.doesNotMatch(code, banned)
+})
+
+test("copyText clears the clipboard after 60 s, best effort, errors swallowed", async (t) => {
+  const writes = []
+  let fail = false
+  t.mock.timers.enable({ apis: ["setTimeout"] })
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: { clipboard: { writeText: (x) => (fail ? Promise.reject(new Error("no focus")) : (writes.push(x), Promise.resolve())) } },
+  })
+  assert.equal(copyText("secret key"), "ok")
+  assert.deepEqual(writes, ["secret key"])
+  t.mock.timers.tick(CLIPBOARD_CLEAR_MS - 1)
+  assert.deepEqual(writes, ["secret key"])
+  t.mock.timers.tick(1)
+  assert.deepEqual(writes, ["secret key", ""])
+  fail = true
+  assert.equal(copyText("again"), "ok")
+  t.mock.timers.tick(CLIPBOARD_CLEAR_MS) // rejected write must not throw
+  delete globalThis.navigator
 })
