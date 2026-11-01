@@ -154,13 +154,20 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
 
       id ->
         server = put_session(server, :workspace_id, id)
-        {:ok, snapshot} = Context.load(server)
 
-        put_action(server,
-          name: :account_changed,
-          target: "page",
-          params: %{account: Context.account(server), snapshot: snapshot, modal: nil}
-        )
+        # E2EE mode: the server has no snapshot to load (`Context.load/1` is
+        # `{:error, :e2ee_locked}`). Tell the page to reload /app so it re-runs
+        # its E2EE boot (locked / unlock / migration) for the new workspace.
+        params =
+          case Context.load(server) do
+            {:ok, snapshot} ->
+              %{account: Context.account(server), snapshot: snapshot, modal: nil}
+
+            {:error, :e2ee_locked} ->
+              %{account: Context.account(server), snapshot: nil, modal: nil, reload: true}
+          end
+
+        put_action(server, name: :account_changed, target: "page", params: params)
     end
   end
 

@@ -38,6 +38,7 @@ defmodule DebtReliefTrackerWeb.AuthController do
           user = claims |> Accounts.get_or_create_user_from_oidc!() |> Accounts.record_login!()
 
           conn
+          |> configure_session(renew: true)
           |> delete_session(:oidc_session_params)
           |> put_session(:user_id, user.id)
           |> redirect(to: ~p"/")

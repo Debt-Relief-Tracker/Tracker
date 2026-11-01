@@ -167,6 +167,9 @@ defmodule DebtReliefTrackerWeb.Holo.AccountOps do
     email = String.trim(email || "")
 
     cond do
+      DebtReliefTracker.E2EE.enabled?() ->
+        {:error, "Sharing is not available with end-to-end encryption."}
+
       not (OIDC.enabled?() and user != nil and Accounts.owner?(workspace, user)) ->
         {:error, "Only the owner can share this tracker."}
 

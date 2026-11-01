@@ -81,5 +81,7 @@
     form.submit();
   };
 
-  window.HoloAccount = { setTheme, postForm };
+  const reload = () => window.location.assign("/app");
+
+  window.HoloAccount = { setTheme, postForm, reload };
 })();

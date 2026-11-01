@@ -45,6 +45,9 @@ defmodule DebtReliefTrackerWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    # Vault blob cap is 5 MiB + JSON/base64 overhead; reject bigger bodies
+    # (413) before they are buffered (default 8 MB, pre-auth).
+    length: 6_500_000,
     json_decoder: Phoenix.json_library()
 
   plug Plug.MethodOverride

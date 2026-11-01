@@ -128,7 +128,10 @@ defmodule DebtReliefTracker.Debts do
   empty.
   """
   def seed_placeholders_if_empty!(%Workspace{} = workspace) do
-    if list_debts(workspace) == [] do
+    # Never in E2EE mode, nor once the workspace has a vault: a migrated
+    # workspace's plaintext is deleted and must not be re-created.
+    if list_debts(workspace) == [] and not DebtReliefTracker.E2EE.enabled?() and
+         not DebtReliefTracker.E2EE.Vaults.exists?(workspace) do
       Enum.each(placeholder_debts(), fn attrs ->
         {:ok, _debt} = create_debt(workspace, nil, attrs)
       end)

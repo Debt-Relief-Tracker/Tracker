@@ -75,7 +75,7 @@ defmodule DebtReliefTracker.DuePayments.Scheduler do
         )
 
       {:error, reason} ->
-        Logger.error("auto-log payment failed for debt #{debt.id}: #{inspect(reason)}")
+        Logger.error("auto-log payment failed for debt #{debt.id}: #{failure_class(reason)}")
     end
   end
 
@@ -87,4 +87,12 @@ defmodule DebtReliefTracker.DuePayments.Scheduler do
   defp initial_delay,
     do:
       Application.get_env(:debt_relief_tracker, :due_payment_initial_delay_ms, :timer.seconds(30))
+
+  # Never log the reason itself: a changeset carries the submitted values
+  # (amounts). Only the class / failing field names.
+  defp failure_class(%Ecto.Changeset{errors: errors}),
+    do: "invalid changeset, fields: #{inspect(Keyword.keys(errors))}"
+
+  defp failure_class(reason) when is_atom(reason), do: inspect(reason)
+  defp failure_class(_reason), do: "unexpected error"
 end

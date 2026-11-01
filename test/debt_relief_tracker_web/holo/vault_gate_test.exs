@@ -12,6 +12,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGateTest do
 
   setup do
     enable_oidc()
+    enable_e2ee()
     RateLimiter.reset()
     a = oidc_user("a")
     b = oidc_user("b")

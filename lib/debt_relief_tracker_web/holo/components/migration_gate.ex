@@ -49,7 +49,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
 
   alias DebtReliefTracker.Accounts
   alias DebtReliefTracker.E2EE.{Migration, RateLimiter}
-  alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.{Context, E2EEGuard}
 
   middleware DebtReliefTrackerWeb.Holo.Auth
 
@@ -79,13 +79,23 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
 
   # --- commands (server) ------------------------------------------------------
 
-  def command(:migration_status, _params, server) do
+  # The single public command entry point: nothing here may run unless E2EE is
+  # on (owner-only checks live in `Migration`). Covers every command, including
+  # malformed ones and any added later.
+  def command(op, params, server) do
+    case E2EEGuard.check(server, :enabled) do
+      :ok -> dispatch(op, params, server)
+      {:error, reason} -> reply(server, op, %{ok: false, error: reason})
+    end
+  end
+
+  defp dispatch(:migration_status, _params, server) do
     run(server, :migration_status, :normal, fn workspace, user ->
       %{ok: true, status: Migration.status(workspace), owner: owner?(workspace, user)}
     end)
   end
 
-  def command(:migration_export, _params, server) do
+  defp dispatch(:migration_export, _params, server) do
     run(server, :migration_export, :strict, fn workspace, user ->
       case Migration.export(workspace, user) do
         {:ok, export} -> Map.put(export, :ok, true)
@@ -94,7 +104,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
     end)
   end
 
-  def command(:migration_dry_run, _params, server) do
+  defp dispatch(:migration_dry_run, _params, server) do
     run(server, :migration_dry_run, :normal, fn workspace, user ->
       case Migration.dry_run(workspace, user) do
         {:ok, report} -> Map.put(report, :ok, true)
@@ -103,7 +113,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
     end)
   end
 
-  def command(:migration_finalize, %{digest: digest} = params, server) when is_binary(digest) do
+  defp dispatch(:migration_finalize, %{digest: digest} = params, server) when is_binary(digest) do
     confirm? = Map.get(params, :confirm_remove_members) == true
 
     run(server, :migration_finalize, :strict, fn workspace, user ->
@@ -120,7 +130,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGate do
   end
 
   # Wrong shape from a crafted client: a plain error that echoes nothing.
-  def command(op, _params, server) do
+  defp dispatch(op, _params, server) do
     reply(server, op, %{ok: false, error: :invalid})
   end
 

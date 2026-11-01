@@ -387,7 +387,11 @@ defmodule DebtReliefTrackerWeb.Holo.Components.SettingsModal do
 
     case AccountOps.save_settings(user, workspace, attrs) do
       {:ok, _snapshot_or_nil} ->
-        {:ok, snapshot} = Context.load(server)
+        snapshot =
+          case Context.load(server) do
+            {:ok, snapshot} -> snapshot
+            {:error, :e2ee_locked} -> nil
+          end
 
         put_action(server,
           name: :account_changed,

@@ -11,6 +11,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationGateTest do
 
   setup do
     enable_oidc()
+    enable_e2ee()
     RateLimiter.reset()
     {owner, ws} = owner_ws("own")
     populate!(ws, owner)
