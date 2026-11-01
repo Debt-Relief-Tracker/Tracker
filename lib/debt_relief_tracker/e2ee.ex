@@ -36,16 +36,21 @@ defmodule DebtReliefTracker.E2EE do
       is `{:error, message}` (a public deployment must have OIDC).
     * E2EE off but vaults exist -> `{:error, message}`: never show an empty app.
   """
-  def check_boot(%{enabled: enabled, oidc: oidc, host: host, vaults_exist: vaults_exist}) do
+  def check_boot(%{enabled: enabled, oidc: oidc, host: host, vaults_exist: vaults_exist} = input) do
+    # In a prod release an unset PHX_HOST means "forgot to configure", i.e.
+    # PUBLIC, never local. Dev/test keep treating unset as local.
+    local? = host in @local_hosts and not (host in [nil, ""] and Map.get(input, :prod, false))
+    host = if host in [nil, ""], do: "(unset)", else: host
+
     cond do
-      enabled and not oidc and host in @local_hosts ->
+      enabled and not oidc and local? ->
         {:warn,
          "E2EE is on without OIDC: anyone who can reach this server can read the " <>
            "ciphertext vault. Acceptable only for a single self-hosted user on localhost."}
 
       enabled and not oidc ->
         {:error,
-         "E2EE=true requires OIDC on a hosted deployment (PHX_HOST=#{host}): without " <>
+         "E2EE=true requires OIDC on a hosted deployment (PHX_HOST=#{host}; set PHX_HOST to the public hostname): without " <>
            "login the vault would be readable and writable by anyone. Configure " <>
            "OIDC_ISSUER/OIDC_CLIENT_ID/OIDC_CLIENT_SECRET, or run on localhost."}
 
@@ -69,6 +74,7 @@ defmodule DebtReliefTracker.E2EE do
         enabled: enabled,
         oidc: DebtReliefTrackerWeb.OIDC.enabled?(),
         host: System.get_env("PHX_HOST"),
+        prod: Application.get_env(:debt_relief_tracker, :prod_release, false),
         vaults_exist: if(enabled, do: false, else: vaults_exist?())
       })
 

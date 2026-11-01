@@ -61,12 +61,31 @@ defmodule DebtReliefTracker.MigrationHelpers do
 
   def share!(workspace, owner, member_sub) do
     member = oidc_user(member_sub)
-    {:ok, _} = Accounts.share_workspace_with_email(workspace, member.email, owner)
+
+    {:ok, _} =
+      with_sharing_allowed(fn ->
+        Accounts.share_workspace_with_email(workspace, member.email, owner)
+      end)
+
     member
   end
 
+  # Sharing is refused in E2EE mode, but a workspace being migrated has members
+  # that were added in plaintext mode: set them up with the flag off.
+  defp with_sharing_allowed(fun) do
+    previous = Application.get_env(:debt_relief_tracker, :e2ee, false)
+    Application.put_env(:debt_relief_tracker, :e2ee, false)
+
+    try do
+      fun.()
+    after
+      Application.put_env(:debt_relief_tracker, :e2ee, previous)
+    end
+  end
+
   def invite!(workspace, owner, email) do
-    {:ok, _} = Accounts.share_workspace_with_email(workspace, email, owner)
+    {:ok, _} =
+      with_sharing_allowed(fn -> Accounts.share_workspace_with_email(workspace, email, owner) end)
   end
 
   @doc """

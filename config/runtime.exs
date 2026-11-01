@@ -115,6 +115,9 @@ else
 end
 
 if config_env() == :prod do
+  # Lets E2EE.check_boot treat an unset PHX_HOST as public (not local).
+  config :debt_relief_tracker, :prod_release, true
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want

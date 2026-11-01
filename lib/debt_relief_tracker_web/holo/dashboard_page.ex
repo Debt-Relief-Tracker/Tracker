@@ -23,6 +23,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   """
 
   use Hologram.Page
+  use Hologram.JS
 
   alias DebtReliefTrackerWeb.Holo.Components.ActivityLogModal
   alias DebtReliefTrackerWeb.Holo.Components.DebtFormModal
@@ -250,12 +251,22 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
         %{account: account, snapshot: snapshot, modal: modal} = params,
         component
       ) do
+    # A nil snapshot (E2EE mode: the server has none) keeps the current one.
+    component =
+      component
+      |> put_state(:account, account)
+      |> put_state(:snapshot, snapshot || component.state.snapshot)
+      |> put_state(:modal, modal)
+      |> put_state(:error, nil)
+      |> put_state(:notice, Map.get(params, :notice))
+
+    # Workspace switch in E2EE mode: reload /app so the whole E2EE boot
+    # (locked / unlock / migration) re-runs for the newly selected workspace.
+    if Map.get(params, :reload) == true do
+      JS.call(:HoloAccount, :reload, [])
+    end
+
     component
-    |> put_state(:account, account)
-    |> put_state(:snapshot, snapshot)
-    |> put_state(:modal, modal)
-    |> put_state(:error, nil)
-    |> put_state(:notice, Map.get(params, :notice))
   end
 
   # --- E2EE mode: delegated to Holo.VaultFlow (see its moduledoc) --------------

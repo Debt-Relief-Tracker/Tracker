@@ -23,7 +23,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
   use Hologram.Component
 
   alias DebtReliefTracker.E2EE.{KeyWrap, RateLimiter, Vaults}
-  alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.{Context, E2EEGuard}
 
   middleware DebtReliefTrackerWeb.Holo.Auth
 
@@ -59,7 +59,17 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
 
   # --- commands (server) ------------------------------------------------------
 
-  def command(:fetch_vault, _params, server) do
+  # The single public command entry point: E2EE must be on and the session must
+  # be the workspace owner, for EVERY command (including malformed ones). A
+  # future command added to `dispatch/3` is covered automatically.
+  def command(op, params, server) do
+    case E2EEGuard.check(server, :owner) do
+      :ok -> dispatch(op, params, server)
+      {:error, reason} -> deny(server, op, reason)
+    end
+  end
+
+  defp dispatch(:fetch_vault, _params, server) do
     run(server, :fetch_vault, fn workspace ->
       case Vaults.fetch(workspace) do
         :none ->
@@ -78,22 +88,22 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
     end)
   end
 
-  def command(:create_vault, %{blob: blob, wrap: wrap}, server)
-      when is_binary(blob) and is_map(wrap) do
+  defp dispatch(:create_vault, %{blob: blob, wrap: wrap}, server)
+       when is_binary(blob) and is_map(wrap) do
     run(server, :create_vault, fn workspace ->
       workspace |> Vaults.create(blob, wrap) |> reply()
     end)
   end
 
-  def command(:create_vault, %{blob: blob, wraps: wraps}, server)
-      when is_binary(blob) and is_list(wraps) do
+  defp dispatch(:create_vault, %{blob: blob, wraps: wraps}, server)
+       when is_binary(blob) and is_list(wraps) do
     run(server, :create_vault, fn workspace ->
       workspace |> Vaults.create(blob, wraps) |> reply()
     end)
   end
 
-  def command(:rename_key_wrap, %{id: id, label: label}, server)
-      when is_binary(id) and is_binary(label) do
+  defp dispatch(:rename_key_wrap, %{id: id, label: label}, server)
+       when is_binary(id) and is_binary(label) do
     run(server, :rename_key_wrap, fn workspace ->
       case Vaults.rename_key_wrap(workspace, id, label) do
         {:ok, %KeyWrap{} = wrap} -> %{ok: true, key_wrap: wrap_map(wrap)}
@@ -102,8 +112,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
     end)
   end
 
-  def command(:save_vault, %{base_rev: base_rev, blob: blob}, server)
-      when is_integer(base_rev) and is_binary(blob) do
+  defp dispatch(:save_vault, %{base_rev: base_rev, blob: blob}, server)
+       when is_integer(base_rev) and is_binary(blob) do
     run(server, :save_vault, fn workspace ->
       case Vaults.save(workspace, base_rev, blob) do
         {:ok, %{rev: rev}} ->
@@ -118,7 +128,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
     end)
   end
 
-  def command(:add_key_wrap, %{wrap: wrap}, server) when is_map(wrap) do
+  defp dispatch(:add_key_wrap, %{wrap: wrap}, server) when is_map(wrap) do
     run(server, :add_key_wrap, fn workspace ->
       case Vaults.add_key_wrap(workspace, wrap) do
         {:ok, %KeyWrap{} = added} -> %{ok: true, key_wrap: wrap_map(added)}
@@ -127,23 +137,25 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGate do
     end)
   end
 
-  def command(:remove_key_wrap, %{id: id}, server) when is_binary(id) do
+  defp dispatch(:remove_key_wrap, %{id: id}, server) when is_binary(id) do
     run(server, :remove_key_wrap, fn workspace ->
       workspace |> Vaults.remove_key_wrap(id) |> reply()
     end)
   end
 
-  def command(:delete_vault, _params, server) do
+  defp dispatch(:delete_vault, _params, server) do
     run(server, :delete_vault, fn workspace -> workspace |> Vaults.delete_vault() |> reply() end)
   end
 
   # Anything that did not match its clause above (wrong shape from a crafted
   # client): a plain error, never a crash that could echo params into logs.
-  def command(op, _params, server) do
+  defp dispatch(op, _params, server), do: deny(server, op, :invalid)
+
+  defp deny(server, op, reason) do
     put_action(server,
       name: :vault_result,
       target: "page",
-      params: %{op: op, ok: false, error: :invalid}
+      params: %{op: op, ok: false, error: reason}
     )
   end
 
