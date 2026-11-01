@@ -5,10 +5,7 @@ defmodule DebtReliefTrackerWeb.Holo.Format do
   and `format_percent/1` so both UIs print the same strings.
   """
 
-  def symbol("EUR"), do: "€"
-  def symbol("GBP"), do: "£"
-  def symbol("JPY"), do: "¥"
-  def symbol(_usd_cad_aud_or_unknown), do: "$"
+  def symbol(currency), do: DebtReliefTracker.Engine.Money.symbol(currency)
 
   @doc "Currency codes the settings can choose from."
   def currency_codes, do: ["AUD", "CAD", "EUR", "GBP", "JPY", "USD"]

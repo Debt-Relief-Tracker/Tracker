@@ -15,4 +15,10 @@ defmodule DebtReliefTracker.Engine.Money do
 
   def clamp_non_negative(n) when n < 0, do: 0
   def clamp_non_negative(n), do: n
+
+  @doc "Display symbol for a currency code (`\"USD\"`, `\"CAD\"`, `\"AUD\"` and unknown codes use `$`)."
+  def symbol("EUR"), do: "€"
+  def symbol("GBP"), do: "£"
+  def symbol("JPY"), do: "¥"
+  def symbol(_usd_cad_aud_or_unknown), do: "$"
 end

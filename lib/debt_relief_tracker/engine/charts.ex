@@ -31,6 +31,7 @@ defmodule DebtReliefTracker.Engine.Charts do
   (docs/architecture/0007-e2ee.md).
   """
 
+  alias DebtReliefTracker.Engine.Money
   alias DebtReliefTracker.Engine.Calculations
   alias DebtReliefTracker.Engine.Planning
   alias DebtReliefTracker.Engine.Retirement
@@ -172,7 +173,7 @@ defmodule DebtReliefTracker.Engine.Charts do
           labels: Enum.map(@strategies, &strategy_label/1),
           datasets: [
             %{
-              label: "Total interest ($)",
+              label: "Total interest (#{symbol(currency)})",
               data: interest,
               backgroundColor: color(1),
               yAxisID: "interest",
@@ -194,7 +195,7 @@ defmodule DebtReliefTracker.Engine.Charts do
                 type: "linear",
                 position: "left",
                 beginAtZero: true,
-                title: %{display: true, text: "Interest ($)"},
+                title: %{display: true, text: "Interest (#{symbol(currency)})"},
                 ticks: %{format: tick_money_format(currency)}
               },
               months: %{
@@ -272,7 +273,7 @@ defmodule DebtReliefTracker.Engine.Charts do
               scales: %{
                 y: %{
                   beginAtZero: true,
-                  title: %{display: true, text: "Balance ($)"},
+                  title: %{display: true, text: "Balance (#{symbol(currency)})"},
                   ticks: %{format: tick_money_format(currency)}
                 }
               }
@@ -323,7 +324,7 @@ defmodule DebtReliefTracker.Engine.Charts do
                 y: %{
                   stacked: true,
                   beginAtZero: true,
-                  title: %{display: true, text: "Payment ($)"},
+                  title: %{display: true, text: "Payment (#{symbol(currency)})"},
                   ticks: %{format: tick_money_format(currency)}
                 }
               }
@@ -367,7 +368,7 @@ defmodule DebtReliefTracker.Engine.Charts do
               scales: %{
                 y: %{
                   beginAtZero: true,
-                  title: %{display: true, text: "Freed per month ($)"},
+                  title: %{display: true, text: "Freed per month (#{symbol(currency)})"},
                   ticks: %{format: tick_money_format(currency)}
                 }
               }
@@ -510,7 +511,7 @@ defmodule DebtReliefTracker.Engine.Charts do
             x: %{title: %{display: true, text: "Years from now"}},
             y: %{
               beginAtZero: true,
-              title: %{display: true, text: "Projected retirement savings ($)"},
+              title: %{display: true, text: "Projected retirement savings (#{symbol(currency)})"},
               ticks: %{format: tick_money_format(currency)}
             }
           }
@@ -600,13 +601,8 @@ defmodule DebtReliefTracker.Engine.Charts do
   defp money_text(cents, currency) do
     [whole, frac] = cents |> abs() |> dollars() |> String.split(".")
     sign = if cents < 0, do: "-", else: ""
-    "#{sign}#{currency_symbol(currency)}#{group_thousands(whole)}.#{frac}"
+    "#{sign}#{symbol(currency)}#{group_thousands(whole)}.#{frac}"
   end
-
-  defp currency_symbol("EUR"), do: "€"
-  defp currency_symbol("GBP"), do: "£"
-  defp currency_symbol("JPY"), do: "¥"
-  defp currency_symbol(_usd_cad_aud_or_unknown), do: "$"
 
   defp group_thousands(digits) do
     len = String.length(digits)
@@ -632,6 +628,8 @@ defmodule DebtReliefTracker.Engine.Charts do
 
   # Intl.NumberFormat options (see the moduledoc): exact cents in tooltips,
   # whole units on axis ticks, pluralized months for the comparison chart.
+  defp symbol(currency), do: Money.symbol(currency)
+
   defp money_format(currency), do: %{style: "currency", currency: currency}
 
   defp tick_money_format(currency),

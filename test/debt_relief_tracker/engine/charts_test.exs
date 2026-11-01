@@ -491,4 +491,37 @@ defmodule DebtReliefTracker.Engine.ChartsTest do
       assert Charts.debt_name(debts, 999) == ""
     end
   end
+
+  describe "currency symbol in axis titles and labels" do
+    defp titles(config) do
+      axis_titles =
+        for {_axis, scale} <- Map.get(config.options, :scales, %{}),
+            is_map(scale),
+            text = get_in(scale, [:title, :text]),
+            do: text
+
+      labels = for dataset <- config.data.datasets, label = Map.get(dataset, :label), do: label
+      axis_titles ++ labels
+    end
+
+    test "money titles follow the currency instead of a hardcoded dollar sign" do
+      debts = two_installments()
+      strategies = Planning.compare_strategies(debts, 30_000)
+
+      for {currency, symbol} <- [{"EUR", "€"}, {"GBP", "£"}, {"JPY", "¥"}, {"USD", "$"}],
+          type <- [:comparison, :simulation, :monthly_payments, :freed_cashflow] do
+        {nil, config} =
+          Charts.build(type, :cash_flow, strategies, debts, 30_000, [], [], currency: currency)
+
+        money = Enum.filter(titles(config), &String.contains?(&1, "("))
+        assert money != [], "#{type} has no money title to check"
+
+        for title <- money do
+          assert String.contains?(title, "(#{symbol})"), "#{type}/#{currency}: #{title}"
+        end
+
+        if symbol != "$", do: refute(Enum.any?(titles(config), &String.contains?(&1, "($)")))
+      end
+    end
+  end
 end
