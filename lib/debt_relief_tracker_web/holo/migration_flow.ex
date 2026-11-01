@@ -104,6 +104,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
       busy_retries: 0,
       changed_rounds: 0,
       rebuilds: 0,
+      rebuilding: false,
       retry_effect: nil
     }
   end
@@ -157,7 +158,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
   end
 
   def apply(%{step: :re_exporting} = s, {:export_result, %{ok: true} = r}) do
-    s = %{s | export: export_of(r), step: :setting_up}
+    s = %{s | export: export_of(r), step: :setting_up, rebuilding: true}
     {s, [{:rebuild_vault, s.export.snapshot}]}
   end
 
@@ -192,7 +193,15 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
 
   # vault wizard
   def apply(%{step: :setting_up} = s, :vault_created),
-    do: {%{s | step: :verifying}, [{:redownload_vault}]}
+    do: {%{s | step: :verifying, rebuilding: false}, [{:redownload_vault}]}
+
+  # A failed REBUILD save (the vault already exists): `:retry` repeats the
+  # rebuild save, it must not re-show the create wizard.
+  def apply(
+        %{step: :setting_up, rebuilding: true, export: %{snapshot: snapshot}} = s,
+        :vault_failed
+      ),
+      do: {fail(s, :vault_failed, {:rebuild_vault, snapshot}), []}
 
   # Vault creation failed (network, server refusal): `:retry` rebuilds it from
   # the exported snapshot. Nothing is deleted at this point, so retrying is safe.
@@ -301,7 +310,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
         :rebuild
       )
       when n < @max_rebuilds do
-    {%{s | step: :setting_up, reason: nil, retry_effect: nil, rebuilds: n + 1},
+    {%{s | step: :setting_up, reason: nil, retry_effect: nil, rebuilds: n + 1, rebuilding: true},
      [{:rebuild_vault, s.export.snapshot}]}
   end
 
@@ -315,6 +324,11 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlow do
 
   defp retry(%{retry_effect: {:command, :migration_status}} = s),
     do: {%{s | step: :checking, reason: nil, retry_effect: nil}, [{:command, :migration_status}]}
+
+  defp retry(%{retry_effect: {:rebuild_vault, snapshot}} = s),
+    do:
+      {%{s | step: :setting_up, reason: nil, retry_effect: nil, rebuilding: true},
+       [{:rebuild_vault, snapshot}]}
 
   defp retry(%{retry_effect: {:build_vault, snapshot}} = s),
     do: {%{s | step: :setting_up, reason: nil, retry_effect: nil}, [{:build_vault, snapshot}]}

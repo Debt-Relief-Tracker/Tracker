@@ -617,6 +617,7 @@ defmodule DebtReliefTrackerWeb.Holo.VaultFlow do
   end
 
   defp saved(c, %{ok: true}) when c.state.sync == nil, do: c
+
   defp saved(c, %{ok: true, rev: rev}) do
     inflight = c.state.vault.inflight
     ws = ws(c)

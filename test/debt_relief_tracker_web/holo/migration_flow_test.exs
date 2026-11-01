@@ -298,7 +298,12 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
 
       assert effects == [
                {:command, :migration_finalize,
-                %{digest: "digest-1", confirm_remove_members: true}}
+                %{
+                  digest: "digest-1",
+                  confirm_remove_members: true,
+                  vault_rev: 1,
+                  vault_blob_sha256: "abc123"
+                }}
              ]
     end
 
@@ -584,7 +589,8 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
           if s2.step == :finalizing and s.step != :finalizing do
             :counters.add(reached, 1, 1)
             assert s.step == :verifying
-            assert {:vault_downloaded, {:ok, view}, @ref} = ev
+            assert {:vault_downloaded, {:ok, view}, ref} = ev
+            assert s2.verified_vault == ref
             assert Flow.verify(s.export.snapshot, view) == :ok
             assert s2.verified_digest == s.export.digest
           end
@@ -702,6 +708,34 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationFlowTest do
       {s, [_]} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
       {s, []} = Flow.apply(s, {:finalize_result, %{ok: false, error: :vault_changed}})
       assert {s.step, s.reason} == {:failed, :vault_changed}
+    end
+  end
+
+  describe "rebuild save failure" do
+    test "retry repeats the rebuild save, not the create wizard" do
+      s = to_verifying()
+      {s, _} = Flow.apply(s, {:vault_downloaded, {:ok, redownloaded_view(snapshot())}, @ref})
+
+      {s, [{:command, :migration_export}]} =
+        Flow.apply(s, {:finalize_result, %{ok: false, error: :changed}})
+
+      newer = %{snapshot() | payments: tl(snapshot().payments)}
+
+      {s, [{:rebuild_vault, ^newer}]} =
+        Flow.apply(s, {:export_result, export_reply(newer, digest: "digest-2")})
+
+      {s, []} = Flow.apply(s, :vault_failed)
+      assert {s.step, s.reason} == {:failed, :vault_failed}
+      refute Flow.terminal?(s)
+
+      {s, effects} = Flow.apply(s, :retry)
+      assert s.step == :setting_up
+      assert effects == [{:rebuild_vault, newer}]
+
+      # and it still must be re-downloaded and verified before any finalize
+      {s, effects} = Flow.apply(s, :vault_created)
+      assert s.step == :verifying
+      assert effects == [{:redownload_vault}]
     end
   end
 end
