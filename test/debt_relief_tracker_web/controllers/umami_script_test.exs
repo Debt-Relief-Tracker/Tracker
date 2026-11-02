@@ -53,4 +53,49 @@ defmodule DebtReliefTrackerWeb.UmamiScriptTest do
     csp = conn |> Plug.Conn.get_resp_header("content-security-policy") |> Enum.join(" ")
     refute csp =~ "stats.example.com"
   end
+
+  describe "the Hologram dashboard (/app)" do
+    @url "https://stats.example.com/script.js"
+
+    test "renders the script and allows its origin in the CSP when configured", %{conn: conn} do
+      Application.put_env(:debt_relief_tracker, :umami, script_url: @url, website_id: "abc")
+
+      conn = get(conn, "/app")
+      tags = conn |> script_tags()
+
+      assert LazyHTML.attribute(tags, "src") == [@url]
+      assert LazyHTML.attribute(tags, "data-website-id") == ["abc"]
+
+      [csp] = Plug.Conn.get_resp_header(conn, "content-security-policy")
+      directives = String.split(csp, "; ")
+      assert Enum.any?(directives, &(&1 =~ ~r/^script-src .*https:\/\/stats\.example\.com$/))
+      assert "connect-src 'self' https://stats.example.com" in directives
+    end
+
+    test "renders no script when unconfigured", %{conn: conn} do
+      Application.put_env(:debt_relief_tracker, :umami, nil)
+      conn = get(conn, "/app")
+
+      assert script_tags(conn) |> Enum.count() == 0
+      [csp] = Plug.Conn.get_resp_header(conn, "content-security-policy")
+      refute csp =~ "stats.example.com"
+    end
+
+    test "E2EE mode renders no script and no origin", %{conn: conn} do
+      Application.put_env(:debt_relief_tracker, :umami, script_url: @url, website_id: "abc")
+      previous = Application.get_env(:debt_relief_tracker, :e2ee)
+      Application.put_env(:debt_relief_tracker, :e2ee, true)
+
+      on_exit(fn ->
+        if is_nil(previous),
+          do: Application.delete_env(:debt_relief_tracker, :e2ee),
+          else: Application.put_env(:debt_relief_tracker, :e2ee, previous)
+      end)
+
+      conn = get(conn, "/app")
+      assert script_tags(conn) |> Enum.count() == 0
+      [csp] = Plug.Conn.get_resp_header(conn, "content-security-policy")
+      refute csp =~ "stats.example.com"
+    end
+  end
 end

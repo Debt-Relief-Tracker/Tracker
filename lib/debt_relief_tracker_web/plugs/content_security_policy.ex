@@ -126,15 +126,17 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
     :debt_relief_tracker |> Application.get_env(:csp, []) |> Keyword.get(:mode, :enforce)
   end
 
-  @doc "The policy string for `nonce`."
+  @doc "The policy string for `nonce`. Adds the Umami origin only when configured and E2EE is off."
   def policy(nonce) do
+    umami = umami_origin()
+
     Enum.join(
       [
         "default-src 'none'",
-        "script-src 'self' 'nonce-#{nonce}' 'unsafe-eval' 'wasm-unsafe-eval'",
+        "script-src 'self' 'nonce-#{nonce}' 'unsafe-eval' 'wasm-unsafe-eval'" <> umami,
         "style-src 'self'",
         "style-src-attr 'unsafe-inline'",
-        "connect-src 'self'",
+        "connect-src 'self'" <> umami,
         "img-src 'self' data:",
         "font-src 'self'",
         "object-src 'none'",
