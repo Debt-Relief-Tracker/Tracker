@@ -40,7 +40,6 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   alias DebtReliefTrackerWeb.Holo.Components.SettingsModal
   alias DebtReliefTrackerWeb.Holo.Components.TutorialOverlay
   alias DebtReliefTrackerWeb.Holo.Components.VaultGate
-  alias DebtReliefTrackerWeb.Holo.Components.VaultHome
   alias DebtReliefTrackerWeb.Holo.Components.VaultMethods
   alias DebtReliefTrackerWeb.Holo.Components.VaultSetup
   alias DebtReliefTrackerWeb.Holo.Components.VaultUnlock
@@ -104,6 +103,16 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     end
   end
 
+  # On desktop the dashboard fills exactly the viewport (footer pinned at the bottom, the
+  # debt list and main panel scroll on their own); the locked / setup /
+  # migration screens, and mobile, just grow with their content.
+  def root_class(e2ee, migration, vault) do
+    if e2ee &&
+         (vault.rollback || vault.phase != :unlocked || (migration && vault.phase != :locked)),
+       do: "flex flex-col min-h-screen",
+       else: "flex flex-col min-h-screen sm:h-dvh sm:overflow-hidden"
+  end
+
   # E2EE is on and the workspace still holds plaintext: the one-time
   # migration screen replaces the normal "no vault -> setup wizard".
   defp migration_needed?(workspace),
@@ -111,7 +120,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
 
   def template do
     ~HOLO"""
-    <div id="holo-dashboard" class="flex flex-col min-h-screen">
+    <div id="holo-dashboard" class={root_class(@e2ee, @migration, @vault)}>
       {%if @e2ee and @migration and @vault.phase != :locked}
         <main id="e2ee-migrating" class="flex-1 flex flex-col items-center justify-center gap-4 p-4 sm:p-6">
           <MigrationScreen cid="migration_screen" vault={@vault} account={@account} />
@@ -151,18 +160,14 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
             {/if}
           </main>
         {%else}
-          {%if @e2ee}
-            <VaultHome snapshot={@snapshot} vault={@vault} sync={@sync} account={@account} />
-          {/if}
+          <HeaderBar cid="header_bar" snapshot={@snapshot} account={@account} vault={@vault} sync={@sync} />
 
-          <HeaderBar cid="header_bar" snapshot={@snapshot} account={@account} />
-
-          <div class="flex flex-col sm:flex-row flex-1 min-h-0">
-            <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-b sm:border-b-0 sm:border-r border-base-300 p-3 flex flex-col gap-3 min-h-0">
+          <div class="flex flex-col sm:flex-row flex-1 sm:min-h-0 sm:overflow-hidden">
+            <aside class="w-full sm:w-1/5 sm:min-w-[220px] border-b sm:border-b-0 sm:border-r border-base-300 p-3 flex flex-col gap-3 sm:min-h-0 sm:overflow-hidden">
               <DebtSidebar cid="debt_sidebar" snapshot={@snapshot} account={@account} />
             </aside>
 
-            <main class="flex-1 p-4 min-w-0 flex flex-col gap-4">
+            <main class="flex-1 p-4 min-w-0 flex flex-col gap-4 sm:overflow-y-auto">
               <RetirementBanner cid="retirement_banner" snapshot={@snapshot} />
               <PlanPanel cid="plan_panel" snapshot={@snapshot} account={@account} strategy={@strategy} />
             </main>
@@ -347,6 +352,8 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def action(:vault_lock, _params, component), do: VaultFlow.request_lock(component, :manual)
   def action(:vault_lock_anyway, _params, component), do: VaultFlow.lock_anyway(component)
   def action(:vault_retry, _params, component), do: VaultFlow.retry(component)
+
+  def action(:vault_dismiss_notice, _params, component), do: clear_vault_notice(component)
   def action(:vault_flush, params, component), do: VaultFlow.flush(component, params)
   def action(:vault_methods_op, params, component), do: VaultFlow.methods_op(component, params)
 
@@ -377,7 +384,10 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   def action(:dismiss_notice, _params, component), do: put_state(component, :notice, nil)
 
   def action(:open_modal, %{modal: modal}, component) do
-    component |> put_state(:modal, modal) |> put_state(:notice, nil)
+    component
+    |> put_state(:modal, modal)
+    |> put_state(:notice, nil)
+    |> clear_vault_notice()
   end
 
   def action(:close_modal, _params, component), do: put_state(component, :modal, nil)
@@ -394,6 +404,17 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
     component
     |> put_state(:strategy, strategy)
     |> put_action(name: :plan_inputs_changed, target: "plan_panel")
+  end
+
+  # The one-time "vault is ready" banner; `vault` is not a map outside E2EE mode.
+  defp clear_vault_notice(component) do
+    case component.state.vault do
+      %{notice: notice} = vault when notice != nil ->
+        put_state(component, :vault, %{vault | notice: nil})
+
+      _ ->
+        component
+    end
   end
 
   defp to_migration(component, event),

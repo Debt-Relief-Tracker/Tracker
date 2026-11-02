@@ -73,10 +73,14 @@ recovered. Type DELETE to confirm.
 
 ## 9. First sign-in after we turn encryption on (existing users)
 
-`UI:` **Protect your data with end-to-end encryption.** We've upgraded the app so
-that only you can read your finances. Setting this up takes a minute. Until you
-do, your existing data stays stored the way it is today and you can't use the
-app. Nothing is deleted until your encrypted copy is saved **and checked**.
+`UI:` **Lock down your financial data.** We've added a new privacy feature. Your
+debts, payments and retirement details will be locked (encrypted) so that **only
+you can read them**. Not even we can. **What you need to do:** choose a
+passphrase (about a minute); you'll use it to unlock the app, and you'll get a
+recovery key to save in case you forget it. **Your data stays safe:** we make a
+locked copy first and check that it matches; only then do we remove the old
+copy. You'll need to finish this before you can use the app again.
+Button: **Lock my data**.
 
 `UI (shared workspace):` **Other people will lose access.** This workspace is
 shared with [names]. After you encrypt it, only you can open its data. They keep

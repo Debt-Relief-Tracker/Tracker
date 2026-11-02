@@ -21,12 +21,15 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
 
   alias DebtReliefTrackerWeb.Holo.AccountOps
   alias DebtReliefTrackerWeb.Holo.Context
+  alias DebtReliefTrackerWeb.Holo.Components.VaultHome
   alias DebtReliefTrackerWeb.Holo.Csrf
 
   middleware DebtReliefTrackerWeb.Holo.Auth
 
   prop :snapshot, :map
   prop :account, :map
+  prop :vault, :map
+  prop :sync, :map
   prop :e2ee, :boolean, from_context: :e2ee
 
   def template do
@@ -65,6 +68,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.HeaderBar do
           <span class="hero-cog-6-tooth w-5 h-5"></span>
         </button>
       </div>
+
+      {%if @e2ee}
+        <VaultHome snapshot={@snapshot} vault={@vault} sync={@sync} account={@account} />
+      {/if}
 
       {%if @account.oidc_enabled}
         <div id="user-menu" class="flex-none min-w-0 max-w-full flex items-center gap-2 text-sm">

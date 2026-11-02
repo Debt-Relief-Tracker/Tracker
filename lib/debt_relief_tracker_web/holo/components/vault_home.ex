@@ -1,6 +1,6 @@
 defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
   @moduledoc """
-  The E2EE bar above the dashboard (stateless): sync status, "Unlock
+  The E2EE controls inside the dashboard header (stateless, rendered by `HeaderBar`): sync status, "Unlock
   methods", "Lock", the created / lock-blocked / remembered-device notices.
   The dashboard itself (header, sidebar, plan panel, modals) renders below it
   from `snapshot = VaultDoc.view(doc)`, exactly as in plaintext mode.
@@ -24,25 +24,28 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
 
   def template do
     ~HOLO"""
-    <div id="vault-home" class="flex flex-col gap-2 px-4 py-2 border-b border-base-300">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-sm font-medium">Encrypted vault</span>
-        <div class="flex flex-wrap items-center gap-2">
-          <span id="vault-sync-status" role="status" data-status={@sync.status} class={status_class(@sync.status)}>{status_text(@sync.status)}</span>
-          {%if @sync.status == :failed}
-            {%if @vault.sync_problem == :unreadable_server_copy}
-              <span id="vault-sync-problem" class="text-xs text-warning">The server's copy could not be read. It may have been written by a newer version of the app, or it may be damaged. Your changes are kept on this device.</span>
-            {/if}
-            <button id="vault-sync-retry" type="button" class="btn btn-xs btn-outline" $click={action: :vault_retry, target: "page"}>Retry save</button>
-          {/if}
-          <button id="vault-methods-btn" type="button" class="btn btn-sm btn-ghost" $click={action: :open_modal, target: "page", params: %{modal: %{type: :vault_methods}}}>Unlock methods</button>
-          <button id="vault-lock-btn" type="button" class="btn btn-sm btn-outline" $click={action: :vault_lock, target: "page"}>Lock</button>
-        </div>
+    <div id="vault-home" class="contents">
+      <div class="order-last basis-full sm:order-none sm:basis-auto flex-none flex flex-wrap items-center justify-center sm:justify-start gap-2">
+        <span id="vault-sync-status" role="status" data-status={@sync.status} class={status_class(@sync.status)}>{status_text(@sync.status)}</span>
+        {%if @sync.status == :failed}
+          <button id="vault-sync-retry" type="button" class="btn btn-xs btn-outline" $click={action: :vault_retry, target: "page"}>Retry save</button>
+        {/if}
+        <button id="vault-methods-btn" type="button" class="btn btn-sm btn-ghost" $click={action: :open_modal, target: "page", params: %{modal: %{type: :vault_methods}}}>Unlock methods</button>
+        <button id="vault-lock-btn" type="button" class="btn btn-sm btn-outline" $click={action: :vault_lock, target: "page"}>
+          <span class="hero-lock-closed size-4"></span> Lock
+        </button>
       </div>
 
+      {%if extras?(@vault, @sync)}
+      <div class="basis-full order-last flex flex-col gap-2">
+        {%if @sync.status == :failed and @vault.sync_problem == :unreadable_server_copy}
+          <span id="vault-sync-problem" class="text-xs text-warning">The server's copy could not be read. It may have been written by a newer version of the app, or it may be damaged. Your changes are kept on this device.</span>
+        {/if}
+
       {%if @vault.notice == :created}
-        <div id="vault-created-notice" role="status" class="alert alert-success flex flex-col sm:flex-row items-start sm:items-center gap-2">
-          <span>Your encrypted vault is ready. You can add another unlock method, such as a passkey or a second passphrase, in Unlock methods.</span>
+        <div id="vault-created-notice" role="status" class="alert alert-success flex flex-row items-start sm:items-center gap-2">
+          <span class="flex-1">Your encrypted vault is ready. You can add another unlock method, such as a passkey or a second passphrase, in Unlock methods.</span>
+          <button id="vault-created-dismiss" type="button" class="btn btn-ghost btn-xs" aria-label="Dismiss" $click={action: :vault_dismiss_notice, target: "page"}>Dismiss</button>
         </div>
       {/if}
 
@@ -57,12 +60,6 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
           <span>Your latest changes could not be saved, so the vault was not locked.</span>
           <button id="vault-lock-anyway" type="button" class="btn btn-xs btn-warning" $click={action: :vault_lock_anyway, target: "page"}>Lock anyway and discard them</button>
         </div>
-      {/if}
-
-      {%if @vault.device and not @vault.can_manage}
-        <p id="vault-device-session" class="text-sm text-base-content/70">
-          Opened with this remembered device. To add or remove unlock methods, lock and unlock with a passphrase, passkey or recovery key.
-        </p>
       {/if}
 
       {%if @vault.test_hook}
@@ -88,8 +85,17 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultHome do
           </form>
         </section>
       {/if}
+      </div>
+      {/if}
     </div>
     """
+  end
+
+  # Whether anything needs the full-width row under the header controls.
+  def extras?(vault, sync) do
+    vault.notice == :created or not vault.rollback_protection or vault.lock_blocked or
+      vault.test_hook or
+      (sync.status == :failed and vault.sync_problem == :unreadable_server_copy)
   end
 
   def status_text(:idle), do: "Up to date"

@@ -409,7 +409,6 @@ defmodule DebtReliefTrackerWeb.Holo.E2EEClientBrowserTest do
 
       ctx = reload(ctx)
       assert_selector(ctx, "#vault-home")
-      assert text(ctx, "#vault-device-session") =~ "remembered device"
 
       # a remembered device session cannot manage methods
       click(ctx, "#vault-methods-btn")

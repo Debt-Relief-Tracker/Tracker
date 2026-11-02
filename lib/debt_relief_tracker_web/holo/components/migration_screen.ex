@@ -45,7 +45,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
   def template do
     ~HOLO"""
     <section id="migration-screen" class="w-full max-w-lg flex flex-col gap-4 text-left" data-step={@flow.step}>
-      <h1 class="text-xl sm:text-2xl font-semibold">Protect your data with end-to-end encryption</h1>
+      <h1 class="text-xl sm:text-2xl font-semibold">Lock down your financial data</h1>
 
       {%if @flow.step == :checking}
         <p id="migration-checking" role="status" class="flex items-center gap-2">
@@ -54,12 +54,22 @@ defmodule DebtReliefTrackerWeb.Holo.Components.MigrationScreen do
       {/if}
 
       {%if @flow.step == :needs_migration}
-        <p id="migration-intro">
-          We've upgraded the app so that only you can read your finances. Setting this up takes a minute.
-          Until you do, your existing data stays stored the way it is today and you can't use the app.
-          Nothing is deleted until your encrypted copy is saved and checked.
-        </p>
-        <button id="migration-begin" type="button" class="btn btn-primary" $click={:begin}>Set up encryption</button>
+        <div id="migration-intro" class="flex flex-col gap-3">
+          <p>
+            We've added a new privacy feature. Your debts, payments and retirement details will be locked
+            (encrypted) so that <strong>only you can read them</strong>. Not even we can.
+          </p>
+          <p>
+            <strong>What you need to do:</strong> choose a passphrase. It takes about a minute. You'll use it to
+            unlock the app, and you'll get a recovery key to save in case you ever forget it.
+          </p>
+          <p>
+            <strong>Your data stays safe:</strong> we make a locked copy first and check that it matches. Only
+            then do we remove the old copy.
+          </p>
+          <p class="text-sm opacity-70">You'll need to finish this before you can use the app again.</p>
+        </div>
+        <button id="migration-begin" type="button" class="btn btn-primary" $click={:begin}>Lock my data</button>
       {/if}
 
       {%if @flow.step == :confirming_members}

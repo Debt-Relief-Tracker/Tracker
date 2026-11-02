@@ -54,7 +54,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.DebtSidebar do
 
   def template do
     ~HOLO"""
-    <div id="debt-sidebar" class="flex flex-col gap-3">
+    <div id="debt-sidebar" class="flex flex-col gap-3 sm:flex-1 sm:min-h-0">
       <button id="add-debt-button" type="button" class="btn btn-primary btn-sm min-h-9 sm:min-h-0 w-full" $click="open_add_debt">
         <span class="hero-plus size-4"></span> Add debt
       </button>
