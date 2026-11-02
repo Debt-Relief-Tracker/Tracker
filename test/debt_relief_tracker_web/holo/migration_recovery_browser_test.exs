@@ -69,7 +69,7 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationRecoveryBrowserTest do
     refute_in_database([@marker])
   end
 
-  test "(b) reload while status is :both: unlock, re-export, rebuild if stale, finish",
+  test "(b) reload while status is :both: unlock, re-export, verify, finish",
        %{ws: ws} = ctx do
     # every finalize is busy: the vault is created, the plaintext stays
     Application.put_env(:debt_relief_tracker, :migration_test_busy_finalize, 99)
@@ -82,13 +82,22 @@ defmodule DebtReliefTrackerWeb.Holo.MigrationRecoveryBrowserTest do
     assert Migration.status(ws) == :both
 
     Application.put_env(:debt_relief_tracker, :migration_test_busy_finalize, 0)
-    log_new_payment(ctx)
-    assert plaintext_rows("payments") == 2
+
+    # once the vault exists plaintext is frozen (E2EE.PlainGuard), so no write
+    # can make the vault stale here
+    assert {:error, :workspace_encrypted} =
+             Payments.log_payment(ws, ctx.owner, Debts.get_debt!(ws, ctx.debt.id), %{
+               "amount" => "42.00",
+               "paid_on" => "2026-02-01",
+               "note" => "late"
+             })
+
+    assert plaintext_rows("payments") == 1
 
     ctx = reload(ctx)
     ctx = unlock_with_passphrase(ctx, @pass)
     assert_selector(ctx, "#migration-done")
-    assert_migrated(ctx, ws, 2)
+    assert_migrated(ctx, ws, 1)
   end
 
   test "(c) a damaged download deletes nothing; retry then succeeds", %{ws: ws} = ctx do
