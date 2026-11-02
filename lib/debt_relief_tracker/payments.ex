@@ -10,6 +10,7 @@ defmodule DebtReliefTracker.Payments do
 
   alias DebtReliefTracker.Repo
   alias DebtReliefTracker.ActivityLog
+  alias DebtReliefTracker.E2EE.PlainGuard
   alias DebtReliefTracker.Accounts.Workspace
   alias DebtReliefTracker.Debts.Debt
   alias DebtReliefTracker.Payments.Payment
@@ -66,7 +67,7 @@ defmodule DebtReliefTracker.Payments do
         v -> v
       end)
 
-    Repo.transaction(fn ->
+    PlainGuard.transaction(workspace.id, fn ->
       with {:ok, payment} <- Repo.insert(Payment.changeset(%Payment{}, attrs)),
            {:ok, updated_debt} <-
              Repo.update(
@@ -77,9 +78,7 @@ defmodule DebtReliefTracker.Payments do
             "amount" => Decimal.to_string(payment.amount)
           })
 
-        %{payment: payment, debt: updated_debt}
-      else
-        {:error, changeset} -> Repo.rollback(changeset)
+        {:ok, %{payment: payment, debt: updated_debt}}
       end
     end)
   end

@@ -153,6 +153,7 @@ defmodule DebtReliefTracker.Storage.Plain do
 
   defp normalize({:ok, _} = ok), do: ok
   defp normalize({:error, :not_due} = error), do: error
+  defp normalize({:error, :workspace_encrypted} = error), do: error
 
   defp normalize({:error, %Ecto.Changeset{} = changeset}),
     do: {:error, {:invalid, errors(changeset)}}

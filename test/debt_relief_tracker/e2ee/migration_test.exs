@@ -290,11 +290,14 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
 
     test "a payment posted after the export (via log_payment) makes it :changed",
          %{owner: owner, ws: ws, digest: digest} do
-      create_vault!(ws)
+      # Posted after the export but before the vault exists (once a vault
+      # exists, plaintext writes are refused: see PlainGuard).
       [debt] = Debts.list_debts(ws)
 
       {:ok, _} =
         Payments.log_payment(ws, nil, debt, %{"amount" => "10", "paid_on" => "2026-03-01"})
+
+      create_vault!(ws)
 
       before = table_counts(ws)
 
@@ -322,10 +325,9 @@ defmodule DebtReliefTracker.E2EE.MigrationTest do
         })
 
       %{digest: digest} = export!(ws, owner)
-      create_vault!(ws)
-      # simulate the old behaviour: the scheduler path called directly
       [auto] = Enum.filter(Debts.list_debts(ws), &(&1.name == "Auto"))
       {:ok, _} = DebtReliefTracker.DuePayments.post_due_payment(ws, nil, auto)
+      create_vault!(ws)
 
       assert {:error, :changed} =
                fin(ws, owner, digest, confirm_remove_members: true)

@@ -128,6 +128,9 @@ defmodule DebtReliefTracker.MixProject do
       "assets.deploy": [
         "tailwind debt_relief_tracker --minify",
         "esbuild debt_relief_tracker --minify",
+        # Never serve source maps in production (Hologram's bundles are
+        # emitted by `mix compile`, before this runs). Must precede digest.
+        "drt.strip_source_maps",
         "phx.digest"
       ],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]

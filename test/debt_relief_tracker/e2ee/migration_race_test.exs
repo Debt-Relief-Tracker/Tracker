@@ -185,4 +185,76 @@ defmodule DebtReliefTracker.E2EE.MigrationRaceTest do
       end
     end
   end
+
+  test "plaintext writers racing finalize can never re-create plaintext after the commit" do
+    for round <- 1..if(sqlite?(), do: 2, else: 6) do
+      {owner, ws, digest} = fresh("g#{round}")
+      [debt] = Debts.list_debts(ws)
+      vo = vopts(ws)
+
+      writers =
+        for i <- 1..3 do
+          Task.async(fn ->
+            Process.sleep(:rand.uniform(6) - 1)
+
+            safely(fn ->
+              case i do
+                1 ->
+                  Debts.create_debt(ws, owner, %{
+                    "name" => "late#{round}",
+                    "type" => "revolving",
+                    "balance" => "5"
+                  })
+
+                2 ->
+                  Payments.log_payment(ws, owner, debt, %{
+                    "amount" => "1",
+                    "paid_on" => "2026-05-01"
+                  })
+
+                3 ->
+                  DebtReliefTracker.Settings.update_settings(
+                    DebtReliefTracker.Settings.get_settings!(ws),
+                    %{"currency" => "GBP"}
+                  )
+              end
+            end)
+          end)
+        end
+
+      finalizer =
+        Task.async(fn ->
+          Process.sleep(:rand.uniform(6) - 1)
+          safely(fn -> Migration.finalize(ws, owner, digest, [compact: false] ++ vo) end)
+        end)
+
+      result = Task.await(finalizer, 60_000)
+      writes = Task.await_many(writers, 60_000)
+
+      # The vault exists from the start, so every writer is refused.
+      for w <- writes do
+        assert w == {:error, :workspace_encrypted} or (match?({:raised, _, _}, w) and sqlite?()),
+               inspect(w)
+      end
+
+      # A later writer is refused too, and the end state is clean.
+      assert {:error, :workspace_encrypted} =
+               Debts.create_debt(ws, owner, %{
+                 "name" => "after",
+                 "type" => "revolving",
+                 "balance" => "5"
+               })
+
+      case result do
+        {:ok, %{deleted: _}} ->
+          assert %{debts: 0, payments: 0, activity: 0, profiles: 0, vaults: 1} = table_counts(ws)
+
+        other ->
+          assert other in [{:error, :busy}] or (match?({:raised, _, _}, other) and sqlite?()),
+                 inspect(other)
+
+          assert %{debts: 1, payments: 1, profiles: 1} = table_counts(ws)
+      end
+    end
+  end
 end

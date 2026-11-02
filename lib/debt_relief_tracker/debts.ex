@@ -8,6 +8,7 @@ defmodule DebtReliefTracker.Debts do
 
   alias DebtReliefTracker.Repo
   alias DebtReliefTracker.ActivityLog
+  alias DebtReliefTracker.E2EE.PlainGuard
   alias DebtReliefTracker.Accounts.Workspace
   alias DebtReliefTracker.Debts.{Debt, Calculations}
   alias DebtReliefTracker.Payments
@@ -29,28 +30,39 @@ defmodule DebtReliefTracker.Debts do
       %Debt{}
       |> Debt.changeset(Map.put(attrs, "workspace_id", workspace.id))
 
-    with {:ok, debt} <- Repo.insert(changeset) do
-      ActivityLog.record(workspace, user, :debt_added, debt, %{"name" => debt.name})
-      {:ok, debt}
-    end
+    PlainGuard.transaction(workspace.id, fn ->
+      with {:ok, debt} <- Repo.insert(changeset),
+           {:ok, _entry} <-
+             ActivityLog.record(workspace, user, :debt_added, debt, %{"name" => debt.name}) do
+        {:ok, debt}
+      end
+    end)
   end
 
   def update_debt(%Workspace{} = workspace, user, %Debt{} = debt, attrs) do
     changeset = Debt.changeset(debt, attrs)
 
-    with {:ok, updated} <- Repo.update(changeset) do
-      ActivityLog.record(workspace, user, :debt_updated, updated, %{"name" => updated.name})
-      {:ok, updated}
-    end
+    PlainGuard.transaction(workspace.id, fn ->
+      with {:ok, updated} <- Repo.update(changeset),
+           {:ok, _entry} <-
+             ActivityLog.record(workspace, user, :debt_updated, updated, %{"name" => updated.name}) do
+        {:ok, updated}
+      end
+    end)
   end
 
   def mark_paid_off(%Workspace{} = workspace, user, %Debt{} = debt) do
     changeset = Debt.paid_off_changeset(debt)
 
-    with {:ok, updated} <- Repo.update(changeset) do
-      ActivityLog.record(workspace, user, :debt_paid_off, updated, %{"name" => updated.name})
-      {:ok, updated}
-    end
+    PlainGuard.transaction(workspace.id, fn ->
+      with {:ok, updated} <- Repo.update(changeset),
+           {:ok, _entry} <-
+             ActivityLog.record(workspace, user, :debt_paid_off, updated, %{
+               "name" => updated.name
+             }) do
+        {:ok, updated}
+      end
+    end)
   end
 
   @doc """
@@ -63,17 +75,22 @@ defmodule DebtReliefTracker.Debts do
   future inserts.
   """
   def delete_debt(%Workspace{} = workspace, user, %Debt{} = debt) do
-    with {:ok, deleted} <- Repo.delete(debt) do
-      ActivityLog.record(workspace, user, :debt_deleted, nil, %{"name" => deleted.name})
-      {:ok, deleted}
-    end
+    PlainGuard.transaction(workspace.id, fn ->
+      with {:ok, deleted} <- Repo.delete(debt),
+           {:ok, _entry} <-
+             ActivityLog.record(workspace, user, :debt_deleted, nil, %{"name" => deleted.name}) do
+        {:ok, deleted}
+      end
+    end)
   end
 
   def change_debt(%Debt{} = debt, attrs \\ %{}), do: Debt.changeset(debt, attrs)
 
   @doc "Stamps the cycle date a due payment was just posted or skipped for (DuePayments)."
   def mark_due_handled(%Debt{} = debt, cycle_due_date) do
-    debt |> Debt.due_handled_changeset(cycle_due_date) |> Repo.update()
+    PlainGuard.transaction(debt.workspace_id, fn ->
+      debt |> Debt.due_handled_changeset(cycle_due_date) |> Repo.update()
+    end)
   end
 
   @doc """

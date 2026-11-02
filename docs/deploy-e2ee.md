@@ -78,3 +78,23 @@ Steps run locally in order: `deps.get --only prod`, `deps.compile`,
 `assets.deploy`, `release`; the release was booted against a throwaway Postgres
 with and without `E2EE=true`. Not verifiable here: the actual Docker image
 build (apt/nodesource, base images) and Render itself.
+
+## Source maps are not served in production
+
+Hologram's `mix compile` writes `priv/static/hologram/*.js.map` next to its
+bundles. `mix assets.deploy` (the Dockerfile's asset step) now runs
+`mix drt.strip_source_maps` before `phx.digest`: it deletes every `*.map` under
+`priv/static` and removes the `//# sourceMappingURL=` / `/*# ... */` comments
+from `*.js`, `*.mjs` and `*.css`. Dev (`--sourcemap=inline`, `assets.build`)
+and test never call it. After a production build, check:
+`find priv/static -name '*.map'` is empty and
+`grep -rl sourceMappingURL priv/static` prints nothing.
+
+## Plaintext writes after a vault exists
+
+Every plaintext write in the contexts (`Debts`, `Payments`, `DuePayments`,
+`Settings`, `ActivityLog`, hence `Storage.Plain`) runs through
+`E2EE.PlainGuard`: in the write's own transaction it locks the workspace row
+(Postgres `FOR SHARE`, conflicting with finalize's `FOR UPDATE`; SQLite
+no-op write for the single write lock) and returns
+`{:error, :workspace_encrypted}` if the workspace has a vault. No migration.
