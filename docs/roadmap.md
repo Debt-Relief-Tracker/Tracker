@@ -379,8 +379,8 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 - [x] 4. Port UI to Hologram (plaintext mode): `/app` has debts, payments,
       plan/charts (Chart.js), retirement, settings/sharing/theme/logout,
       activity log, tutorial and footer, covered by ~50 real-browser
-      tests (`mix test --include browser`). Open: cut `/` over to it
-      (owner's call), and `AdminLive` deliberately stays a LiveView.
+      tests (`mix test --include browser`). Cut over: `/` redirects to `/app`
+      and `DashboardLive` is gone. `AdminLive` deliberately stays a LiveView.
   - [x] Plan panel + charts: `Engine.Charts` (integer port of `Charts`,
         parity-tested against it), Chart.js behind
         `assets/js/chart_facade.mjs` / `Holo.ChartJS` / `Holo.Components.Chart`
@@ -445,6 +445,13 @@ Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
 - [ ] Docker/Render build of the image (never built here) and the
       `docs/deploy-e2ee.md` two-step deploy with a Render backup first.
 - [ ] Decide: `activity_logs.inserted_at` precision migration (Postgres).
+- [x] Phase 10 open Lows closed: passkey user verification required;
+      passphrase minimum and unlock throttle enforced in the facade /
+      `VaultFlow`; plaintext writes refused once a vault exists
+      (`E2EE.PlainGuard`); source maps stripped from the production build.
+      Accepted limit (ADR 0007): no vault-key rotation on wrap removal.
+- [ ] Production-mode boot check of `/app` (a real error response with the
+      overlay/stack traces off) -- compile-level check only so far.
 - [x] Phase 4 cutover: `/app` is THE dashboard. `/` redirects to it
       (`PageController`), `DashboardLive`, its tests, the `PlanChart` /
       `TutorialOverlay` LiveView hooks and the LiveView-vs-Hologram parity
