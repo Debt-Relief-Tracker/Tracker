@@ -1,5 +1,5 @@
 defmodule DebtReliefTrackerWeb.Holo.ResponsiveBrowserTest do
-  # Responsiveness of every /app screen at phone (375), tablet (768) and
+  # Responsiveness of every dashboard screen at phone (375), tablet (768) and
   # desktop (1280) widths, against a workspace with long names, huge amounts,
   # a non-USD currency and many log entries. Each screen is checked for
   # horizontal page overflow, reachable modal controls, tap-target height

@@ -42,14 +42,14 @@ defmodule DebtReliefTracker.E2EEBrowser do
 
   def localhost(%{base_url: base}), do: String.replace(base, "127.0.0.1", "localhost")
 
-  @doc "Opens /app through localhost and waits for the Hologram page to mount."
+  @doc "Opens / through localhost and waits for the Hologram page to mount."
   def open_app(%{driver: d} = ctx) do
-    Driver.call(d, "visit", %{url: localhost(ctx) <> "/app"})
+    Driver.call(d, "visit", %{url: localhost(ctx) <> "/"})
     Driver.call(d, "wait_mounted", %{page: inspect(DashboardPage)})
     ctx
   end
 
-  @doc "Opens a second tab (same browser context) on /app; returns a ctx addressing it."
+  @doc "Opens a second tab (same browser context) on /; returns a ctx addressing it."
   def new_tab(%{driver: d} = ctx, name) do
     Driver.call(d, "new_tab", %{name: name})
     tab = %{ctx | driver: {base_port(d), name}}

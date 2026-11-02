@@ -1,7 +1,7 @@
 defmodule DebtReliefTrackerWeb.Holo.CutoverGapsTest do
   @moduledoc """
   Behaviors the LiveView dashboard tests (dashboard_live_oidc_test.exs) covered
-  that had no equivalent against the Hologram `/app` page. See
+  that had no equivalent against the Hologram dashboard page. See
   docs/cutover-test-coverage.md.
   """
   # Not async: OIDC / Auth0 config, Swoosh and Req.Test sharing are global.
@@ -57,20 +57,20 @@ defmodule DebtReliefTrackerWeb.Holo.CutoverGapsTest do
     )
   end
 
-  test "GET /app without a session redirects to /auth/login when OIDC is configured", %{
+  test "GET / without a session redirects to /auth/login when OIDC is configured", %{
     conn: conn
   } do
-    conn = get(conn, "/app")
+    conn = get(conn, "/")
     assert redirected_to(conn) == "/auth/login"
   end
 
-  test "GET /app mounts the signed-in user's own workspace, with no switcher", %{conn: conn} do
+  test "GET / mounts the signed-in user's own workspace, with no switcher", %{conn: conn} do
     user = oidc_user("a", "Alex")
 
     doc =
       conn
       |> Plug.Test.init_test_session(user_id: user.id)
-      |> get("/app")
+      |> get("/")
       |> html_response(200)
       |> LazyHTML.from_document()
 
@@ -93,7 +93,7 @@ defmodule DebtReliefTrackerWeb.Holo.CutoverGapsTest do
     html =
       conn
       |> Plug.Test.init_test_session(user_id: member.id, workspace_id: owner_workspace.id)
-      |> get("/app")
+      |> get("/")
       |> html_response(200)
 
     assert html =~ "£"
@@ -153,7 +153,7 @@ defmodule DebtReliefTrackerWeb.Holo.CutoverGapsTest do
     doc =
       conn
       |> Plug.Test.init_test_session(user_id: user.id)
-      |> get("/app")
+      |> get("/")
       |> html_response(200)
       |> LazyHTML.from_document()
 

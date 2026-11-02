@@ -31,13 +31,11 @@ so hold the production bar for every migration.
 
 - See `docs/plan.md`, `docs/roadmap.md`, and `docs/architecture/*.md` for the
   why behind this app's non-standard bits before changing them.
-- The dashboard is the **Hologram** page `/app` (`Holo.DashboardPage`); the
-  old `DashboardLive` LiveView was deleted in the Phase 4 cutover and `/` now
-  just redirects to `/app` (`PageController`). Because `/app` is not in the
-  Phoenix router, don't use `~p"/app"` (verified routes warn); use the plain
-  string `"/app"`.
-- The app has exactly one real page (`/app`) plus `/admin` (`AdminLive`), the
-  OIDC auth routes (`/auth/*`) and the `/` redirect. Don't assume a growing
+- The dashboard is the **Hologram** page served at `/` (`Holo.DashboardPage`,
+  `route "/"`); the old `DashboardLive` LiveView was deleted in the Phase 4
+  cutover. `/` is not in the Phoenix router (Hologram.Router handles it first),
+  so don't add a Phoenix route for it.
+- The app has exactly one real page (`/`) plus `/admin` (`AdminLive`) and the OIDC auth routes (`/auth/*`). Don't assume a growing
   set of pages/CRUD routes is coming -- new debt/payment features go into the
   dashboard as modals (Hologram components) per docs/architecture, not new
   pages.
@@ -59,9 +57,9 @@ so hold the production bar for every migration.
   request bodies, and the vault columns (`blob`, `wrapped_key`, `salt`, `credential_id`,
   `kdf_params`) stay in `:filter_parameters`. A new feature that needs to read financial
   data must do it in the browser (shared `Engine.*`), not on the server.
-- `/app` (`Holo.DashboardPage`) is a **Hologram** page, not a LiveView; the
-  `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` redirects
-  to it (cutover done); `AdminLive` stays a LiveView
+- `/` (`Holo.DashboardPage`) is a **Hologram** page, not a LiveView; the
+  `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it;
+  `AdminLive` stays a LiveView
   (it never touches financial data).
 - **Raw key material never enters Elixir.** E2EE crypto is the opaque-handle
   `DebtReliefTracker.Crypto` API (facade `assets/js/crypto_facade.mjs`); Elixir

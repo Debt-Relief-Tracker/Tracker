@@ -1,5 +1,5 @@
 defmodule DebtReliefTrackerWeb.Holo.ChromeBrowserTest do
-  # Real-browser tests of the /app chrome (header, settings modal, activity
+  # Real-browser tests of the dashboard chrome (header, settings modal, activity
   # log) in no-auth mode. OIDC-only flows live in ChromeOidcBrowserTest.
   use DebtReliefTracker.BrowserCase
 

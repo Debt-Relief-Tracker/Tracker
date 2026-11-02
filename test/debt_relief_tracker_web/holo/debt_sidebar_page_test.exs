@@ -20,8 +20,8 @@ defmodule DebtReliefTrackerWeb.Holo.DebtSidebarPageTest do
     :ok
   end
 
-  test "GET /app renders the debt rail with the seeded debt", %{conn: conn} do
-    html = conn |> get("/app") |> html_response(200)
+  test "GET / renders the debt rail with the seeded debt", %{conn: conn} do
+    html = conn |> get("/") |> html_response(200)
     doc = LazyHTML.from_document(html)
 
     assert LazyHTML.query(doc, "#add-debt-button") |> Enum.count() == 1

@@ -168,9 +168,9 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultGateTest do
       assert server.stash.holo_user_id == a.id
     end
 
-    test "GET /app without a session redirects to login", %{conn: conn} do
+    test "GET / without a session redirects to login", %{conn: conn} do
       enable_e2ee()
-      assert redirected_to(get(conn, "/app")) == "/auth/login"
+      assert redirected_to(get(conn, "/")) == "/auth/login"
     end
   end
 

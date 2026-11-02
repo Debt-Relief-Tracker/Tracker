@@ -22,15 +22,15 @@ defmodule DebtReliefTrackerWeb.Router do
   scope "/", DebtReliefTrackerWeb do
     pipe_through :browser
 
-    # The dashboard is the Hologram page at /app; "/" only redirects there.
-    get "/", PageController, :home
+    # The dashboard is the Hologram page at "/", served by Hologram.Router
+    # before this router, so it has no route here.
 
     live_session :admin, on_mount: [{DebtReliefTrackerWeb.UserAuth, :require_admin_scope}] do
       live "/admin", AdminLive
     end
 
     # Optional OIDC login (docs/architecture/0002-auth-and-sharing-model.md) --
-    # these routes exist unconditionally but no-op back to "/app" if OIDC isn't
+    # these routes exist unconditionally but no-op back to "/" if OIDC isn't
     # configured (see AuthController).
     get "/auth/login", AuthController, :login
     get "/auth/callback", AuthController, :callback

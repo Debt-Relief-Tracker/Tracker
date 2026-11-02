@@ -31,7 +31,7 @@ defmodule DebtReliefTrackerWeb.UserAuth do
           {:halt,
            socket
            |> put_flash(:error, "You don't have access to that page.")
-           |> redirect(to: "/app")}
+           |> redirect(to: "/")}
         end
 
       :redirect ->

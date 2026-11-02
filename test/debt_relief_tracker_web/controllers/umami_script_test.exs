@@ -54,13 +54,13 @@ defmodule DebtReliefTrackerWeb.UmamiScriptTest do
     refute csp =~ "stats.example.com"
   end
 
-  describe "the Hologram dashboard (/app)" do
+  describe "the Hologram dashboard (/)" do
     @url "https://stats.example.com/script.js"
 
     test "renders the script and allows its origin in the CSP when configured", %{conn: conn} do
       Application.put_env(:debt_relief_tracker, :umami, script_url: @url, website_id: "abc")
 
-      conn = get(conn, "/app")
+      conn = get(conn, "/")
       tags = conn |> script_tags()
 
       assert LazyHTML.attribute(tags, "src") == [@url]
@@ -74,7 +74,7 @@ defmodule DebtReliefTrackerWeb.UmamiScriptTest do
 
     test "renders no script when unconfigured", %{conn: conn} do
       Application.put_env(:debt_relief_tracker, :umami, nil)
-      conn = get(conn, "/app")
+      conn = get(conn, "/")
 
       assert script_tags(conn) |> Enum.count() == 0
       [csp] = Plug.Conn.get_resp_header(conn, "content-security-policy")
@@ -92,7 +92,7 @@ defmodule DebtReliefTrackerWeb.UmamiScriptTest do
           else: Application.put_env(:debt_relief_tracker, :e2ee, previous)
       end)
 
-      conn = get(conn, "/app")
+      conn = get(conn, "/")
       assert script_tags(conn) |> Enum.count() == 0
       [csp] = Plug.Conn.get_resp_header(conn, "content-security-policy")
       refute csp =~ "stats.example.com"

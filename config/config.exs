@@ -11,7 +11,7 @@ config :debt_relief_tracker,
   ecto_repos: [DebtReliefTracker.Repo.Sqlite, DebtReliefTracker.Repo.Postgres],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
-# Content-Security-Policy for the Hologram app (/app) --
+# Content-Security-Policy for the Hologram app (/) --
 # DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy, docs/architecture/0007-e2ee.md.
 # mode: :enforce | :report_only | :off. Enforced everywhere except dev (see dev.exs).
 config :debt_relief_tracker, :csp, mode: :enforce

@@ -7,13 +7,13 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageBrowserTest do
   alias DebtReliefTracker.BrowserCase.CounterPage
   alias DebtReliefTrackerWeb.Holo.DashboardPage
 
-  test "/app mounts and shows the dashboard and this-month card", ctx do
+  test "/ mounts and shows the dashboard and this-month card", ctx do
     ctx
     |> visit_page(DashboardPage)
     |> assert_selector("#holo-dashboard")
     |> assert_selector("#this-month-card")
 
-    assert current_path(ctx) == "/app"
+    assert current_path(ctx) == "/"
   end
 
   test "a seeded debt is named in the this-month card", ctx do
