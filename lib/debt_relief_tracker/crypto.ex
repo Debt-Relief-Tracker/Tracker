@@ -34,6 +34,8 @@ defmodule DebtReliefTracker.Crypto do
 
   use Hologram.JS
 
+  alias DebtReliefTracker.VaultClient.Strength
+
   js_import from: "../../assets/js/crypto_facade.mjs", as: :CryptoFacade
 
   @type result(t) :: {:ok, t} | {:error, atom()}
@@ -97,6 +99,15 @@ defmodule DebtReliefTracker.Crypto do
   Returns `{:ok, %{salt: b64u, kdf_params: json_string, wrapped_key: envelope}}`.
   """
   def wrap_passphrase(handle, passphrase, workspace_id, wrap_id) do
+    # Same floor as the facade (which re-checks); reject before any JS call.
+    if String.length(passphrase) < Strength.min_length() do
+      {:error, :passphrase_too_short}
+    else
+      do_wrap_passphrase(handle, passphrase, workspace_id, wrap_id)
+    end
+  end
+
+  defp do_wrap_passphrase(handle, passphrase, workspace_id, wrap_id) do
     case run(:vaultWrapPassphrase, [handle, passphrase, workspace_id, wrap_id]) do
       {:ok, joined} ->
         case String.split(joined, "|") do
@@ -265,6 +276,8 @@ defmodule DebtReliefTracker.Crypto do
   defp error_code("bad_input"), do: :bad_input
   defp error_code("bad_params"), do: :bad_params
   defp error_code("bad_recovery_key"), do: :bad_recovery_key
+  defp error_code("passphrase_too_short"), do: :passphrase_too_short
+  defp error_code("passkey_uv_unsupported"), do: :passkey_uv_unsupported
   defp error_code("passkey_unsupported"), do: :passkey_unsupported
   defp error_code("passkey_cancelled"), do: :passkey_cancelled
   defp error_code("passkey_failed"), do: :passkey_failed

@@ -203,6 +203,10 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
   def error_text(:unsupported),
     do: "This browser or device cannot use a passkey for encryption. Use a passphrase instead."
 
+  def error_text(:uv_required),
+    do:
+      "Passkeys here must verify you (PIN, biometric or device lock). This authenticator cannot, so use another method."
+
   def error_text(:ack), do: "Confirm that you saved the recovery key and type its last group."
   def error_text(_), do: "Something went wrong. Nothing was saved. Please try again."
 
@@ -356,6 +360,8 @@ defmodule DebtReliefTrackerWeb.Holo.Components.VaultSetup do
 
   defp error_for(:passkey_cancelled), do: :cancelled
   defp error_for(:passkey_unsupported), do: :unsupported
+  defp error_for(:passkey_uv_unsupported), do: :uv_required
+  defp error_for(:passphrase_too_short), do: :too_short
   defp error_for(_), do: :failed
 
   defp discard_handle(component) do

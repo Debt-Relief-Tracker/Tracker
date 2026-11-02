@@ -338,6 +338,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   end
 
   def action(:vault_opened, params, component), do: VaultFlow.opened(component, params)
+  def action(:vault_unlock_failed, _params, component), do: VaultFlow.unlock_failed(component)
 
   def action(:vault_create_request, params, component),
     do: VaultFlow.create_request(component, params)
