@@ -7,20 +7,22 @@ defmodule DebtReliefTrackerWeb.AuthControllerTest do
   # that doesn't require one: the routes exist and no-op safely when OIDC
   # isn't configured (the default), and logout works regardless.
 
-  test "GET /auth/login redirects back to \"/\" when OIDC isn't configured", %{conn: conn} do
+  test "GET /auth/login redirects back to \"/app\" when OIDC isn't configured", %{conn: conn} do
     conn = get(conn, ~p"/auth/login")
-    assert redirected_to(conn) == ~p"/"
+    assert redirected_to(conn) == "/app"
   end
 
-  test "GET /auth/callback with no session_params redirects to \"/\" with an error", %{conn: conn} do
+  test "GET /auth/callback with no session_params redirects to \"/app\" with an error", %{
+    conn: conn
+  } do
     conn = get(conn, ~p"/auth/callback", %{})
-    assert redirected_to(conn) == ~p"/"
+    assert redirected_to(conn) == "/app"
     assert Phoenix.Flash.get(conn.assigns.flash, :error)
   end
 
-  test "POST /auth/logout clears the session and redirects to \"/\"", %{conn: conn} do
+  test "POST /auth/logout clears the session and redirects to \"/app\"", %{conn: conn} do
     conn = conn |> Plug.Test.init_test_session(user_id: 123) |> post(~p"/auth/logout")
-    assert redirected_to(conn) == ~p"/"
+    assert redirected_to(conn) == "/app"
 
     # configure_session(drop: true) finalizes the cleared session into the
     # response cookie -- recycle to simulate the browser's next request

@@ -2,6 +2,7 @@
   "name": "debt_relief_tracker_assets",
   "private": true,
   "dependencies": {
-    "chart.js": "^4.4.0"
+    "chart.js": "^4.4.0",
+    "hash-wasm": "^4.12.0"
   }
 }

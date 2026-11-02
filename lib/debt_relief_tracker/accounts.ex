@@ -59,6 +59,9 @@ defmodule DebtReliefTracker.Accounts do
   @doc "Fetches a user by id."
   def get_user!(id), do: Repo.get!(User, id)
 
+  @doc "Like `get_user!/1`, but `nil` when there is no such user."
+  def get_user(id), do: Repo.get(User, id)
+
   @doc """
   Marks whether `user` has seen the dashboard's onboarding tutorial. Used
   both to record completion/skip and to reset it via "View tutorial again."
@@ -233,7 +236,12 @@ defmodule DebtReliefTracker.Accounts do
   # never has invitations left to fulfill.
   defp fulfill_pending_invitations(%User{email: nil}), do: :ok
 
-  defp fulfill_pending_invitations(%User{email: email} = user) do
+  # v1: sharing is off in E2EE mode, so pending invitations stay pending.
+  defp fulfill_pending_invitations(%User{} = user) do
+    if DebtReliefTracker.E2EE.enabled?(), do: :ok, else: do_fulfill_pending_invitations(user)
+  end
+
+  defp do_fulfill_pending_invitations(%User{email: email} = user) do
     from(i in WorkspaceInvitation, where: i.email == ^email)
     |> Repo.all()
     |> Enum.each(fn invitation ->
@@ -331,6 +339,15 @@ defmodule DebtReliefTracker.Accounts do
   email completes OIDC login (see `get_or_create_user_from_oidc!/1`).
   """
   def share_workspace_with_email(%Workspace{} = workspace, email, %User{} = inviter) do
+    if DebtReliefTracker.E2EE.enabled?() do
+      # v1: no sharing in E2EE mode (a member would see only ciphertext).
+      {:error, :e2ee_sharing_disabled}
+    else
+      do_share_workspace_with_email(workspace, email, inviter)
+    end
+  end
+
+  defp do_share_workspace_with_email(workspace, email, inviter) do
     case Repo.get_by(User, email: email) do
       nil ->
         %WorkspaceInvitation{}

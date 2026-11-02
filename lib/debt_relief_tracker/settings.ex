@@ -8,6 +8,7 @@ defmodule DebtReliefTracker.Settings do
   import Ecto.Query, warn: false
 
   alias DebtReliefTracker.Repo
+  alias DebtReliefTracker.E2EE.PlainGuard
   alias DebtReliefTracker.Accounts.{User, Workspace, WorkspaceMember}
   alias DebtReliefTracker.Settings.{Setting, SiteSetting, RetirementProfile}
 
@@ -29,9 +30,9 @@ defmodule DebtReliefTracker.Settings do
   end
 
   def update_settings(%Setting{} = setting, attrs) do
-    setting
-    |> Setting.changeset(attrs)
-    |> Repo.update()
+    PlainGuard.transaction(setting.workspace_id, fn ->
+      setting |> Setting.changeset(attrs) |> Repo.update()
+    end)
   end
 
   # --- retirement/income profiles (one per confirmed workspace member, or
@@ -49,26 +50,30 @@ defmodule DebtReliefTracker.Settings do
 
   @doc "Adds a retirement/income profile linked to a confirmed workspace member (owner or `WorkspaceMember`)."
   def add_member_retirement_profile(%Workspace{} = workspace, %User{} = user, attrs) do
-    %RetirementProfile{}
-    |> RetirementProfile.member_changeset(workspace, user, attrs)
-    |> Repo.insert()
+    PlainGuard.transaction(workspace.id, fn ->
+      %RetirementProfile{}
+      |> RetirementProfile.member_changeset(workspace, user, attrs)
+      |> Repo.insert()
+    end)
   end
 
   @doc "Adds a retirement/income profile for someone with no account -- a typed name, and an optional email to auto-link later."
   def add_manual_retirement_profile(%Workspace{} = workspace, attrs) do
-    %RetirementProfile{}
-    |> RetirementProfile.manual_changeset(workspace, attrs)
-    |> Repo.insert()
+    PlainGuard.transaction(workspace.id, fn ->
+      %RetirementProfile{}
+      |> RetirementProfile.manual_changeset(workspace, attrs)
+      |> Repo.insert()
+    end)
   end
 
   def update_retirement_profile(%RetirementProfile{} = profile, attrs) do
-    profile
-    |> RetirementProfile.update_changeset(attrs)
-    |> Repo.update()
+    PlainGuard.transaction(profile.workspace_id, fn ->
+      profile |> RetirementProfile.update_changeset(attrs) |> Repo.update()
+    end)
   end
 
   def delete_retirement_profile(%RetirementProfile{} = profile) do
-    Repo.delete(profile)
+    PlainGuard.transaction(profile.workspace_id, fn -> Repo.delete(profile) end)
   end
 
   @doc """

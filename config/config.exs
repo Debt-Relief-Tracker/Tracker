@@ -11,6 +11,11 @@ config :debt_relief_tracker,
   ecto_repos: [DebtReliefTracker.Repo.Sqlite, DebtReliefTracker.Repo.Postgres],
   generators: [timestamp_type: :utc_datetime, binary_id: true]
 
+# Content-Security-Policy for the Hologram app (/app) --
+# DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy, docs/architecture/0007-e2ee.md.
+# mode: :enforce | :report_only | :off. Enforced everywhere except dev (see dev.exs).
+config :debt_relief_tracker, :csp, mode: :enforce
+
 # Both repos share one priv/repo/migrations directory (see
 # docs/architecture/0001-dual-database-adapter.md) since only one adapter is
 # ever active at a time and migrations are written adapter-portably.
@@ -48,7 +53,7 @@ config :esbuild,
   version: "0.25.4",
   debt_relief_tracker: [
     args:
-      ~w(js/app.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
+      ~w(js/app.js js/holo_account.js js/theme_boot.js --bundle --target=es2022 --outdir=../priv/static/assets/js --external:/fonts/* --external:/images/* --alias:@=.),
     cd: Path.expand("../assets", __DIR__),
     env: %{"NODE_PATH" => [Path.expand("../deps", __DIR__), Mix.Project.build_path()]}
   ]
@@ -71,6 +76,13 @@ config :logger, :default_formatter,
 
 # Use Jason for JSON parsing in Phoenix
 config :phoenix, :json_library, Jason
+
+# E2EE vault payloads must never reach the logs (docs/architecture/0007-e2ee.md).
+# Phoenix filters these keys at any depth of the logged params; this replaces
+# the default (["password"]), so keep that here too.
+config :phoenix,
+       :filter_parameters,
+       ["password", "blob", "wrapped_key", "salt", "credential_id", "kdf_params"]
 
 # Import environment specific config. This must remain at the bottom
 # of this file so it overrides the configuration defined above.

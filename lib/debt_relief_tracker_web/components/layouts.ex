@@ -59,7 +59,7 @@ defmodule DebtReliefTrackerWeb.Layouts do
     <% else %>
       <header class="navbar px-4 sm:px-6 lg:px-8 border-b border-base-300">
         <div class="flex-1">
-          <.link navigate={~p"/"} class="font-semibold">Debt Relief Tracker</.link>
+          <.link href="/app" class="font-semibold">Debt Relief Tracker</.link>
         </div>
         <div class="flex-none">
           <.theme_toggle />
@@ -282,5 +282,12 @@ defmodule DebtReliefTrackerWeb.Layouts do
   The Umami script's `src` and `data-website-id` for root.html.heex, or `nil`
   when `PUBLIC_UMAMI_URL`/`PUBLIC_UMAMI_ID` aren't both set (see runtime.exs).
   """
-  def umami_config, do: Application.get_env(:debt_relief_tracker, :umami)
+  def umami_config do
+    # E2EE mode loads NO third-party scripts: every page shares the origin (and
+    # IndexedDB, incl. the remembered-device vault key) with the vault UI
+    # (docs/architecture/0007-e2ee.md).
+    if DebtReliefTracker.E2EE.enabled?(),
+      do: nil,
+      else: Application.get_env(:debt_relief_tracker, :umami)
+  end
 end

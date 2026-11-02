@@ -362,14 +362,112 @@ strategy affects long-run retirement savings, not just debt payoff itself.
       open/validate/save `handle_event` + changeset-backed `<.form>` pattern
       used by add/edit-debt.
 
+## Phase 10 — End-to-end encrypted mode (see ADR 0007)
+
+Branch `e2ee-spike`. Plan: `docs/architecture/0007-e2ee.md`.
+
+- [x] 0. Feasibility spike: GO (ADR 0007). Hologram 0.12.4 compiles; Decimal/Date
+      not portable (integer engine instead); CSP nonce plug built (Hologram
+      needs `'unsafe-eval'`, documented). Engine parity proven in the browser.
+      Open: real-device passkey PRF, Safari/Firefox, production bundle size.
+- [x] 1. ADR + JSON fixtures from the Decimal engine.
+- [x] 2. Client-safe integer engine (`Engine.*`) with parity tests. The
+      Decimal engine is untouched and remains the app's live engine until
+      Phase 4. Retirement projection and `Charts` are now ported too (see 4).
+- [x] 3. `Storage` behaviour + `Storage.Plain` (snapshot in cents/bp + change
+      vocabulary; plaintext adapter runs changes through the existing contexts).
+- [x] 4. Port UI to Hologram (plaintext mode): `/app` has debts, payments,
+      plan/charts (Chart.js), retirement, settings/sharing/theme/logout,
+      activity log, tutorial and footer, covered by ~50 real-browser
+      tests (`mix test --include browser`). Cut over: `/` redirects to `/app`
+      and `DashboardLive` is gone. `AdminLive` deliberately stays a LiveView.
+  - [x] Plan panel + charts: `Engine.Charts` (integer port of `Charts`,
+        parity-tested against it), Chart.js behind
+        `assets/js/chart_facade.mjs` / `Holo.ChartJS` / `Holo.Components.Chart`
+        (bundled by Hologram from `assets/node_modules`, so the Dockerfile
+        now runs `npm install` before `mix compile`). The retirement roadmap
+        chart runs on `Engine.Retirement` via
+        `Engine.Charts.retirement_projections/3`.
+- [x] 5. Crypto facade (`assets/js/crypto_facade.mjs` + `DebtReliefTracker.Crypto`):
+      WebCrypto AES-256-GCM/HKDF + hash-wasm Argon2id; published KATs; 56-char
+      recovery key with checksum; floor on new-wrap Argon2 params. CSP needs
+      `'wasm-unsafe-eval'` (no `unsafe-eval`). Real-device passkey PRF,
+      Safari/Firefox and phone Argon2 speed are still unverified.
+- [x] 6. Server vault: `E2EE` flag, `e2ee_vaults`/`e2ee_key_wraps` tables
+      (migration `20261031120000`), blind CAS store `E2EE.Vaults`,
+      `Holo.Components.VaultGate` commands (rate limited, log-redacted),
+      `Storage.Vault`, locked-shell `/app`, `/` -> `/app` redirect, CSV export
+      410, boot checks. Setup/unlock UI is Phase 7.
+- [x] 7. Client vault flows (setup wizard, unlock, lock/idle/cross-tab,
+      methods modal, change passphrase, start over, remember device, rollback
+      detection) on opaque crypto handles. ADR 0007 "Client vault flows".
+      Open: real authenticators / Safari / Firefox.
+- [x] 8. Sync (CAS merge with retry/backoff, debounced save, visibility refetch,
+      unload warning, catch-up of auto-logged installments on open).
+- [x] 8b. Data path: the full dashboard in E2EE mode. `Holo.DataPath` routes
+      every component save through the page's ledger path
+      (`:vault_apply_request`) with the same replies/errors as plaintext mode;
+      client-side CSV export (`Holo.CsvExport`); `DualModeFlowsBrowserTest`
+      runs the debt/plan/retirement/settings flows in both modes and scans the
+      server DB for plaintext. Sharing and the workspace switcher are hidden in
+      E2EE v1. ADR 0007 "Data path".
+- [x] 9. Plaintext -> vault migration with verification and confirmed delete.
+      Decided: owner of a shared workspace migrates and other members lose
+      access (explicit confirmation listing them); unmigrated users keep
+      plaintext until next login (forced wizard, admin count of unmigrated);
+      delete requires the export digest; two-step deploy; Postgres-verified.
+      See ADR 0007 'Production rollout'.
+  - [x] Server half (ADR 0007 "Migration server contract"):
+        `E2EE.Migration` (`status`/`export`/`dry_run`/`finalize`, canonical
+        SHA-256 digest, one-transaction owner-only delete with Postgres row
+        locks / SQLite write lock), `Holo.Components.MigrationGate` commands
+        (strict rate limit; NOT yet mounted in `DashboardPage`),
+        `DuePayments.Scheduler` skips any workspace with a vault, admin
+        encryption counts/column. Tested on SQLite and Postgres incl. racing
+        finalizes and rollback.
+  - [x] Browser half: `MigrationFlow` (pure state machine; finalize reachable
+        only after a strict verified match, bound to the verified vault
+        rev + blob hash), `MigrationScreen`, rebuild-on-change and resume
+        after reload, member-loss confirmation. Browser tests: happy path and
+        recovery paths (changed mid-migration, resume, corrupted download
+        deletes nothing, busy retry).
+- [x] 10. Security review: two read-only reviews (client/crypto: 0 Critical/High;
+      server/auth/migration: 3 High fixed) and fixes -- command gating on
+      `E2EE.enabled?`, owner-only vault writes, CSP on `/`, `/admin`, `/auth/*`,
+      clock-skew clamp, save-loop wedge, device-lock persistence, KDF bounds,
+      CSV formula guard, opt-in `FORCE_SSL`. Findings and open Lows in ADR 0007.
+
+### Remaining before a production deploy (owner)
+
+- [ ] Review the draft Terms / in-app wording (`docs/e2ee-user-facing-copy.md`).
+- [ ] Real-device passkey (PRF) and Safari/Firefox/mobile check of the wizard.
+- [ ] Run `mix drt.audit_snapshot` against a COPY of production data.
+- [ ] Docker/Render build of the image (never built here) and the
+      `docs/deploy-e2ee.md` two-step deploy with a Render backup first.
+- [ ] Decide: `activity_logs.inserted_at` precision migration (Postgres).
+- [x] Phase 10 open Lows closed: passkey user verification required;
+      passphrase minimum and unlock throttle enforced in the facade /
+      `VaultFlow`; plaintext writes refused once a vault exists
+      (`E2EE.PlainGuard`); source maps stripped from the production build.
+      Accepted limit (ADR 0007): no vault-key rotation on wrap removal.
+- [ ] Production-mode boot check of `/app` (a real error response with the
+      overlay/stack traces off) -- compile-level check only so far.
+- [x] Phase 4 cutover: `/app` is THE dashboard. `/` redirects to it
+      (`PageController`), `DashboardLive`, its tests, the `PlanChart` /
+      `TutorialOverlay` LiveView hooks and the LiveView-vs-Hologram parity
+      browser test are deleted (coverage mapping: `docs/cutover-test-coverage.md`);
+      links/redirects in auth, `UserAuth`, admin, layouts now point at `/app`.
+      The stale `CLAUDE.md` dev-DB line is fixed.
+
 ## Verification
 
 - [x] `mix precommit` passing (130 tests; compile --warning-as-errors,
       deps.unlock --unused, format, test)
 - [x] Manual pass against SQLite (`mix phx.server` + a real prod release run)
-- [ ] Manual pass against Postgres (`DATABASE_URL` set) -- adapter switch
-      itself verified (Phase 2), but no local Postgres instance was
-      available in this environment to run the app against one live
+- [x] Postgres pass: full suite (incl. browser), migrations and boot path
+      verified against a throwaway local cluster -- `scripts/pg_test.sh`,
+      ADR 0001 "Testing on Postgres". Open: `activity_logs.inserted_at` is
+      `timestamp(0)` on Postgres (needs a migration).
 - [ ] Docker build/run verified on a machine with Docker -- the
       release/migration path it depends on is verified (Phase 6), Docker
       itself is not

@@ -10,7 +10,7 @@ defmodule DebtReliefTracker.MixProject do
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps(),
-      compilers: [:phoenix_live_view] ++ Mix.compilers(),
+      compilers: [:phoenix_live_view] ++ Mix.compilers() ++ [:hologram],
       listeners: [Phoenix.CodeReloader]
     ]
   end
@@ -77,7 +77,8 @@ defmodule DebtReliefTracker.MixProject do
       # Optional OIDC login (docs/architecture/0002-auth-and-sharing-model.md).
       # Uses Erlang's built-in :httpc as its HTTP adapter (Assent's default),
       # so no extra HTTP client dependency is needed.
-      {:assent, "~> 0.3"}
+      {:assent, "~> 0.3"},
+      {:hologram, "== 0.12.4"}
     ]
   end
 
@@ -87,6 +88,14 @@ defmodule DebtReliefTracker.MixProject do
   #     $ mix setup
   #
   # See the documentation for `Mix` for more info on aliases.
+  # `mix test` targets Sqlite unless DATABASE_URL is set (scripts/pg_test.sh),
+  # in which case config/runtime.exs activates Repo.Postgres.
+  defp test_repo do
+    if System.get_env("DATABASE_URL"),
+      do: "DebtReliefTracker.Repo.Postgres",
+      else: "DebtReliefTracker.Repo.Sqlite"
+  end
+
   defp aliases do
     [
       setup: [
@@ -106,8 +115,12 @@ defmodule DebtReliefTracker.MixProject do
       ],
       "ecto.reset": ["ecto.drop -r DebtReliefTracker.Repo.Sqlite", "ecto.setup"],
       test: [
-        "ecto.create --quiet -r DebtReliefTracker.Repo.Sqlite",
-        "ecto.migrate --quiet -r DebtReliefTracker.Repo.Sqlite",
+        # Hologram stays off in :test unless asked (it slows compiles); the
+        # /app page tests need it, and it is read at compile time, so this
+        # must run before anything compiles.
+        fn _ -> System.put_env("HOLOGRAM_START", "1") end,
+        "ecto.create --quiet -r #{test_repo()}",
+        "ecto.migrate --quiet -r #{test_repo()}",
         "test"
       ],
       "assets.setup": ["tailwind.install --if-missing", "esbuild.install --if-missing"],
@@ -115,6 +128,9 @@ defmodule DebtReliefTracker.MixProject do
       "assets.deploy": [
         "tailwind debt_relief_tracker --minify",
         "esbuild debt_relief_tracker --minify",
+        # Never serve source maps in production (Hologram's bundles are
+        # emitted by `mix compile`, before this runs). Must precede digest.
+        "drt.strip_source_maps",
         "phx.digest"
       ],
       precommit: ["compile --warning-as-errors", "deps.unlock --unused", "format", "test"]

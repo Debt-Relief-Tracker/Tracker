@@ -24,7 +24,7 @@ defmodule DebtReliefTrackerWeb.Endpoint do
     at: "/",
     from: :debt_relief_tracker,
     gzip: not code_reloading?,
-    only: DebtReliefTrackerWeb.static_paths()
+    only: ["hologram" | DebtReliefTrackerWeb.static_paths()]
 
   # Code reloading can be explicitly enabled under the
   # :code_reloader configuration of your endpoint.
@@ -45,10 +45,16 @@ defmodule DebtReliefTrackerWeb.Endpoint do
   plug Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    # Vault blob cap is 5 MiB + JSON/base64 overhead; reject bigger bodies
+    # (413) before they are buffered (default 8 MB, pre-auth).
+    length: 6_500_000,
     json_decoder: Phoenix.json_library()
 
   plug Plug.MethodOverride
   plug Plug.Head
+  plug DebtReliefTrackerWeb.Plugs.TransportSecurity
   plug Plug.Session, @session_options
+  plug DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy
+  plug Hologram.Router
   plug DebtReliefTrackerWeb.Router
 end

@@ -28,6 +28,7 @@ defmodule DebtReliefTracker.DuePayments.SchedulerTest do
 
     Phoenix.PubSub.subscribe(DebtReliefTracker.PubSub, "workspace:#{workspace.id}")
 
+    backdate_activity(workspace)
     assert Scheduler.run_due_checks() == :ok
 
     reloaded = Debts.get_debt!(workspace, debt.id)
@@ -70,5 +71,54 @@ defmodule DebtReliefTracker.DuePayments.SchedulerTest do
            )
 
     assert Decimal.equal?(Debts.get_debt!(workspace, off_debt.id).balance, Decimal.new("500.00"))
+  end
+
+  describe "encrypted / migrating workspaces" do
+    defp due_debt!(workspace, name) do
+      {:ok, debt} =
+        Debts.create_debt(workspace, nil, %{
+          "name" => name,
+          "type" => "installment",
+          "balance" => "1000.00",
+          "apr" => "5.00",
+          "fixed_payment" => "100.00",
+          "auto_log_mode" => "automatic",
+          "due_day" => to_string(Date.utc_today().day)
+        })
+
+      debt
+    end
+
+    test "skips a workspace that has a vault (also mid-migration) and keeps posting for others",
+         %{workspace: plain_ws} do
+      import DebtReliefTracker.MigrationHelpers
+
+      plain_debt = due_debt!(plain_ws, "Plain")
+
+      {u1, vault_ws} = owner_ws("enc")
+      vault_debt = due_debt!(vault_ws, "Mid migration")
+      create_vault!(vault_ws)
+
+      assert Scheduler.run_due_checks() == :ok
+
+      assert Decimal.equal?(
+               Debts.get_debt!(plain_ws, plain_debt.id).balance,
+               Decimal.new("900.00")
+             )
+
+      # untouched: no payment, no handled cycle, no activity beyond creation
+      untouched = Debts.get_debt!(vault_ws, vault_debt.id)
+      assert Decimal.equal?(untouched.balance, Decimal.new("1000.00"))
+      assert untouched.last_due_handled_on == nil
+      assert DebtReliefTracker.Payments.list_payments_for_workspace(vault_ws) == []
+      assert u1
+    end
+
+    test "resumes posting only if the workspace has no vault (sanity check on the guard)",
+         %{workspace: workspace} do
+      debt = due_debt!(workspace, "Later")
+      assert Scheduler.run_due_checks() == :ok
+      assert Decimal.equal?(Debts.get_debt!(workspace, debt.id).balance, Decimal.new("900.00"))
+    end
   end
 end

@@ -36,15 +36,35 @@ defmodule DebtReliefTracker.DataCase do
   Sets up the sandbox based on the test tags.
   """
   def setup_sandbox(tags) do
-    # Tests run against the concrete Sqlite repo directly: the
+    # Tests run against the concrete active repo (Sqlite by default, Postgres
+    # when DATABASE_URL is set, see scripts/pg_test.sh) directly: the
     # DebtReliefTracker.Repo facade (docs/architecture/0001-dual-database-adapter.md)
     # is not itself an Ecto.Repo, so Sandbox needs the real module.
     pid =
-      Ecto.Adapters.SQL.Sandbox.start_owner!(DebtReliefTracker.Repo.Sqlite,
-        shared: not tags[:async]
+      Ecto.Adapters.SQL.Sandbox.start_owner!(DebtReliefTracker.Repo.configured_repo(),
+        shared: not tags[:async],
+        ownership_timeout: Map.get(tags, :ownership_timeout, 120_000)
       )
 
     on_exit(fn -> Ecto.Adapters.SQL.Sandbox.stop_owner(pid) end)
+  end
+
+  @doc """
+  Shifts every existing activity-log entry of `workspace` `seconds` into the
+  past. `activity_logs.inserted_at` is `timestamp(0)` on Postgres (the
+  migration's plain `timestamps()`), so entries created within the same second
+  tie there; tests asserting "most recent first" call this between actions to
+  make the order deterministic on both adapters.
+  """
+  def backdate_activity(workspace, seconds \\ 60) do
+    import Ecto.Query
+
+    DebtReliefTracker.Repo.update_all(
+      from(e in DebtReliefTracker.ActivityLog.Entry, where: e.workspace_id == ^workspace.id),
+      set: [inserted_at: DateTime.add(DateTime.utc_now(), -seconds, :second)]
+    )
+
+    :ok
   end
 
   @doc """

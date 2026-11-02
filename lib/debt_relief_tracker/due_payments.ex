@@ -6,7 +6,8 @@ defmodule DebtReliefTracker.DuePayments do
   `Payments.log_payment/5` -- no separate posting logic exists here.
   """
 
-  alias DebtReliefTracker.{ActivityLog, Debts, Payments, Repo}
+  alias DebtReliefTracker.{ActivityLog, Debts, Payments}
+  alias DebtReliefTracker.E2EE.PlainGuard
   alias DebtReliefTracker.Accounts.Workspace
   alias DebtReliefTracker.Debts.{Debt, DueSchedule}
 
@@ -34,7 +35,7 @@ defmodule DebtReliefTracker.DuePayments do
       cycle_due_date = DueSchedule.current_cycle_due_date(debt, today)
       action = if is_nil(user), do: :payment_auto_logged, else: :payment_logged
 
-      Repo.transaction(fn ->
+      PlainGuard.transaction(workspace.id, fn ->
         with {:ok, %{debt: updated_debt} = result} <-
                Payments.log_payment(
                  workspace,
@@ -44,9 +45,7 @@ defmodule DebtReliefTracker.DuePayments do
                  action: action
                ),
              {:ok, final_debt} <- Debts.mark_due_handled(updated_debt, cycle_due_date) do
-          %{result | debt: final_debt}
-        else
-          {:error, reason} -> Repo.rollback(reason)
+          {:ok, %{result | debt: final_debt}}
         end
       end)
     else
@@ -62,15 +61,13 @@ defmodule DebtReliefTracker.DuePayments do
     if DueSchedule.due?(debt, today) do
       cycle_due_date = DueSchedule.current_cycle_due_date(debt, today)
 
-      Repo.transaction(fn ->
+      PlainGuard.transaction(workspace.id, fn ->
         with {:ok, updated} <- Debts.mark_due_handled(debt, cycle_due_date),
              {:ok, _entry} <-
                ActivityLog.record(workspace, user, :due_payment_skipped, updated, %{
                  "cycle_due_date" => Date.to_string(cycle_due_date)
                }) do
-          updated
-        else
-          {:error, reason} -> Repo.rollback(reason)
+          {:ok, updated}
         end
       end)
     else

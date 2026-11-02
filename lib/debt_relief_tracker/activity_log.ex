@@ -12,6 +12,7 @@ defmodule DebtReliefTracker.ActivityLog do
   alias DebtReliefTracker.Accounts.{User, Workspace}
   alias DebtReliefTracker.Debts.Debt
   alias DebtReliefTracker.ActivityLog.Entry
+  alias DebtReliefTracker.E2EE.PlainGuard
 
   @doc """
   Records an activity log entry. `user` and `debt` are optional (nil is
@@ -36,7 +37,9 @@ defmodule DebtReliefTracker.ActivityLog do
       action: action,
       metadata: metadata
     })
-    |> Repo.insert()
+    |> then(fn changeset ->
+      PlainGuard.transaction(workspace.id, fn -> Repo.insert(changeset) end)
+    end)
   end
 
   defp user_id(%User{id: id}), do: id

@@ -35,6 +35,8 @@ defmodule DebtReliefTracker.DuePaymentsTest do
   describe "post_due_payment/4" do
     test "logs a payment with logged_by_user_id: nil and tags it :payment_auto_logged when user is nil",
          %{workspace: workspace, debt: debt} do
+      backdate_activity(workspace)
+
       assert {:ok, %{payment: payment, debt: updated}} =
                DuePayments.post_due_payment(workspace, nil, debt, ~D[2026-07-20])
 
@@ -53,6 +55,7 @@ defmodule DebtReliefTracker.DuePaymentsTest do
     } do
       user = Accounts.get_or_create_user_from_oidc!(%{"sub" => "a", "email" => "a@example.com"})
 
+      backdate_activity(workspace)
       assert {:ok, _} = DuePayments.post_due_payment(workspace, user, debt, ~D[2026-07-20])
 
       [entry | _] = ActivityLog.list_recent(workspace)
@@ -72,6 +75,7 @@ defmodule DebtReliefTracker.DuePaymentsTest do
 
   describe "skip_due_payment/4" do
     test "marks the cycle handled without logging a payment", %{workspace: workspace, debt: debt} do
+      backdate_activity(workspace)
       assert {:ok, updated} = DuePayments.skip_due_payment(workspace, nil, debt, ~D[2026-07-20])
 
       assert updated.last_due_handled_on == ~D[2026-07-15]

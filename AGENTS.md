@@ -2,9 +2,11 @@ This is a web application written using the Phoenix web framework.
 
 ## THIS APP IS LIVE -- MIGRATIONS MUST BE PERFECT
 
-This is not a toy project. It is deployed and in active use, and its database
-holds the user's own real personal financial data (loans, payments,
-retirement info) -- not seed/fixture data. There is no staging environment.
+This is not a toy project. It is deployed and in active use, and the deployed
+Render app holds real users' personal financial data (loans, payments,
+retirement info). The local dev database on this machine is dev/play data
+only; real data exists only in production. There is no staging environment,
+so hold the production bar for every migration.
 
 - **Never** write a migration you have not fully verified. Read it back after
   writing it and confirm: the direction is correct, it is reversible (or
@@ -15,7 +17,7 @@ retirement info) -- not seed/fixture data. There is no staging environment.
   (`mix ecto.reset`, `mix ecto.drop`, manual `DROP`/`TRUNCATE`, editing rows
   by hand) without explicit, in-the-moment user confirmation.
 - **Never** start or stop the dev server (`mix phx.server`) -- the user runs
-  it themselves and uses it concurrently with real data while you work.
+  it themselves and uses it concurrently (with play data) while you work.
 - Running a newly written migration (`mix ecto.migrate`) against the dev
   database to verify it is fine to do on your own, without pausing to ask
   first -- go ahead once you've done the verification above, then report
@@ -29,26 +31,56 @@ retirement info) -- not seed/fixture data. There is no staging environment.
 
 - See `docs/plan.md`, `docs/roadmap.md`, and `docs/architecture/*.md` for the
   why behind this app's non-standard bits before changing them.
-- `DashboardLive` intentionally does **not** wrap its content in
-  `<Layouts.app>` (see the "Always begin your LiveView templates with
-  `<Layouts.app>`" guideline below) -- it's a full-width dashboard layout
-  (left rail + main panel), not a centered marketing-style page, and
-  `Layouts.app`'s nav/`max-w-2xl` container don't fit that. It does reuse
-  `Layouts.theme_toggle` and `Layouts.flash_group` directly. This is a
-  deliberate exception, not an oversight.
-- The app has exactly one real route (`/`, `DashboardLive`) plus the OIDC
-  auth routes (`/auth/*`). Don't assume a growing set of pages/CRUD routes is
-  coming -- new debt/payment features go into `DashboardLive` as modals per
-  docs/architecture, not new LiveViews.
+- The dashboard is the **Hologram** page `/app` (`Holo.DashboardPage`); the
+  old `DashboardLive` LiveView was deleted in the Phase 4 cutover and `/` now
+  just redirects to `/app` (`PageController`). Because `/app` is not in the
+  Phoenix router, don't use `~p"/app"` (verified routes warn); use the plain
+  string `"/app"`.
+- The app has exactly one real page (`/app`) plus `/admin` (`AdminLive`), the
+  OIDC auth routes (`/auth/*`) and the `/` redirect. Don't assume a growing
+  set of pages/CRUD routes is coming -- new debt/payment features go into the
+  dashboard as modals (Hologram components) per docs/architecture, not new
+  pages.
 - **All UI must be mobile-responsive**, including admin/internal-only pages
   like `AdminLive` -- don't scope responsive work to just the main dashboard.
-  Follow the pattern already established in `DashboardLive`/`Layouts`/
+  Follow the pattern already established in the Hologram dashboard/`Layouts`/
   `CoreComponents`: unprefixed Tailwind classes are the mobile-default value,
   and the *current* desktop look gets moved behind an `sm:` prefix, so
   desktop is provably unchanged. Watch for `.join` button rows and `<.table>`
   usages specifically -- they don't reflow or wrap on their own and need
   either a mobile-only `<select>`/stacked alternative or an `overflow-x-auto`
   wrapper.
+
+## E2EE and the Hologram UI (docs/architecture/0007-e2ee.md, docs/holo-ui-conventions.md)
+
+- **Never log, parse, index, or decrypt vault data server-side.** With
+  `E2EE=true` the server stores ciphertext blobs and key wraps only; it must
+  never see a key, passphrase, or plaintext. No `inspect`/`Logger` of vault
+  request bodies, and the vault columns (`blob`, `wrapped_key`, `salt`, `credential_id`,
+  `kdf_params`) stay in `:filter_parameters`. A new feature that needs to read financial
+  data must do it in the browser (shared `Engine.*`), not on the server.
+- `/app` (`Holo.DashboardPage`) is a **Hologram** page, not a LiveView; the
+  `<Layouts.app>` / HEEx / `phx-*` rules above don't apply to it. `/` redirects
+  to it (cutover done); `AdminLive` stays a LiveView
+  (it never touches financial data).
+- **Raw key material never enters Elixir.** E2EE crypto is the opaque-handle
+  `DebtReliefTracker.Crypto` API (facade `assets/js/crypto_facade.mjs`); Elixir
+  holds handle ids and ciphertext only. The E2EE client state machine is
+  `Holo.VaultFlow`; see ADR 0007 "Client vault flows". An `await` inside an
+  anonymous function is not awaited by Hologram's interpreter -- call the
+  facade from direct recursion / `with`.
+- Code reachable from a Hologram page is compiled to JavaScript: **no
+  `Decimal`, `Date`/`DateTime`, floats, `Regex`, or Ecto** there -- use the
+  integer-cents `DebtReliefTracker.Engine.*` modules and `Holo.Format`.
+- A Hologram handler can queue **one** follow-up action (a second `put_action`
+  overwrites the first); fold what you need into one action's params.
+- Hologram keeps incremental build state that can go stale (symptom: browser
+  `UndefinedFunctionError` for a function that exists): run `mix holo.clean`.
+- Real-browser tests are tagged `:browser` (`mix test --include browser`);
+  run one browser suite at a time (shared SQLite test DB).
+- `Ecto.Migrator` runs at app boot (`application.ex`), so a new migration runs
+  on the next server start or deploy -- the "migrations must be perfect" rules
+  above apply to every migration, including additive ones.
 
 ## Claude guidelines
 

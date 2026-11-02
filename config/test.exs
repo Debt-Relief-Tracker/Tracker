@@ -8,6 +8,8 @@ import Config
 config :debt_relief_tracker, DebtReliefTracker.Repo.Sqlite,
   database: Path.expand("../data/debt_relief_tracker_test.db", __DIR__),
   pool_size: 5,
+  # Browser tests hit the file from the test process and the served app at once.
+  busy_timeout: 15_000,
   pool: Ecto.Adapters.SQL.Sandbox
 
 # Test-only encryption key -- fixed and checked in on purpose, same as
@@ -35,6 +37,9 @@ config :debt_relief_tracker, :auth0_req_options,
 config :debt_relief_tracker, DebtReliefTrackerWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
   secret_key_base: "HGSZ25JeWJcHnUHU4mFtI2xnbyu9SHc1xq35zkF38ASVoT3SduyG8LKlVGGtghcu",
+  # Browser tests (test/support/browser_case.ex) serve the endpoint on a random
+  # loopback port, so the LiveView websocket's origin never matches `url`.
+  check_origin: false,
   server: false
 
 # In test we don't send emails

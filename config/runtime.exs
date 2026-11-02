@@ -31,8 +31,18 @@ if database_url do
 
   config :debt_relief_tracker, DebtReliefTracker.Repo.Postgres,
     url: database_url,
-    ssl: System.get_env("DATABASE_USE_SSL") || true,
+    # SSL on unless DATABASE_USE_SSL is explicitly "false"/"0" (local throwaway
+    # clusters, scripts/pg_test.sh). Render's managed Postgres needs it on.
+    ssl: System.get_env("DATABASE_USE_SSL") not in ["false", "0"],
     pool_size: String.to_integer(System.get_env("POOL_SIZE") || "10")
+
+  # `DATABASE_URL=... mix test` runs the suite against Postgres (see
+  # scripts/pg_test.sh). The Sandbox pool is test-only.
+  if config_env() == :test do
+    config :debt_relief_tracker, DebtReliefTracker.Repo.Postgres,
+      pool: Ecto.Adapters.SQL.Sandbox,
+      pool_size: 10
+  end
 else
   config :debt_relief_tracker, :ecto_adapter, :sqlite
 
@@ -83,6 +93,13 @@ else
   config :debt_relief_tracker, :auth0_management, nil
 end
 
+# End-to-end encrypted mode (docs/architecture/0007-e2ee.md). Read once here;
+# DebtReliefTracker.E2EE.enabled?/0 is the single gate. "true"/"1"/"yes" in any
+# case turns it on, anything else (or unset) leaves it off. IRREVERSIBLE in v1.
+# (Same rule as DebtReliefTracker.E2EE.parse_flag/1; config cannot call app code.)
+e2ee_flag = (System.get_env("E2EE") || "") |> String.trim() |> String.downcase()
+config :debt_relief_tracker, :e2ee, e2ee_flag in ~w(true 1 yes)
+
 # Optional Umami analytics (root.html.heex). Both vars must be set together;
 # they're read at runtime so the host and website ID stay out of the repo.
 # PUBLIC_UMAMI_URL is the Umami base URL -- /script.js is appended.
@@ -97,7 +114,16 @@ else
   config :debt_relief_tracker, :umami, nil
 end
 
+# Opt-in TLS hardening (HTTP->HTTPS redirect honouring x-forwarded-proto, HSTS,
+# Secure cookies). Default off so plain-HTTP self-hosting keeps working.
+config :debt_relief_tracker,
+       :force_ssl,
+       String.downcase(System.get_env("FORCE_SSL") || "") in ["true", "1", "yes"]
+
 if config_env() == :prod do
+  # Lets E2EE.check_boot treat an unset PHX_HOST as public (not local).
+  config :debt_relief_tracker, :prod_release, true
+
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
   # want to use a different value for prod and you most likely don't want
