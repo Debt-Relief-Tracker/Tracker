@@ -8,7 +8,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
   @external ~s|<script async src="/hologram/runtime.js"></script>|
   @page "<!DOCTYPE html><html><head>#{@inline_a}#{@external}\n#{@inline_b}<script src=\"/assets/js/holo_account.js\"></script></head><body><p>hi</p></body></html>"
 
-  # A stand-in for Hologram: serves a fixed page (iodata body) at /app or
+  # A stand-in for Hologram: serves a fixed page (iodata body) at / or
   # /hologram/command, so the plug is exercised in isolation.
   defp run(path, body, content_type \\ "text/html", method \\ :get) do
     method
@@ -25,7 +25,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
   end
 
   test "header content: strict policy, no unsafe-inline for scripts" do
-    conn = run("/app", @page)
+    conn = run("/", @page)
     [csp] = get_resp_header(conn, "content-security-policy")
     directives = String.split(csp, "; ")
 
@@ -47,13 +47,13 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
   end
 
   test "nonce is fresh per request (200 requests, all distinct, >= 128 bits)" do
-    nonces = for _ <- 1..200, do: nonce_of(run("/app", @page))
+    nonces = for _ <- 1..200, do: nonce_of(run("/", @page))
     assert length(Enum.uniq(nonces)) == 200
     assert Enum.all?(nonces, &(byte_size(Base.url_decode64!(&1, padding: false)) >= 16))
   end
 
   test "every recognised inline script gets the nonce, external ones and the rest are untouched" do
-    conn = run("/app", [@page])
+    conn = run("/", [@page])
     nonce = nonce_of(conn)
     body = conn.resp_body
 
@@ -73,19 +73,19 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
 
   test "iodata bodies are handled" do
     conn =
-      run("/app", [["<!DOCTYPE html>", "<script>\n globalThis.Hologram ??= {};"], "</script>"])
+      run("/", [["<!DOCTYPE html>", "<script>\n globalThis.Hologram ??= {};"], "</script>"])
 
     assert conn.resp_body =~ ~s|<script nonce="#{nonce_of(conn)}">|
   end
 
   test "unknown inline scripts are never given the nonce" do
-    conn = run("/app", "<html><script>alert(1)</script>#{@inline_a}</html>")
+    conn = run("/", "<html><script>alert(1)</script>#{@inline_a}</html>")
     assert conn.resp_body =~ "<script>alert(1)</script>"
     assert length(Regex.scan(~r/nonce=/, conn.resp_body)) == 1
   end
 
   test "an attacker-supplied nonce attribute is not trusted or duplicated" do
-    conn = run("/app", ~s|<script nonce="evil">globalThis.Hologram ??= {};</script>|)
+    conn = run("/", ~s|<script nonce="evil">globalThis.Hologram ??= {};</script>|)
     refute conn.resp_body =~ nonce_of(conn)
   end
 
@@ -97,7 +97,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
   end
 
   test "HEAD requests work" do
-    conn = run("/app", @page, "text/html", :head)
+    conn = run("/", @page, "text/html", :head)
     assert conn.status == 200
     assert get_resp_header(conn, "content-security-policy") != []
   end
@@ -206,7 +206,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
     end
 
     test "is 'self' only without OIDC" do
-      [csp] = get_resp_header(run("/app", @page), "content-security-policy")
+      [csp] = get_resp_header(run("/", @page), "content-security-policy")
       assert csp =~ "form-action 'self'"
       refute csp =~ "form-action 'self' "
     end
@@ -218,7 +218,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
         client_secret: "s"
       )
 
-      [csp] = get_resp_header(run("/app", @page), "content-security-policy")
+      [csp] = get_resp_header(run("/", @page), "content-security-policy")
       assert csp =~ "form-action 'self' https://tenant.eu.auth0.com"
       refute csp =~ "auth0.com/"
     end
@@ -237,7 +237,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
 
     test "report_only uses the report-only header" do
       Application.put_env(:debt_relief_tracker, :csp, mode: :report_only)
-      conn = run("/app", @page)
+      conn = run("/", @page)
       assert get_resp_header(conn, "content-security-policy") == []
       assert [_] = get_resp_header(conn, "content-security-policy-report-only")
       assert conn.resp_body =~ "nonce="
@@ -245,15 +245,15 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
 
     test "off does nothing" do
       Application.put_env(:debt_relief_tracker, :csp, mode: :off)
-      conn = run("/app", @page)
+      conn = run("/", @page)
       assert get_resp_header(conn, "content-security-policy") == []
       assert conn.resp_body == @page
     end
   end
 
   describe "through the real endpoint (Hologram's actual first-load page)" do
-    test "/app carries a nonce on exactly the two inline scripts, after placeholders were replaced" do
-      conn = Phoenix.ConnTest.get(Phoenix.ConnTest.build_conn(), "/app")
+    test "/ carries a nonce on exactly the two inline scripts, after placeholders were replaced" do
+      conn = Phoenix.ConnTest.get(Phoenix.ConnTest.build_conn(), "/")
       assert conn.status == 200
       nonce = nonce_of(conn)
       body = conn.resp_body
@@ -264,7 +264,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicyTest do
       assert [] == Regex.scan(~r/<script>/, body)
       assert get_resp_header(conn, "cache-control") == ["no-store"]
 
-      other = nonce_of(Phoenix.ConnTest.get(Phoenix.ConnTest.build_conn(), "/app"))
+      other = nonce_of(Phoenix.ConnTest.get(Phoenix.ConnTest.build_conn(), "/"))
       assert other != nonce
     end
 

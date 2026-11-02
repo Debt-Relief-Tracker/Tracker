@@ -147,7 +147,7 @@ async function run() {
         log(...a);
       };`,
   })
-  await send("Page.navigate", {url: `${baseUrl}/app`})
+  await send("Page.navigate", {url: `${baseUrl}/`})
 
   const s = report.steps
 

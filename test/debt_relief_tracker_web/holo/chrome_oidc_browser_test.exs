@@ -1,5 +1,5 @@
 defmodule DebtReliefTrackerWeb.Holo.ChromeOidcBrowserTest do
-  # Real-browser tests of the /app chrome with OIDC "enabled" (see
+  # Real-browser tests of the dashboard chrome with OIDC "enabled" (see
   # live/dashboard_live_oidc_test.exs): the browser gets a genuine signed
   # Phoenix session cookie for a seeded user (BrowserCase.sign_in/2); only
   # the IdP round trip itself is faked/absent.
@@ -43,13 +43,13 @@ defmodule DebtReliefTrackerWeb.Holo.ChromeOidcBrowserTest do
     ctx |> click("#settings-button") |> assert_selector("#settings-modal")
   end
 
-  test "without a session /app redirects to login (conn level: the IdP is not reachable)" do
+  test "without a session / redirects to login (conn level: the IdP is not reachable)" do
     conn =
       Phoenix.ConnTest.dispatch(
         Phoenix.ConnTest.build_conn(),
         DebtReliefTrackerWeb.Endpoint,
         :get,
-        "/app"
+        "/"
       )
 
     assert Phoenix.ConnTest.redirected_to(conn) == "/auth/login"

@@ -276,7 +276,7 @@ defmodule DebtReliefTrackerWeb.AdminLive do
         Admin
         <:subtitle>Site settings, users, email logs, and API tokens.</:subtitle>
         <:actions>
-          <.link href="/app" class="btn btn-ghost btn-sm">← Dashboard</.link>
+          <.link href="/" class="btn btn-ghost btn-sm">← Dashboard</.link>
         </:actions>
       </.header>
 

@@ -2,7 +2,7 @@ defmodule DebtReliefTrackerWeb.Holo.TutorialTargetsTest do
   # The tutorial spotlights elements by CSS selector, and those elements are
   # owned by other components. If one is renamed or dropped the overlay would
   # silently highlight nothing, so every step target must exist on a rendered
-  # /app that has a debt.
+  # the dashboard that has a debt.
   use DebtReliefTrackerWeb.ConnCase
 
   alias DebtReliefTracker.{Accounts, Debts}
@@ -31,11 +31,11 @@ defmodule DebtReliefTrackerWeb.Holo.TutorialTargetsTest do
   @strategy_target "#strategy-switcher"
 
   test "every tutorial step target exists on the rendered dashboard", %{conn: conn} do
-    doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+    doc = conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
 
     for %{target: target} <- Tutorial.steps(), target != nil, target != @strategy_target do
       assert LazyHTML.query(doc, target) |> Enum.count() >= 1,
-             "tutorial target #{target} is missing from /app"
+             "tutorial target #{target} is missing from the dashboard"
     end
   end
 

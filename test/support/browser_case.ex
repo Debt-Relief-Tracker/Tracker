@@ -63,7 +63,7 @@ defmodule DebtReliefTracker.BrowserCase do
     # replies to its owner, so it can't be opened in setup_all. It is closed
     # automatically when the test process exits.
     #
-    # Content-Security-Policy: the endpoint enforces the strict /app policy in
+    # Content-Security-Policy: the endpoint enforces the strict Hologram policy in
     # tests, and the driver logs every `securitypolicyviolation` event to a
     # per-test file. Any violation fails the test (checked in on_exit, so even
     # one after the last driver call counts). Opt out with `@tag csp: :allow`.

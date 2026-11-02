@@ -1,6 +1,6 @@
 defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   @moduledoc """
-  Strict Content-Security-Policy for the Hologram app (`/app` and Hologram's
+  Strict Content-Security-Policy for the Hologram app (`/` and Hologram's
   own `/hologram/*` command endpoints). See docs/architecture/0007-e2ee.md,
   "Content-Security-Policy".
 
@@ -26,11 +26,11 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   (the browser blocks them; a warning is logged), so a script injected into
   the page can never inherit the nonce.
 
-  The LiveView pages (`/admin`, `/auth/*`; `/` only redirects to `/app`) get a sibling, nonce-less
+  The LiveView pages (`/admin`, `/auth/*`) get a sibling, nonce-less
   policy (`liveview_policy/0`): they have no inline scripts (the theme boot
   lives in `assets/js/theme_boot.js`), so `script-src 'self'` suffices. They
   share an origin -- and so IndexedDB with the remembered vault key -- with
-  `/app`, hence an XSS there must not be possible. Dev-only routes (`/dev/*`,
+  `/`, hence an XSS there must not be possible. Dev-only routes (`/dev/*`,
   LiveDashboard), `/api/*` (Swagger UI) and CSV exports are not touched.
 
   Mode: `config :debt_relief_tracker, :csp, mode: :enforce | :report_only | :off`
@@ -51,7 +51,7 @@ defmodule DebtReliefTrackerWeb.Plugs.ContentSecurityPolicy do
   ]
 
   @doc "True for the Hologram request paths (nonce policy)."
-  def applies_to?(path), do: path == "/app" or String.starts_with?(path, ["/app/", "/hologram/"])
+  def applies_to?(path), do: path == "/" or String.starts_with?(path, "/hologram/")
 
   @doc "True for the LiveView / browser-pipeline HTML paths (static policy)."
   def liveview_applies?(path), do: path in ["/admin"] or String.starts_with?(path, "/auth/")

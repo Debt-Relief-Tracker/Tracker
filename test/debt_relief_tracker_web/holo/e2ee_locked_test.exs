@@ -38,10 +38,10 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
     Repo.delete_all(from(d in DebtReliefTracker.Debts.Debt, where: d.workspace_id == ^ws.id))
   end
 
-  defp doc(conn), do: conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+  defp doc(conn), do: conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
   defp count(doc, sel), do: doc |> LazyHTML.query(sel) |> Enum.count()
 
-  describe "GET /app with E2EE on" do
+  describe "GET / with E2EE on" do
     setup do
       enable_e2ee()
       :ok
@@ -52,7 +52,7 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
       assert count(doc, "#migration-screen") == 1
       assert count(doc, "#vault-setup") == 0
       assert count(doc, "#e2ee-locked") == 0
-      refute conn |> get("/app") |> html_response(200) =~ @marker
+      refute conn |> get("/") |> html_response(200) =~ @marker
     end
 
     test "renders the locked shell with no vault yet", %{conn: conn, workspace: ws} do
@@ -105,13 +105,13 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
 
     test "the vault blob is never rendered into the page", %{conn: conn, workspace: ws} do
       {:ok, _} = Vaults.create(ws, "v1.BLOBMARKERBLOB.BLOBMARKERBLOB", passphrase_wrap())
-      body = conn |> get("/app") |> html_response(200)
+      body = conn |> get("/") |> html_response(200)
       refute body =~ "BLOBMARKERBLOB"
       refute body =~ @marker
     end
 
     test "contains no plaintext financial data anywhere in the body", %{conn: conn} do
-      body = conn |> get("/app") |> html_response(200)
+      body = conn |> get("/") |> html_response(200)
 
       refute body =~ @marker
       refute body =~ @balance_cents
@@ -131,12 +131,6 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
           do: assert(count(doc, sel) == 0, "unexpected #{sel}")
     end
 
-    test "GET / redirects to /app instead of decrypting legacy plaintext", %{conn: conn} do
-      conn = get(conn, ~p"/")
-      assert redirected_to(conn) == "/app"
-      refute conn.resp_body =~ @marker
-    end
-
     test "CSV exports are gone and say why", %{conn: conn} do
       for path <- ["/export/debts.csv", "/export/payments.csv"] do
         conn = get(conn, path)
@@ -146,21 +140,20 @@ defmodule DebtReliefTrackerWeb.Holo.E2EELockedTest do
     end
 
     test "/admin still routes (unchanged)", %{conn: conn} do
-      # no OIDC => admin scope resolves; the point is it does not redirect to /app
+      # no OIDC => admin scope resolves; the point is it does not redirect to /
       conn = get(conn, ~p"/admin")
-      refute conn.status in [301, 302] and redirected_to(conn) == "/app"
+      refute conn.status in [301, 302] and redirected_to(conn) == "/"
     end
   end
 
   describe "with E2EE off" do
-    test "GET /app still renders the plaintext dashboard", %{conn: conn} do
+    test "GET / still renders the plaintext dashboard", %{conn: conn} do
       doc = doc(conn)
       assert count(doc, "#e2ee-locked") == 0
       assert doc |> LazyHTML.query("#this-month-card") |> LazyHTML.text() =~ @marker
     end
 
-    test "GET / redirects to /app, exports work", %{conn: conn} do
-      assert redirected_to(get(conn, ~p"/")) == "/app"
+    test "exports work", %{conn: conn} do
       assert response(get(conn, "/export/debts.csv"), 200) =~ @marker
     end
   end

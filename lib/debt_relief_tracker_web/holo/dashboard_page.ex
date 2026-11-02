@@ -1,7 +1,7 @@
 defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   @moduledoc """
   The Hologram dashboard (docs/architecture/0007-e2ee.md, roadmap Phase 10).
-  This is THE dashboard: served at `/app`; `/` redirects here (`PageController`).
+  This is THE dashboard: served at `/`.
 
   This page only owns shared state and layout; every feature lives in a
   component under `Holo.Components.*` (see docs/holo-ui-conventions.md):
@@ -48,7 +48,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
   alias DebtReliefTrackerWeb.Holo.Context
   alias DebtReliefTrackerWeb.Holo.VaultFlow
 
-  route "/app"
+  route "/"
   layout DebtReliefTrackerWeb.Holo.Layout
 
   middleware DebtReliefTrackerWeb.Holo.Auth
@@ -265,7 +265,7 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPage do
       |> put_state(:error, nil)
       |> put_state(:notice, Map.get(params, :notice))
 
-    # Workspace switch in E2EE mode: reload /app so the whole E2EE boot
+    # Workspace switch in E2EE mode: reload / so the whole E2EE boot
     # (locked / unlock / migration) re-runs for the newly selected workspace.
     if Map.get(params, :reload) == true do
       JS.call(:HoloAccount, :reload, [])

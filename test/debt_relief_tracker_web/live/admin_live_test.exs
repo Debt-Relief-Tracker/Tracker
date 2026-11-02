@@ -24,7 +24,7 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
 
     test "the dashboard footer links to /admin even with no admin user (no-auth mode is fully trusted)",
          %{conn: conn} do
-      html = conn |> get("/app") |> html_response(200)
+      html = conn |> get("/") |> html_response(200)
 
       assert html =~ ~s(href="/admin")
     end
@@ -90,13 +90,13 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
       assert {:error, {:redirect, %{to: "/auth/login"}}} = live(conn, ~p"/admin")
     end
 
-    test "redirects a non-admin logged-in user back to \"/app\"", %{conn: conn} do
+    test "redirects a non-admin logged-in user back to \"/\"", %{conn: conn} do
       user =
         Accounts.get_or_create_user_from_oidc!(%{"sub" => "regular", "email" => "r@example.com"})
 
       conn = Plug.Test.init_test_session(conn, user_id: user.id)
 
-      assert {:error, {:redirect, %{to: "/app", flash: %{"error" => _}}}} = live(conn, ~p"/admin")
+      assert {:error, {:redirect, %{to: "/", flash: %{"error" => _}}}} = live(conn, ~p"/admin")
     end
 
     test "the dashboard footer hides the admin link for a non-admin, shows it for an admin", %{
@@ -106,7 +106,7 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
         Accounts.get_or_create_user_from_oidc!(%{"sub" => "regular", "email" => "r@example.com"})
 
       conn = Plug.Test.init_test_session(conn, user_id: user.id)
-      html = conn |> get("/app") |> html_response(200)
+      html = conn |> get("/") |> html_response(200)
       refute html =~ ~s(href="/admin")
 
       admin =
@@ -117,7 +117,7 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
         })
 
       conn = Plug.Test.init_test_session(conn, user_id: admin.id)
-      html = conn |> get("/app") |> html_response(200)
+      html = conn |> get("/") |> html_response(200)
       assert html =~ ~s(href="/admin")
     end
 
@@ -362,7 +362,7 @@ defmodule DebtReliefTrackerWeb.AdminLiveTest do
       assert user.last_seen_at == nil
 
       conn = Plug.Test.init_test_session(conn, user_id: user.id)
-      conn |> get("/app") |> html_response(200)
+      conn |> get("/") |> html_response(200)
 
       assert %DateTime{} = Accounts.get_user!(user.id).last_seen_at
     end

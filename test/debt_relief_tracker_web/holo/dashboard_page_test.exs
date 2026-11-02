@@ -21,12 +21,12 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageTest do
     %{workspace: workspace}
   end
 
-  defp render_doc(conn), do: conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+  defp render_doc(conn), do: conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
 
   defp text(doc, selector), do: doc |> LazyHTML.query(selector) |> LazyHTML.text()
   defp count(doc, selector), do: doc |> LazyHTML.query(selector) |> Enum.count()
 
-  test "GET /app renders the dashboard shell and this-month card", %{conn: conn} do
+  test "GET / renders the dashboard shell and this-month card", %{conn: conn} do
     doc = render_doc(conn)
 
     assert count(doc, "#holo-dashboard") == 1
@@ -117,8 +117,8 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageTest do
     end
   end
 
-  test "GET /app renders the footer with the donate modal links and admin link", %{conn: conn} do
-    doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+  test "GET / renders the footer with the donate modal links and admin link", %{conn: conn} do
+    doc = conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
 
     assert LazyHTML.query(doc, "#app-footer #donate-link") |> Enum.count() == 1
     assert LazyHTML.query(doc, "#donate-modal.hidden") |> Enum.count() == 1
@@ -141,8 +141,8 @@ defmodule DebtReliefTrackerWeb.Holo.DashboardPageTest do
     assert LazyHTML.query(doc, ~s(#app-footer a[href="/admin"])) |> Enum.count() == 1
   end
 
-  test "GET /app does not server-render the tutorial overlay open", %{conn: conn} do
-    doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+  test "GET / does not server-render the tutorial overlay open", %{conn: conn} do
+    doc = conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
     assert LazyHTML.query(doc, "#tutorial-overlay") |> Enum.count() == 1
     assert LazyHTML.query(doc, "#tutorial-card") |> Enum.count() == 0
   end

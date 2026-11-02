@@ -34,7 +34,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
   end
 
   # An empty workspace currently crashes PlanPanel's Summary.this_month/2
-  # (foundation bug, not this feature), so GET /app tests need a debt.
+  # (foundation bug, not this feature), so GET / tests need a debt.
   defp add_debt(workspace) do
     {:ok, _} =
       DebtReliefTracker.Debts.create_debt(workspace, nil, %{
@@ -49,14 +49,14 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
 
   defp server_for(user), do: %Server{stash: %{holo_user_id: user && user.id}}
 
-  describe "GET /app" do
+  describe "GET /" do
     setup do
       add_debt(Accounts.ensure_default_workspace!())
       :ok
     end
 
     test "renders the header with the ids the tutorial targets", %{conn: conn} do
-      doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+      doc = conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
 
       assert LazyHTML.query(doc, "#app-header") |> Enum.count() == 1
       assert LazyHTML.query(doc, "#settings-button") |> Enum.count() == 1
@@ -66,14 +66,14 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
     end
 
     test "no-auth mode shows neither the user menu nor the workspace switcher", %{conn: conn} do
-      doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+      doc = conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
 
       assert LazyHTML.query(doc, "#user-menu") |> Enum.count() == 0
       assert LazyHTML.query(doc, "#workspace-switcher") |> Enum.count() == 0
     end
 
     test "loads the theme facade script, not app.js, and no inline script of ours", %{conn: conn} do
-      doc = conn |> get("/app") |> html_response(200) |> LazyHTML.from_document()
+      doc = conn |> get("/") |> html_response(200) |> LazyHTML.from_document()
 
       assert LazyHTML.query(doc, ~s(script[src="/assets/js/holo_account.js"])) |> Enum.count() ==
                1
@@ -89,7 +89,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       doc =
         conn
         |> Plug.Test.init_test_session(user_id: user.id)
-        |> get("/app")
+        |> get("/")
         |> html_response(200)
         |> LazyHTML.from_document()
 
@@ -108,7 +108,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       doc =
         conn
         |> Plug.Test.init_test_session(user_id: member.id)
-        |> get("/app")
+        |> get("/")
         |> html_response(200)
         |> LazyHTML.from_document()
 
@@ -126,7 +126,7 @@ defmodule DebtReliefTrackerWeb.Holo.Components.AccountComponentsTest do
       conn =
         conn
         |> Plug.Test.init_test_session(user_id: member.id, workspace_id: owner_workspace.id)
-        |> get("/app")
+        |> get("/")
 
       doc = conn |> html_response(200) |> LazyHTML.from_document()
       assert LazyHTML.query(doc, "#workspace-name") |> LazyHTML.text() =~ "Owner"
